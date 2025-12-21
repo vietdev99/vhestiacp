@@ -651,7 +651,7 @@
 			<?php } ?>
 
 			<!-- VHestiaCP Extensions section -->
-			<?php if (!empty($_SESSION["HAPROXY_SYSTEM"]) || !empty($_SESSION["MONGODB_SYSTEM"]) || !empty($_SESSION["NODEJS_SYSTEM"]) || !empty($_SESSION["PYTHON_SYSTEM"]) || !empty($_SESSION["RABBITMQ_SYSTEM"]) || !empty($_SESSION["KAFKA_SYSTEM"])) { ?>
+			<?php if (!empty($_SESSION["HAPROXY_SYSTEM"]) || !empty($_SESSION["MONGODB_SYSTEM"]) || !empty($_SESSION["NODEJS_SYSTEM"]) || !empty($_SESSION["PYTHON_SYSTEM"]) || !empty($_SESSION["RABBITMQ_SYSTEM"]) || !empty($_SESSION["KAFKA_SYSTEM"]) || !empty($_SESSION["REDIS_SYSTEM"])) { ?>
 				<details class="box-collapse u-mb10">
 					<summary class="box-collapse-header">
 						<i class="fas fa-cubes u-mr10"></i><?= _("VHestiaCP Extensions") ?>
@@ -772,6 +772,28 @@
 								<div class="u-pl30">
 									<p class="hint">
 										<?= _("Installed Versions") ?>: <?= htmlentities($_SESSION["PYTHON_VERSIONS"] ?? "3.11,3.10") ?>
+									</p>
+								</div>
+							</div>
+						<?php } ?>
+
+						<!-- Redis -->
+						<?php if (!empty($_SESSION["REDIS_SYSTEM"]) && $_SESSION["REDIS_SYSTEM"] == "yes") { ?>
+							<div class="u-mb20">
+								<p class="u-mb10">
+									<i class="fas fa-bolt icon-red u-mr5"></i>
+									<?= _("Redis") ?>:
+									<span class="u-ml5 u-text-bold"><?= _("Enabled") ?></span>
+									<a href="/edit/server/redis/" class="u-ml5">
+										<i class="fas fa-pencil icon-orange"></i>
+									</a>
+									<a href="/list/redis/" class="u-ml5">
+										<i class="fas fa-info-circle icon-blue"></i>
+									</a>
+								</p>
+								<div class="u-pl30">
+									<p class="hint">
+										<?= _("Port") ?>: 6379
 									</p>
 								</div>
 							</div>

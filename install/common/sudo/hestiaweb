@@ -2,3 +2,12 @@ Defaults:root !requiretty
 
 # sudo is limited to hestia scripts
 hestiaweb   ALL=NOPASSWD:/usr/local/hestia/bin/*
+
+# VHestiaCP: Allow service management for extended services
+hestiaweb   ALL=NOPASSWD:/usr/bin/systemctl reload-or-restart haproxy
+hestiaweb   ALL=NOPASSWD:/usr/bin/systemctl restart haproxy
+hestiaweb   ALL=NOPASSWD:/usr/bin/systemctl reload haproxy
+hestiaweb   ALL=NOPASSWD:/usr/bin/systemctl restart redis-server
+hestiaweb   ALL=NOPASSWD:/usr/bin/systemctl restart rabbitmq-server
+hestiaweb   ALL=NOPASSWD:/usr/bin/systemctl restart kafka
+hestiaweb   ALL=NOPASSWD:/usr/bin/systemctl restart mongod

@@ -110,6 +110,7 @@ help() {
   --rabbitmq-management   RabbitMQ Management UI [yes|no] default: yes
   --kafka                 Install Apache Kafka  [yes|no]  default: no
   --kafka-ui              Kafka Web UI          [yes|no]  default: yes
+  --redis                 Install Redis cache   [yes|no]  default: no
   --debug                 Show verbose output   [yes|no]  default: no
 
   VHestiaCP Package Source Options:
@@ -118,7 +119,7 @@ help() {
 
   Example: bash $0 -e demo@hestiacp.com -p p4ssw0rd --multiphp yes
   Example: bash $0 -e admin@example.com --haproxy yes --mongodb yes --nodejs yes
-  Example: bash $0 --haproxy yes --mongodb yes --rabbitmq yes --kafka yes --debug yes
+  Example: bash $0 --haproxy yes --mongodb yes --rabbitmq yes --kafka yes --redis yes --debug yes
   
   # Use packages from your own GitHub releases:
   Example: bash $0 --github-repo user/vhestiacp --github-release yes -f"
@@ -365,6 +366,7 @@ for arg; do
 		--python) args="${args}-P " ;;
 		--rabbitmq) args="${args}-R " ;;
 		--kafka) args="${args}-K " ;;
+		--redis) args="${args}-E " ;;
 		*)
 			[[ "${arg:0:1}" == "-" ]] || delim="\""
 			args="${args}${delim}${arg}${delim} "
@@ -391,9 +393,10 @@ rabbitmq=${rabbitmq:-no}
 rabbitmq_management=${rabbitmq_management:-yes}
 kafka=${kafka:-no}
 kafka_ui=${kafka_ui:-yes}
+redis=${redis:-no}
 debug=${debug:-no}
 
-while getopts "a:w:v:j:k:m:M:g:d:x:z:Z:c:t:i:b:r:o:q:L:l:y:s:u:e:p:W:D:H:O:N:P:R:K:fh" Option; do
+while getopts "a:w:v:j:k:m:M:g:d:x:z:Z:c:t:i:b:r:o:q:L:l:y:s:u:e:p:W:D:H:O:N:P:R:K:E:fh" Option; do
 	case $Option in
 		a) apache=$OPTARG ;;        # Apache
 		w) phpfpm=$OPTARG ;;        # PHP-FPM
@@ -430,13 +433,14 @@ while getopts "a:w:v:j:k:m:M:g:d:x:z:Z:c:t:i:b:r:o:q:L:l:y:s:u:e:p:W:D:H:O:N:P:R
 		P) python=$OPTARG ;;        # VHestiaCP: Python
 		R) rabbitmq=$OPTARG ;;      # VHestiaCP: RabbitMQ
 		K) kafka=$OPTARG ;;         # VHestiaCP: Kafka
+		E) redis=$OPTARG ;;         # VHestiaCP: Redis
 		h) help ;;                  # Help
 		*) help ;;                  # Print help (default)
 	esac
 done
 
 # Debug: Show parsed VHestiaCP options
-if [ -n "$haproxy" ] || [ -n "$mongodb" ] || [ -n "$nodejs" ] || [ -n "$python" ] || [ -n "$rabbitmq" ] || [ -n "$kafka" ]; then
+if [ -n "$haproxy" ] || [ -n "$mongodb" ] || [ -n "$nodejs" ] || [ -n "$python" ] || [ -n "$rabbitmq" ] || [ -n "$kafka" ] || [ -n "$redis" ]; then
 	echo ""
 	echo "DEBUG: VHestiaCP options parsed:"
 	echo "  haproxy=$haproxy"
@@ -450,6 +454,7 @@ if [ -n "$haproxy" ] || [ -n "$mongodb" ] || [ -n "$nodejs" ] || [ -n "$python" 
 	echo "  rabbitmq_management=$rabbitmq_management"
 	echo "  kafka=$kafka"
 	echo "  kafka_ui=$kafka_ui"
+	echo "  redis=$redis"
 	echo ""
 fi
 
@@ -814,7 +819,7 @@ echo
 
 # VHestiaCP Extended Components
 vhestia_components=false
-if [ "$haproxy" = 'yes' ] || [ "$mongodb" = 'yes' ] || [ "$nodejs" = 'yes' ] || [ "$python" = 'yes' ] || [ "$rabbitmq" = 'yes' ] || [ "$kafka" = 'yes' ]; then
+if [ "$haproxy" = 'yes' ] || [ "$mongodb" = 'yes' ] || [ "$nodejs" = 'yes' ] || [ "$python" = 'yes' ] || [ "$rabbitmq" = 'yes' ] || [ "$kafka" = 'yes' ] || [ "$redis" = 'yes' ]; then
 	vhestia_components=true
 	echo
 	echo "   VHestiaCP Extended Components:"
@@ -854,6 +859,10 @@ if [ "$kafka" = 'yes' ]; then
 		echo -n ' + Kafka UI'
 	fi
 	echo
+fi
+
+if [ "$redis" = 'yes' ]; then
+	echo '   - Redis In-Memory Cache'
 fi
 
 echo -e "\n"
@@ -2951,7 +2960,7 @@ if [ -d "$VHESTIACP_SRC/bin" ]; then
     done
     
     # Verify critical scripts
-    for script in v-list-database-mongo v-add-database-mongo v-add-sys-haproxy v-add-sys-mongodb v-add-sys-rabbitmq v-add-sys-kafka v-list-pm2-apps; do
+    for script in v-list-database-mongo v-add-database-mongo v-add-sys-haproxy v-add-sys-mongodb v-add-sys-rabbitmq v-add-sys-kafka v-add-sys-redis v-update-sys-haproxy-config v-list-pm2-apps; do
         if [ -f "$HESTIA/bin/$script" ]; then
             echo "      ✓ $script"
         else
@@ -3690,6 +3699,28 @@ if [ "$kafka" = 'yes' ]; then
 		fi
 	else
 		echo "    - ERROR: v-add-sys-kafka script not found!"
+	fi
+fi
+
+# Install Redis if requested
+if [ "$redis" = 'yes' ]; then
+	echo "[ * ] Installing Redis In-Memory Cache..."
+	if [ -f "$HESTIA/bin/v-add-sys-redis" ]; then
+		$HESTIA/bin/v-add-sys-redis 2>&1 | tee -a $LOG
+		if [ $? -eq 0 ]; then
+			write_config_value "REDIS_SYSTEM" "yes"
+			echo "    - Redis installed successfully"
+			
+			# Fix permissions for web panel access
+			if [ -f "$HESTIA/conf/redis.conf" ]; then
+				chmod 644 "$HESTIA/conf/redis.conf"
+				echo "    - Fixed redis.conf permissions (644)"
+			fi
+		else
+			echo "    - Redis installation failed"
+		fi
+	else
+		echo "    - ERROR: v-add-sys-redis script not found!"
 	fi
 fi
 

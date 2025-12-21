@@ -78,17 +78,14 @@ if (!empty($_POST["ok"])) {
 		exec($haproxy_bin . " -c -f " . escapeshellarg($temp_config) . " 2>&1", $output, $return_var);
 		
 		if ($return_var === 0) {
-			// Config is valid, save it
-			file_put_contents($config_file, $_POST["v_config"]);
-			$v_config = $_POST["v_config"];
-			
-			// Restart HAProxy
-			exec("systemctl restart haproxy 2>&1", $restart_output, $restart_result);
+			// Config is valid, use Hestia script to save and restart
+			exec(HESTIA_CMD . "v-update-sys-haproxy-config " . escapeshellarg($temp_config) . " 2>&1", $restart_output, $restart_result);
 			
 			if ($restart_result === 0) {
+				$v_config = $_POST["v_config"];
 				$_SESSION["ok_msg"] = _("HAProxy configuration has been saved and service restarted.");
 			} else {
-				$_SESSION["error_msg"] = _("Configuration saved but HAProxy failed to restart: ") . implode("\n", $restart_output);
+				$_SESSION["error_msg"] = _("Failed to update HAProxy configuration: ") . implode("\n", $restart_output);
 			}
 		} else {
 			$_SESSION["error_msg"] = _("Invalid HAProxy configuration: ") . implode("\n", $output);

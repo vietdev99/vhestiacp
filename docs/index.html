@@ -1268,6 +1268,18 @@
                                     </label>
                                 </div>
                             </div>
+                            <div class="option-item highlight">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">Redis</div>
+                                        <div class="option-desc">In-memory cache &amp; data store</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="redis" onchange="generateCommand()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
                         </div>
 
                         <!-- DNS & Mail -->
@@ -1641,6 +1653,12 @@
                 }
             }
 
+            // Redis
+            const redis = document.getElementById('redis').checked;
+            if (redis) {
+                cmd += ` <span class="cmd-flag">--redis</span> <span class="cmd-value">yes</span>`;
+            }
+
             // Standard Databases
             cmd += ` <span class="cmd-flag">-m</span> <span class="cmd-value">${mysql ? 'yes' : 'no'}</span>`;
             if (mysql8) {
@@ -1820,6 +1838,7 @@
             if (document.getElementById('mongodb').checked) { services++; newFeatures++; }
             if (document.getElementById('rabbitmq').checked) { services++; newFeatures++; }
             if (document.getElementById('kafka').checked) { services++; newFeatures++; }
+            if (document.getElementById('redis').checked) { services++; newFeatures++; }
             if (document.getElementById('named').checked) services++;
             if (document.getElementById('exim').checked) services++;
             if (document.getElementById('dovecot').checked) services++;
@@ -1833,6 +1852,7 @@
             if (document.getElementById('python').checked) time += 2;
             if (document.getElementById('rabbitmq').checked) time += 2;
             if (document.getElementById('kafka').checked) time += 3;
+            if (document.getElementById('redis').checked) time += 1;
 
             document.getElementById('stat-services').textContent = services;
             document.getElementById('stat-new').textContent = newFeatures;
@@ -1891,6 +1911,8 @@
             document.getElementById('kafka').checked = false;
             document.getElementById('kafka-options').classList.add('hidden');
             document.getElementById('kafka-ui').checked = true;
+            
+            document.getElementById('redis').checked = false;
             
             document.getElementById('named').checked = true;
             document.getElementById('exim').checked = true;

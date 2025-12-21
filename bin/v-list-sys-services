@@ -387,6 +387,69 @@ if [ -n "$MONGODB_SYSTEM" ] && [ "$MONGODB_SYSTEM" = 'yes' ]; then
 	data="$data STATE='$state' CPU='$cpu' MEM='$mem' RTIME='$rtime'"
 fi
 
+# VHestiaCP: Checking RabbitMQ system
+if [ -n "$RABBITMQ_SYSTEM" ] && [ "$RABBITMQ_SYSTEM" = 'yes' ]; then
+	get_srv_state rabbitmq-server
+	# Fallback: check systemctl if pidof failed
+	if [ "$state" = 'stopped' ]; then
+		if systemctl is-active --quiet rabbitmq-server 2>/dev/null; then
+			state='running'
+			main_pid=$(systemctl show rabbitmq-server --property=MainPID --value 2>/dev/null)
+			if [ -n "$main_pid" ] && [ "$main_pid" != "0" ]; then
+				ps_info=$(ps -p "$main_pid" -o pcpu=,rss= 2>/dev/null)
+				if [ -n "$ps_info" ]; then
+					cpu=$(echo "$ps_info" | awk '{print int($1 * 10)}')
+					mem=$(echo "$ps_info" | awk '{print int($2/1024)}')
+				fi
+			fi
+		fi
+	fi
+	data="$data\nNAME='rabbitmq-server' SYSTEM='message broker'"
+	data="$data STATE='$state' CPU='$cpu' MEM='$mem' RTIME='$rtime'"
+fi
+
+# VHestiaCP: Checking Kafka system
+if [ -n "$KAFKA_SYSTEM" ] && [ "$KAFKA_SYSTEM" = 'yes' ]; then
+	get_srv_state kafka
+	# Fallback: check systemctl if pidof failed
+	if [ "$state" = 'stopped' ]; then
+		if systemctl is-active --quiet kafka 2>/dev/null; then
+			state='running'
+			main_pid=$(systemctl show kafka --property=MainPID --value 2>/dev/null)
+			if [ -n "$main_pid" ] && [ "$main_pid" != "0" ]; then
+				ps_info=$(ps -p "$main_pid" -o pcpu=,rss= 2>/dev/null)
+				if [ -n "$ps_info" ]; then
+					cpu=$(echo "$ps_info" | awk '{print int($1 * 10)}')
+					mem=$(echo "$ps_info" | awk '{print int($2/1024)}')
+				fi
+			fi
+		fi
+	fi
+	data="$data\nNAME='kafka' SYSTEM='streaming platform'"
+	data="$data STATE='$state' CPU='$cpu' MEM='$mem' RTIME='$rtime'"
+fi
+
+# VHestiaCP: Checking Redis system
+if [ -n "$REDIS_SYSTEM" ] && [ "$REDIS_SYSTEM" = 'yes' ]; then
+	get_srv_state redis-server
+	# Fallback: check systemctl if pidof failed
+	if [ "$state" = 'stopped' ]; then
+		if systemctl is-active --quiet redis-server 2>/dev/null; then
+			state='running'
+			main_pid=$(systemctl show redis-server --property=MainPID --value 2>/dev/null)
+			if [ -n "$main_pid" ] && [ "$main_pid" != "0" ]; then
+				ps_info=$(ps -p "$main_pid" -o pcpu=,rss= 2>/dev/null)
+				if [ -n "$ps_info" ]; then
+					cpu=$(echo "$ps_info" | awk '{print int($1 * 10)}')
+					mem=$(echo "$ps_info" | awk '{print int($2/1024)}')
+				fi
+			fi
+		fi
+	fi
+	data="$data\nNAME='redis-server' SYSTEM='in-memory cache'"
+	data="$data STATE='$state' CPU='$cpu' MEM='$mem' RTIME='$rtime'"
+fi
+
 # Listing data
 case $format in
 	json) json_list ;;

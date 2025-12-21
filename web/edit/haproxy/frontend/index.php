@@ -37,26 +37,27 @@ if ($_SERVER["REQUEST_METHOD"] === "POST") {
         if (preg_match($pattern, $config)) {
             $new_full_config = preg_replace($pattern, $new_section, $config);
             
-            // Backup and write
-            copy($config_file, $config_file . ".bak");
-            file_put_contents($config_file, $new_full_config);
+            // Write to temp file for validation and update
+            $temp_config = tempnam("/tmp", "haproxy_frontend_");
+            file_put_contents($temp_config, $new_full_config);
             
             // Test config - use full path
-            exec("/usr/sbin/haproxy -c -f " . escapeshellarg($config_file) . " 2>&1", $output, $return_var);
+            exec("/usr/sbin/haproxy -c -f " . escapeshellarg($temp_config) . " 2>&1", $output, $return_var);
             
             if ($return_var === 0) {
-                // Reload HAProxy
-                exec("/usr/bin/systemctl reload haproxy 2>&1", $reload_output, $reload_return);
+                // Use Hestia script to save and reload
+                exec(HESTIA_CMD . "v-update-sys-haproxy-config " . escapeshellarg($temp_config) . " 2>&1", $reload_output, $reload_return);
+                unlink($temp_config);
+                
                 if ($reload_return === 0) {
                     $_SESSION["ok_msg"] = sprintf(_("Frontend '%s' has been updated."), htmlspecialchars($new_name));
                 } else {
-                    $_SESSION["ok_msg"] = sprintf(_("Frontend '%s' updated. Please restart HAProxy manually."), htmlspecialchars($new_name));
+                    $_SESSION["error_msg"] = sprintf(_("Frontend '%s' update failed: %s"), htmlspecialchars($new_name), implode("\n", $reload_output));
                 }
                 header("Location: /list/haproxy/");
                 exit();
             } else {
-                // Restore backup
-                copy($config_file . ".bak", $config_file);
+                unlink($temp_config);
                 $_SESSION["error_msg"] = _("Configuration error: ") . implode("\n", $output);
             }
         } else {
