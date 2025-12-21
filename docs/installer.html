@@ -1,0 +1,1921 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Install | VHestiaCP - Extended Control Panel</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-tertiary: #1a1a25;
+            --bg-card: #15151f;
+            --border-color: #2a2a3a;
+            --border-hover: #3a3a50;
+            --text-primary: #f0f0f5;
+            --text-secondary: #a0a0b5;
+            --text-muted: #606080;
+            --accent-primary: #6366f1;
+            --accent-secondary: #8b5cf6;
+            --accent-tertiary: #a855f7;
+            --success: #22c55e;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --info: #3b82f6;
+            --gradient-primary: linear-gradient(135deg, #6366f1 0%, #8b5cf6 50%, #a855f7 100%);
+            --gradient-glow: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(139, 92, 246, 0.15) 100%);
+            --shadow-glow: 0 0 60px rgba(99, 102, 241, 0.15);
+            --radius-sm: 8px;
+            --radius-md: 12px;
+            --radius-lg: 16px;
+            --radius-xl: 24px;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            min-height: 100vh;
+        }
+
+        /* Animated background */
+        .bg-pattern {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: 
+                radial-gradient(ellipse 80% 50% at 50% -20%, rgba(99, 102, 241, 0.15), transparent),
+                radial-gradient(ellipse 60% 40% at 100% 0%, rgba(139, 92, 246, 0.1), transparent),
+                radial-gradient(ellipse 60% 40% at 0% 100%, rgba(168, 85, 247, 0.08), transparent);
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 0 24px;
+            position: relative;
+            z-index: 1;
+        }
+
+        /* Header */
+        header {
+            padding: 24px 0;
+            border-bottom: 1px solid var(--border-color);
+            background: rgba(10, 10, 15, 0.8);
+            backdrop-filter: blur(20px);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+
+        .header-content {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+        }
+
+        .logo-icon {
+            width: 48px;
+            height: 48px;
+            background: var(--gradient-primary);
+            border-radius: var(--radius-md);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 800;
+            font-size: 20px;
+            color: white;
+            box-shadow: 0 4px 20px rgba(99, 102, 241, 0.3);
+        }
+
+        .logo-text {
+            font-size: 24px;
+            font-weight: 800;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .version-badge {
+            font-size: 12px;
+            padding: 4px 10px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        /* Hero Section */
+        .hero {
+            text-align: center;
+            padding: 80px 0 60px;
+        }
+
+        .hero h1 {
+            font-size: clamp(2.5rem, 5vw, 4rem);
+            font-weight: 800;
+            margin-bottom: 16px;
+            background: linear-gradient(135deg, #fff 0%, #a0a0b5 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero p {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin: 0 auto 32px;
+        }
+
+        .features-badges {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: center;
+            gap: 12px;
+            margin-bottom: 40px;
+        }
+
+        .feature-badge {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: 100px;
+            font-size: 14px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            transition: all 0.3s ease;
+        }
+
+        .feature-badge:hover {
+            border-color: var(--accent-primary);
+            background: rgba(99, 102, 241, 0.1);
+            color: var(--text-primary);
+        }
+
+        .feature-badge .icon {
+            font-size: 16px;
+        }
+
+        /* Main Content */
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 40px;
+            padding-bottom: 80px;
+        }
+
+        @media (max-width: 1024px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Options Panel */
+        .options-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-xl);
+            overflow: hidden;
+        }
+
+        .panel-header {
+            padding: 24px;
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+
+        .panel-header h2 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .panel-header h2 .icon {
+            color: var(--accent-primary);
+        }
+
+        .reset-btn {
+            padding: 8px 16px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            color: var(--text-secondary);
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .reset-btn:hover {
+            background: var(--bg-secondary);
+            border-color: var(--border-hover);
+            color: var(--text-primary);
+        }
+
+        .options-content {
+            padding: 24px;
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+
+        .options-content::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .options-content::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+        }
+
+        .options-content::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+
+        /* Option Group */
+        .option-group {
+            margin-bottom: 32px;
+        }
+
+        .option-group:last-child {
+            margin-bottom: 0;
+        }
+
+        .group-header {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .group-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: var(--radius-sm);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+        }
+
+        .group-icon.purple { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
+        .group-icon.blue { background: rgba(59, 130, 246, 0.15); color: #60a5fa; }
+        .group-icon.green { background: rgba(34, 197, 94, 0.15); color: #4ade80; }
+        .group-icon.orange { background: rgba(245, 158, 11, 0.15); color: #fbbf24; }
+        .group-icon.red { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+        .group-icon.cyan { background: rgba(6, 182, 212, 0.15); color: #22d3ee; }
+        .group-icon.pink { background: rgba(236, 72, 153, 0.15); color: #f472b6; }
+        .group-icon.indigo { background: rgba(99, 102, 241, 0.15); color: #818cf8; }
+
+        .group-title {
+            font-size: 14px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-primary);
+        }
+
+        .group-badge {
+            margin-left: auto;
+            padding: 4px 10px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-radius: 6px;
+        }
+
+        .group-badge.new {
+            background: rgba(34, 197, 94, 0.15);
+            color: #4ade80;
+        }
+
+        /* Option Item */
+        .option-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            margin-bottom: 8px;
+            transition: all 0.2s ease;
+        }
+
+        .option-item:hover {
+            border-color: var(--border-hover);
+            background: var(--bg-tertiary);
+        }
+
+        .option-item.disabled {
+            opacity: 0.5;
+            pointer-events: none;
+        }
+
+        .option-item.highlight {
+            border-color: var(--accent-primary);
+            background: rgba(99, 102, 241, 0.05);
+        }
+
+        .option-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .option-name {
+            font-weight: 600;
+            font-size: 14px;
+        }
+
+        .option-desc {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* Toggle Switch */
+        .toggle-switch {
+            position: relative;
+            width: 48px;
+            height: 26px;
+            flex-shrink: 0;
+        }
+
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 26px;
+            transition: all 0.3s ease;
+        }
+
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 2px;
+            bottom: 2px;
+            background: var(--text-muted);
+            border-radius: 50%;
+            transition: all 0.3s ease;
+        }
+
+        .toggle-switch input:checked + .toggle-slider {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+        }
+
+        .toggle-switch input:checked + .toggle-slider:before {
+            transform: translateX(22px);
+            background: white;
+        }
+
+        /* Input Fields */
+        .input-field {
+            width: 200px;
+            padding: 8px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            transition: all 0.2s ease;
+        }
+
+        .input-field:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+        }
+
+        .input-field::placeholder {
+            color: var(--text-muted);
+        }
+
+        .input-field.small {
+            width: 100px;
+        }
+
+        /* Select Dropdown */
+        .select-field {
+            padding: 8px 32px 8px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            color: var(--text-primary);
+            font-family: 'Plus Jakarta Sans', sans-serif;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23606080' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 10px center;
+            transition: all 0.2s ease;
+        }
+
+        .select-field:focus {
+            outline: none;
+            border-color: var(--accent-primary);
+        }
+
+        /* Checkbox Group */
+        .checkbox-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .checkbox-item:hover {
+            border-color: var(--border-hover);
+        }
+
+        .checkbox-item.checked {
+            border-color: var(--accent-primary);
+            background: rgba(99, 102, 241, 0.1);
+        }
+
+        .checkbox-item input {
+            display: none;
+        }
+
+        .checkbox-item .checkmark {
+            width: 16px;
+            height: 16px;
+            border: 2px solid var(--border-color);
+            border-radius: 4px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s ease;
+        }
+
+        .checkbox-item.checked .checkmark {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+        }
+
+        .checkbox-item.checked .checkmark::after {
+            content: "✓";
+            color: white;
+            font-size: 10px;
+            font-weight: bold;
+        }
+
+        .checkbox-item span {
+            font-size: 13px;
+            font-weight: 500;
+        }
+
+        /* Sub Options */
+        .sub-options {
+            margin-top: 12px;
+            padding: 16px;
+            background: var(--bg-primary);
+            border-radius: var(--radius-md);
+            border: 1px solid var(--border-color);
+        }
+
+        .sub-options.hidden {
+            display: none;
+        }
+
+        .sub-option-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Output Panel */
+        .output-panel {
+            position: sticky;
+            top: 100px;
+            height: fit-content;
+        }
+
+        .output-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-xl);
+            overflow: hidden;
+        }
+
+        .output-header {
+            padding: 24px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .output-header h2 {
+            font-size: 1.25rem;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 16px;
+        }
+
+        .output-header h2 .icon {
+            color: var(--success);
+        }
+
+        .output-steps {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .step {
+            display: flex;
+            gap: 12px;
+        }
+
+        .step-number {
+            width: 28px;
+            height: 28px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-secondary);
+            flex-shrink: 0;
+        }
+
+        .step-content p {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .step-code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            padding: 10px 14px;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-sm);
+            color: var(--accent-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .step-code code {
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+
+        .copy-btn {
+            padding: 4px 8px;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            color: var(--text-muted);
+            font-size: 11px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+
+        .copy-btn:hover {
+            background: var(--accent-primary);
+            border-color: var(--accent-primary);
+            color: white;
+        }
+
+        .copy-btn.copied {
+            background: var(--success);
+            border-color: var(--success);
+            color: white;
+        }
+
+        /* Command Output */
+        .command-output {
+            padding: 24px;
+        }
+
+        .command-label {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .command-box {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius-md);
+            overflow: hidden;
+        }
+
+        .command-box-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 16px;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .command-box-header span {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .command-content {
+            padding: 16px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            line-height: 1.8;
+            color: var(--text-primary);
+            max-height: 400px;
+            overflow-y: auto;
+        }
+
+        .command-content::-webkit-scrollbar {
+            width: 6px;
+        }
+
+        .command-content::-webkit-scrollbar-track {
+            background: var(--bg-secondary);
+        }
+
+        .command-content::-webkit-scrollbar-thumb {
+            background: var(--border-color);
+            border-radius: 3px;
+        }
+
+        .cmd-comment {
+            color: var(--text-muted);
+        }
+
+        .cmd-flag {
+            color: var(--accent-secondary);
+        }
+
+        .cmd-value {
+            color: var(--success);
+        }
+
+        /* Summary Stats */
+        .summary-stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            padding: 20px 24px;
+            border-top: 1px solid var(--border-color);
+            background: var(--bg-secondary);
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 800;
+            background: var(--gradient-primary);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .stat-label {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        /* Footer */
+        footer {
+            text-align: center;
+            padding: 40px 0;
+            border-top: 1px solid var(--border-color);
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        footer a {
+            color: var(--accent-primary);
+            text-decoration: none;
+        }
+
+        footer a:hover {
+            text-decoration: underline;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .hero {
+                padding: 40px 0;
+            }
+
+            .hero h1 {
+                font-size: 2rem;
+            }
+
+            .panel-header {
+                flex-direction: column;
+                gap: 12px;
+                align-items: flex-start;
+            }
+
+            .option-item {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 12px;
+            }
+
+            .input-field, .select-field {
+                width: 100%;
+            }
+
+            .summary-stats {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Animations */
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .option-group {
+            animation: fadeIn 0.4s ease forwards;
+        }
+
+        .option-group:nth-child(1) { animation-delay: 0.05s; }
+        .option-group:nth-child(2) { animation-delay: 0.1s; }
+        .option-group:nth-child(3) { animation-delay: 0.15s; }
+        .option-group:nth-child(4) { animation-delay: 0.2s; }
+        .option-group:nth-child(5) { animation-delay: 0.25s; }
+        .option-group:nth-child(6) { animation-delay: 0.3s; }
+        .option-group:nth-child(7) { animation-delay: 0.35s; }
+        .option-group:nth-child(8) { animation-delay: 0.4s; }
+    </style>
+</head>
+<body>
+    <div class="bg-pattern"></div>
+
+    <header>
+        <div class="container">
+            <div class="header-content">
+                <a href="#" class="logo">
+                    <div class="logo-icon">V</div>
+                    <span class="logo-text">VHestiaCP</span>
+                </a>
+                <span class="version-badge">v1.0.0</span>
+            </div>
+        </div>
+    </header>
+
+    <main>
+        <div class="container">
+            <section class="hero">
+                <h1>Installation Generator</h1>
+                <p>Configure your VHestiaCP installation with all the features you need. Select options and get your custom install command.</p>
+                <div class="features-badges">
+                    <div class="feature-badge"><span class="icon">⚡</span> HAProxy</div>
+                    <div class="feature-badge"><span class="icon">🟢</span> Node.js</div>
+                    <div class="feature-badge"><span class="icon">🐍</span> Python</div>
+                    <div class="feature-badge"><span class="icon">🍃</span> MongoDB</div>
+                    <div class="feature-badge"><span class="icon">⚛️</span> React/Vue/Angular</div>
+                    <div class="feature-badge"><span class="icon">🚀</span> Next.js/Nuxt.js</div>
+                </div>
+            </section>
+
+            <div class="main-content">
+                <!-- Options Panel -->
+                <div class="options-panel">
+                    <div class="panel-header">
+                        <h2><span class="icon">⚙️</span> Configure Options</h2>
+                        <button class="reset-btn" onclick="resetOptions()">Reset to Default</button>
+                    </div>
+                    <div class="options-content">
+                        <!-- General Settings -->
+                        <div class="option-group">
+                            <div class="group-header">
+                                <div class="group-icon purple">🖥️</div>
+                                <span class="group-title">General Settings</span>
+                            </div>
+                            <div class="option-item">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">Hostname</div>
+                                        <div class="option-desc">IP or domain (auto-detect if empty). Avoid .dev TLD</div>
+                                    </div>
+                                </div>
+                                <input type="text" class="input-field" id="hostname" placeholder="192.168.1.100 or server.example.local" oninput="generateCommand()">
+                            </div>
+                            <div class="option-item">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">Admin Email</div>
+                                        <div class="option-desc">For notifications (required)</div>
+                                    </div>
+                                </div>
+                                <input type="email" class="input-field" id="email" placeholder="admin@example.com" oninput="generateCommand()">
+                            </div>
+                            <div class="option-item">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">Admin Password</div>
+                                        <div class="option-desc">Leave empty to auto-generate</div>
+                                    </div>
+                                </div>
+                                <input type="password" class="input-field" id="password" placeholder="Auto-generated" oninput="generateCommand()">
+                            </div>
+                            <div class="option-item">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">Port</div>
+                                        <div class="option-desc">Control panel port</div>
+                                    </div>
+                                </div>
+                                <input type="number" class="input-field small" id="port" value="8083" oninput="generateCommand()">
+                            </div>
+                            <div class="option-item">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">Language</div>
+                                        <div class="option-desc">Interface language</div>
+                                    </div>
+                                </div>
+                                <select class="select-field" id="lang" onchange="generateCommand()">
+                                    <option value="en">English</option>
+                                    <option value="vi">Tiếng Việt</option>
+                                    <option value="zh-cn">中文</option>
+                                    <option value="ja">日本語</option>
+                                    <option value="ko">한국어</option>
+                                    <option value="de">Deutsch</option>
+                                    <option value="fr">Français</option>
+                                    <option value="es">Español</option>
+                                    <option value="ru">Русский</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <!-- Load Balancer (NEW) -->
+                        <div class="option-group">
+                            <div class="group-header">
+                                <div class="group-icon cyan">⚡</div>
+                                <span class="group-title">Load Balancer</span>
+                                <span class="group-badge new">NEW</span>
+                            </div>
+                            <div class="option-item highlight" id="haproxy-option">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">HAProxy</div>
+                                        <div class="option-desc">Load balancer & reverse proxy</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="haproxy" onchange="toggleHaproxy()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="sub-options hidden" id="haproxy-options">
+                                <div class="sub-option-label">HAProxy Options</div>
+                                <div class="option-item">
+                                    <div class="option-info">
+                                        <div>
+                                            <div class="option-name">Stats Dashboard</div>
+                                            <div class="option-desc">HAProxy statistics page</div>
+                                        </div>
+                                    </div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="haproxy-stats" checked onchange="generateCommand()">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                                <div class="option-item">
+                                    <div class="option-info">
+                                        <div>
+                                            <div class="option-name">Default SSL Mode</div>
+                                            <div class="option-desc">SSL handling method</div>
+                                        </div>
+                                    </div>
+                                    <select class="select-field" id="haproxy-ssl-mode" onchange="generateCommand()">
+                                        <option value="termination">Termination</option>
+                                        <option value="passthrough">Passthrough</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Web Server -->
+                        <div class="option-group">
+                            <div class="group-header">
+                                <div class="group-icon blue">🌐</div>
+                                <span class="group-title">Web Server</span>
+                            </div>
+                            <div class="option-item">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">Web Stack</div>
+                                        <div class="option-desc">Choose your web server configuration</div>
+                                    </div>
+                                </div>
+                                <select class="select-field" id="web-stack" onchange="updateWebStack()">
+                                    <option value="nginx-apache">Nginx + Apache (Default)</option>
+                                    <option value="nginx-only">Nginx Only</option>
+                                    <option value="apache-only">Apache Only</option>
+                                </select>
+                            </div>
+                            <div class="option-item">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">PHP-FPM</div>
+                                        <div class="option-desc">PHP FastCGI Process Manager</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="phpfpm" checked onchange="generateCommand()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="option-item" style="background: rgba(255,193,7,0.1); border-left: 3px solid #ffc107;">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name" style="color: #856404;">💡 Multi-PHP</div>
+                                        <div class="option-desc">Additional PHP versions can be installed from Control Panel after setup</div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Node.js (NEW) -->
+                        <div class="option-group">
+                            <div class="group-header">
+                                <div class="group-icon green">🟢</div>
+                                <span class="group-title">Node.js</span>
+                                <span class="group-badge new">NEW</span>
+                            </div>
+                            <div class="option-item highlight">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">Node.js + PM2</div>
+                                        <div class="option-desc">Node.js runtime with PM2 manager</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="nodejs" onchange="toggleNodejs()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="sub-options hidden" id="nodejs-options">
+                                <div class="sub-option-label">Node.js Versions (LTS)</div>
+                                <div class="checkbox-group" id="nodejs-versions">
+                                    <label class="checkbox-item" onclick="toggleCheckbox(this)">
+                                        <input type="checkbox" value="18" onchange="generateCommand()">
+                                        <span class="checkmark"></span>
+                                        <span>18 LTS</span>
+                                    </label>
+                                    <label class="checkbox-item checked" onclick="toggleCheckbox(this)">
+                                        <input type="checkbox" value="20" checked onchange="generateCommand()">
+                                        <span class="checkmark"></span>
+                                        <span>20 LTS</span>
+                                    </label>
+                                    <label class="checkbox-item" onclick="toggleCheckbox(this)">
+                                        <input type="checkbox" value="22" onchange="generateCommand()">
+                                        <span class="checkmark"></span>
+                                        <span>22 LTS</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Python (NEW) -->
+                        <div class="option-group">
+                            <div class="group-header">
+                                <div class="group-icon orange">🐍</div>
+                                <span class="group-title">Python</span>
+                                <span class="group-badge new">NEW</span>
+                            </div>
+                            <div class="option-item highlight">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">Python + Gunicorn</div>
+                                        <div class="option-desc">Python runtime with Gunicorn WSGI</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="python" onchange="togglePython()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="sub-options hidden" id="python-options">
+                                <div class="sub-option-label">Python Versions</div>
+                                <div class="checkbox-group" id="python-versions">
+                                    <label class="checkbox-item" onclick="toggleCheckbox(this)">
+                                        <input type="checkbox" value="3.10" onchange="generateCommand()">
+                                        <span class="checkmark"></span>
+                                        <span>3.10</span>
+                                    </label>
+                                    <label class="checkbox-item checked" onclick="toggleCheckbox(this)">
+                                        <input type="checkbox" value="3.11" checked onchange="generateCommand()">
+                                        <span class="checkmark"></span>
+                                        <span>3.11</span>
+                                    </label>
+                                    <label class="checkbox-item" onclick="toggleCheckbox(this)">
+                                        <input type="checkbox" value="3.12" onchange="generateCommand()">
+                                        <span class="checkmark"></span>
+                                        <span>3.12</span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Databases -->
+                        <div class="option-group">
+                            <div class="group-header">
+                                <div class="group-icon pink">🗄️</div>
+                                <span class="group-title">Databases</span>
+                            </div>
+                            <div class="option-item">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">MariaDB</div>
+                                        <div class="option-desc">MySQL-compatible database</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="mysql" checked onchange="toggleMysql()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="option-item">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">MySQL 8</div>
+                                        <div class="option-desc">Use MySQL 8 instead of MariaDB</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="mysql8" onchange="toggleMysql8()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="option-item">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">PostgreSQL</div>
+                                        <div class="option-desc">Advanced open-source database</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="postgresql" onchange="generateCommand()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="option-item highlight">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">MongoDB</div>
+                                        <div class="option-desc">NoSQL document database</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="mongodb" onchange="toggleMongodb()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="sub-options hidden" id="mongodb-options">
+                                <div class="sub-option-label">MongoDB Options</div>
+                                <div class="option-item">
+                                    <div class="option-info">
+                                        <div>
+                                            <div class="option-name">Version</div>
+                                        </div>
+                                    </div>
+                                    <select class="select-field" id="mongodb-version" onchange="updateMongoAuthOptions(); generateCommand()">
+                                        <option value="8.0">MongoDB 8.0 (Ubuntu 24.04)</option>
+                                        <option value="7.0">MongoDB 7.0 (Ubuntu 22.04)</option>
+                                        <option value="6.0">MongoDB 6.0</option>
+                                        <option value="5.0">MongoDB 5.0</option>
+                                        <option value="4.4">MongoDB 4.4</option>
+                                        <option value="4.2">MongoDB 4.2</option>
+                                        <option value="4.0">MongoDB 4.0</option>
+                                    </select>
+                                </div>
+                                <div class="option-item">
+                                    <div class="option-info">
+                                        <div>
+                                            <div class="option-name">Mode</div>
+                                        </div>
+                                    </div>
+                                    <select class="select-field" id="mongodb-mode" onchange="generateCommand()">
+                                        <option value="standalone">Standalone</option>
+                                        <option value="replicaset">Replica Set</option>
+                                        <option value="sharding">Sharding</option>
+                                    </select>
+                                </div>
+                                <div class="option-item">
+                                    <div class="option-info">
+                                        <div>
+                                            <div class="option-name">Authentication</div>
+                                        </div>
+                                    </div>
+                                    <select class="select-field" id="mongodb-auth" onchange="generateCommand()">
+                                        <option value="scram256">SCRAM-SHA-256</option>
+                                        <option value="scram1">SCRAM-SHA-1</option>
+                                        <option value="scram">SCRAM (Both)</option>
+                                        <option value="x509">x.509 Certificate</option>
+                                    </select>
+                                </div>
+                                <div class="option-item">
+                                    <div class="option-info">
+                                        <div>
+                                            <div class="option-name">Mongo Express</div>
+                                            <div class="option-desc">Web-based admin UI</div>
+                                        </div>
+                                    </div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="mongo-express" onchange="generateCommand()">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Message Queue -->
+                        <div class="option-group">
+                            <div class="group-header">
+                                <div class="group-icon orange">📨</div>
+                                <span class="group-title">Message Queue</span>
+                                <span class="new-badge">NEW</span>
+                            </div>
+                            <div class="option-item highlight">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">RabbitMQ</div>
+                                        <div class="option-desc">Advanced message broker with AMQP</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="rabbitmq" onchange="toggleRabbitmq()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="sub-options hidden" id="rabbitmq-options">
+                                <div class="sub-option-label">RabbitMQ Options</div>
+                                <div class="option-item">
+                                    <div class="option-info">
+                                        <div>
+                                            <div class="option-name">Management UI</div>
+                                            <div class="option-desc">Web-based admin (port 15672)</div>
+                                        </div>
+                                    </div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="rabbitmq-management" checked onchange="generateCommand()">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                            <div class="option-item highlight">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">Apache Kafka</div>
+                                        <div class="option-desc">Distributed streaming platform</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="kafka" onchange="toggleKafka()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="sub-options hidden" id="kafka-options">
+                                <div class="sub-option-label">Kafka Options</div>
+                                <div class="option-item">
+                                    <div class="option-info">
+                                        <div>
+                                            <div class="option-name">Kafka UI</div>
+                                            <div class="option-desc">Web-based admin (port 8080)</div>
+                                        </div>
+                                    </div>
+                                    <label class="toggle-switch">
+                                        <input type="checkbox" id="kafka-ui" checked onchange="generateCommand()">
+                                        <span class="toggle-slider"></span>
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- DNS & Mail -->
+                        <div class="option-group">
+                            <div class="group-header">
+                                <div class="group-icon indigo">📧</div>
+                                <span class="group-title">DNS & Mail</span>
+                            </div>
+                            <div class="option-item">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">BIND DNS</div>
+                                        <div class="option-desc">DNS server</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="named" checked onchange="generateCommand()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="option-item">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">Exim</div>
+                                        <div class="option-desc">SMTP mail server</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="exim" checked onchange="toggleExim()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="option-item" id="dovecot-option">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">Dovecot</div>
+                                        <div class="option-desc">IMAP/POP3 server</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="dovecot" checked onchange="generateCommand()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="option-item" id="sieve-option">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">Sieve</div>
+                                        <div class="option-desc">Email filtering</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="sieve" onchange="generateCommand()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="option-item" id="clamav-option">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">ClamAV</div>
+                                        <div class="option-desc">Antivirus scanning</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="clamav" checked onchange="generateCommand()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="option-item" id="spamassassin-option">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">SpamAssassin</div>
+                                        <div class="option-desc">Spam filtering</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="spamassassin" checked onchange="generateCommand()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Security & FTP -->
+                        <div class="option-group">
+                            <div class="group-header">
+                                <div class="group-icon red">🔒</div>
+                                <span class="group-title">Security & FTP</span>
+                            </div>
+                            <div class="option-item">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">Firewall (iptables)</div>
+                                        <div class="option-desc">System firewall</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="iptables" checked onchange="generateCommand()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="option-item">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">Fail2Ban</div>
+                                        <div class="option-desc">Brute-force protection</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="fail2ban" checked onchange="generateCommand()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="option-item">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">FTP Server</div>
+                                        <div class="option-desc">Choose FTP server</div>
+                                    </div>
+                                </div>
+                                <select class="select-field" id="ftp" onchange="generateCommand()">
+                                    <option value="vsftpd">VSFTPD</option>
+                                    <option value="proftpd">ProFTPD</option>
+                                    <option value="none">None</option>
+                                </select>
+                            </div>
+                            <div class="option-item">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">Filesystem Quota</div>
+                                        <div class="option-desc">Disk usage limits</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="quota" onchange="generateCommand()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <!-- Advanced -->
+                        <div class="option-group">
+                            <div class="group-header">
+                                <div class="group-icon purple">🛠️</div>
+                                <span class="group-title">Advanced</span>
+                            </div>
+                            <div class="option-item">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">Hestia API</div>
+                                        <div class="option-desc">REST API access</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="api" checked onchange="generateCommand()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            <div class="option-item">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name">Interactive Install</div>
+                                        <div class="option-desc">Show prompts during install</div>
+                                    </div>
+                                </div>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="interactive" onchange="generateCommand()">
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Output Panel -->
+                <div class="output-panel">
+                    <div class="output-card">
+                        <div class="output-header">
+                            <h2><span class="icon">🚀</span> Installation Steps</h2>
+                            <div class="output-steps">
+                                <div class="step">
+                                    <div class="step-number">1</div>
+                                    <div class="step-content">
+                                        <p>Connect to your server via SSH:</p>
+                                        <div class="step-code">
+                                            <code>ssh root@your-server-ip</code>
+                                            <button class="copy-btn" onclick="copyToClipboard('ssh root@your-server-ip', this)">Copy</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="step">
+                                    <div class="step-number">2</div>
+                                    <div class="step-content">
+                                        <p>Switch to root user:</p>
+                                        <div class="step-code">
+                                            <code>sudo su</code>
+                                            <button class="copy-btn" onclick="copyToClipboard('sudo su', this)">Copy</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="step">
+                                    <div class="step-number">3</div>
+                                    <div class="step-content">
+                                        <p>Clone VHestiaCP repository:</p>
+                                        <div class="step-code">
+                                            <code>git clone https://github.com/vietdev99/vhestiacp.git && cd vhestiacp/install</code>
+                                            <button class="copy-btn" onclick="copyToClipboard('git clone https://github.com/vietdev99/vhestiacp.git && cd vhestiacp/install', this)">Copy</button>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="step">
+                                    <div class="step-number">4</div>
+                                    <div class="step-content">
+                                        <p>Run the install command below:</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="command-output">
+                            <div class="command-label">Generated Command</div>
+                            <div class="command-box">
+                                <div class="command-box-header">
+                                    <span>bash</span>
+                                    <button class="copy-btn" onclick="copyCommand()">📋 Copy Command</button>
+                                </div>
+                                <div class="command-content" id="command-output">
+                                    <!-- Command will be generated here -->
+                                </div>
+                            </div>
+                        </div>
+                        <div class="summary-stats">
+                            <div class="stat-item">
+                                <div class="stat-value" id="stat-services">0</div>
+                                <div class="stat-label">Services</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value" id="stat-new">0</div>
+                                <div class="stat-label">New Features</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-value" id="stat-time">~15</div>
+                                <div class="stat-label">Min Install</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>VHestiaCP is based on <a href="https://hestiacp.com" target="_blank">HestiaCP</a> | Released under GPLv3 License</p>
+        </div>
+    </footer>
+
+    <script>
+        // Generate command on page load
+        document.addEventListener('DOMContentLoaded', generateCommand);
+
+        function generateCommand() {
+            const hostname = document.getElementById('hostname').value || '';
+            const email = document.getElementById('email').value || 'admin@example.com';
+            const password = document.getElementById('password').value;
+            const port = document.getElementById('port').value || '8083';
+            const lang = document.getElementById('lang').value;
+
+            const haproxy = document.getElementById('haproxy').checked;
+            const haproxyStats = document.getElementById('haproxy-stats').checked;
+
+            const webStack = document.getElementById('web-stack').value;
+            const phpfpm = document.getElementById('phpfpm').checked;
+
+            const nodejs = document.getElementById('nodejs').checked;
+            const python = document.getElementById('python').checked;
+
+            const mysql = document.getElementById('mysql').checked;
+            const mysql8 = document.getElementById('mysql8').checked;
+            const postgresql = document.getElementById('postgresql').checked;
+            const mongodb = document.getElementById('mongodb').checked;
+            const mongodbVersion = document.getElementById('mongodb-version').value;
+
+            const named = document.getElementById('named').checked;
+            const exim = document.getElementById('exim').checked;
+            const dovecot = document.getElementById('dovecot').checked;
+            const sieve = document.getElementById('sieve').checked;
+            const clamav = document.getElementById('clamav').checked;
+            const spamassassin = document.getElementById('spamassassin').checked;
+
+            const iptables = document.getElementById('iptables').checked;
+            const fail2ban = document.getElementById('fail2ban').checked;
+            const ftp = document.getElementById('ftp').value;
+            const quota = document.getElementById('quota').checked;
+            const api = document.getElementById('api').checked;
+            const interactive = document.getElementById('interactive').checked;
+
+            // Command for the new integrated installer
+            let cmd = 'bash hst-install-ubuntu.sh';
+            
+            if (hostname) {
+                cmd += ` <span class="cmd-flag">-s</span> <span class="cmd-value">${hostname}</span>`;
+            }
+            cmd += ` <span class="cmd-flag">-e</span> <span class="cmd-value">${email}</span>`;
+            
+            if (password) {
+                cmd += ` <span class="cmd-flag">-p</span> <span class="cmd-value">'${password}'</span>`;
+            }
+            
+            if (port !== '8083') {
+                cmd += ` <span class="cmd-flag">-r</span> <span class="cmd-value">${port}</span>`;
+            }
+            
+            if (lang !== 'en') {
+                cmd += ` <span class="cmd-flag">-l</span> <span class="cmd-value">${lang}</span>`;
+            }
+
+            // Web server: -a yes = nginx+apache, -a no = nginx only
+            if (webStack === 'nginx-apache') {
+                cmd += ` <span class="cmd-flag">-a</span> <span class="cmd-value">yes</span>`;
+            } else {
+                cmd += ` <span class="cmd-flag">-a</span> <span class="cmd-value">no</span>`;
+            }
+
+            cmd += ` <span class="cmd-flag">-w</span> <span class="cmd-value">${phpfpm ? 'yes' : 'no'}</span>`;
+
+            // VHestiaCP Extended Options
+            // HAProxy
+            if (haproxy) {
+                cmd += ` <span class="cmd-flag">--haproxy</span> <span class="cmd-value">yes</span>`;
+                if (haproxyStats) {
+                    cmd += ` <span class="cmd-flag">--haproxy-stats</span> <span class="cmd-value">yes</span>`;
+                }
+            }
+
+            // Node.js
+            if (nodejs) {
+                cmd += ` <span class="cmd-flag">--nodejs</span> <span class="cmd-value">yes</span>`;
+                const nodejsVersions = getCheckedVersions('nodejs-versions');
+                if (nodejsVersions.length > 0) {
+                    cmd += ` <span class="cmd-flag">--nodejs-versions</span> <span class="cmd-value">'${nodejsVersions.join(',')}'</span>`;
+                }
+            }
+
+            // Python
+            if (python) {
+                cmd += ` <span class="cmd-flag">--python</span> <span class="cmd-value">yes</span>`;
+            }
+
+            // MongoDB
+            if (mongodb) {
+                cmd += ` <span class="cmd-flag">--mongodb</span> <span class="cmd-value">yes</span>`;
+                cmd += ` <span class="cmd-flag">--mongodb-version</span> <span class="cmd-value">${mongodbVersion}</span>`;
+            }
+
+            // RabbitMQ
+            const rabbitmq = document.getElementById('rabbitmq').checked;
+            if (rabbitmq) {
+                cmd += ` <span class="cmd-flag">--rabbitmq</span> <span class="cmd-value">yes</span>`;
+                const rabbitmqMgmt = document.getElementById('rabbitmq-management').checked;
+                if (rabbitmqMgmt) {
+                    cmd += ` <span class="cmd-flag">--rabbitmq-management</span> <span class="cmd-value">yes</span>`;
+                }
+            }
+
+            // Kafka
+            const kafka = document.getElementById('kafka').checked;
+            if (kafka) {
+                cmd += ` <span class="cmd-flag">--kafka</span> <span class="cmd-value">yes</span>`;
+                const kafkaUi = document.getElementById('kafka-ui').checked;
+                if (kafkaUi) {
+                    cmd += ` <span class="cmd-flag">--kafka-ui</span> <span class="cmd-value">yes</span>`;
+                }
+            }
+
+            // Standard Databases
+            cmd += ` <span class="cmd-flag">-m</span> <span class="cmd-value">${mysql ? 'yes' : 'no'}</span>`;
+            if (mysql8) {
+                cmd += ` <span class="cmd-flag">-M</span> <span class="cmd-value">yes</span>`;
+            }
+            cmd += ` <span class="cmd-flag">-g</span> <span class="cmd-value">${postgresql ? 'yes' : 'no'}</span>`;
+
+            // DNS & Mail
+            cmd += ` <span class="cmd-flag">-k</span> <span class="cmd-value">${named ? 'yes' : 'no'}</span>`;
+            cmd += ` <span class="cmd-flag">-x</span> <span class="cmd-value">${exim ? 'yes' : 'no'}</span>`;
+            
+            if (exim) {
+                cmd += ` <span class="cmd-flag">-z</span> <span class="cmd-value">${dovecot ? 'yes' : 'no'}</span>`;
+                if (sieve) cmd += ` <span class="cmd-flag">-Z</span> <span class="cmd-value">yes</span>`;
+                cmd += ` <span class="cmd-flag">-c</span> <span class="cmd-value">${clamav ? 'yes' : 'no'}</span>`;
+                cmd += ` <span class="cmd-flag">-t</span> <span class="cmd-value">${spamassassin ? 'yes' : 'no'}</span>`;
+            }
+
+            // Security
+            cmd += ` <span class="cmd-flag">-i</span> <span class="cmd-value">${iptables ? 'yes' : 'no'}</span>`;
+            cmd += ` <span class="cmd-flag">-b</span> <span class="cmd-value">${fail2ban ? 'yes' : 'no'}</span>`;
+
+            // FTP
+            if (ftp === 'vsftpd') {
+                cmd += ` <span class="cmd-flag">-v</span> <span class="cmd-value">yes</span>`;
+            } else if (ftp === 'proftpd') {
+                cmd += ` <span class="cmd-flag">-j</span> <span class="cmd-value">yes</span>`;
+            } else {
+                cmd += ` <span class="cmd-flag">-v</span> <span class="cmd-value">no</span>`;
+            }
+
+            if (quota) cmd += ` <span class="cmd-flag">-q</span> <span class="cmd-value">yes</span>`;
+            cmd += ` <span class="cmd-flag">-d</span> <span class="cmd-value">${api ? 'yes' : 'no'}</span>`;
+            
+            if (!interactive) {
+                cmd += ` <span class="cmd-flag">-y</span> <span class="cmd-value">no</span>`;
+            }
+            
+            // Force install (skip confirmations)
+            cmd += ` <span class="cmd-flag">-f</span>`;
+
+            document.getElementById('command-output').innerHTML = cmd;
+
+            // Update stats
+            updateStats();
+        }
+
+        function getCheckedVersions(containerId) {
+            const container = document.getElementById(containerId);
+            const checkboxes = container.querySelectorAll('input[type="checkbox"]:checked');
+            return Array.from(checkboxes).map(cb => cb.value);
+        }
+
+        function toggleCheckbox(label) {
+            const checkbox = label.querySelector('input[type="checkbox"]');
+            checkbox.checked = !checkbox.checked;
+            label.classList.toggle('checked', checkbox.checked);
+            generateCommand();
+        }
+
+        function toggleHaproxy() {
+            const enabled = document.getElementById('haproxy').checked;
+            document.getElementById('haproxy-options').classList.toggle('hidden', !enabled);
+            generateCommand();
+        }
+
+        function toggleNodejs() {
+            const enabled = document.getElementById('nodejs').checked;
+            document.getElementById('nodejs-options').classList.toggle('hidden', !enabled);
+            generateCommand();
+        }
+
+        function togglePython() {
+            const enabled = document.getElementById('python').checked;
+            document.getElementById('python-options').classList.toggle('hidden', !enabled);
+            generateCommand();
+        }
+
+        function toggleMongodb() {
+            const enabled = document.getElementById('mongodb').checked;
+            document.getElementById('mongodb-options').classList.toggle('hidden', !enabled);
+            if (enabled) {
+                updateMongoAuthOptions();
+            }
+            generateCommand();
+        }
+
+        function toggleRabbitmq() {
+            const enabled = document.getElementById('rabbitmq').checked;
+            document.getElementById('rabbitmq-options').classList.toggle('hidden', !enabled);
+            generateCommand();
+        }
+
+        function toggleKafka() {
+            const enabled = document.getElementById('kafka').checked;
+            document.getElementById('kafka-options').classList.toggle('hidden', !enabled);
+            generateCommand();
+        }
+
+        // Update MongoDB auth options based on selected version
+        function updateMongoAuthOptions() {
+            const version = document.getElementById('mongodb-version').value;
+            const authSelect = document.getElementById('mongodb-auth');
+            const currentAuth = authSelect.value;
+            
+            // Clear existing options
+            authSelect.innerHTML = '';
+            
+            // MongoDB version compatibility:
+            // - All versions: SCRAM-SHA-1, x.509
+            // - 4.0+: SCRAM-SHA-256
+            
+            const versionNum = parseFloat(version);
+            
+            // Add options based on version
+            if (versionNum >= 4.0) {
+                // MongoDB 4.0+ supports SCRAM-SHA-256
+                authSelect.innerHTML += '<option value="scram256">SCRAM-SHA-256 (Recommended)</option>';
+                authSelect.innerHTML += '<option value="scram">SCRAM (SHA-1 + SHA-256)</option>';
+            }
+            
+            // All versions support SCRAM-SHA-1
+            authSelect.innerHTML += '<option value="scram1">SCRAM-SHA-1</option>';
+            
+            // x.509 available in all versions (2.6+)
+            authSelect.innerHTML += '<option value="x509">x.509 Certificate</option>';
+            
+            // Try to restore previous selection if still valid
+            const options = Array.from(authSelect.options).map(o => o.value);
+            if (options.includes(currentAuth)) {
+                authSelect.value = currentAuth;
+            }
+            
+            generateCommand();
+        }
+
+        function toggleMysql() {
+            const mysql = document.getElementById('mysql').checked;
+            if (!mysql) {
+                document.getElementById('mysql8').checked = false;
+            }
+            generateCommand();
+        }
+
+        function toggleMysql8() {
+            const mysql8 = document.getElementById('mysql8').checked;
+            if (mysql8) {
+                document.getElementById('mysql').checked = true;
+            }
+            generateCommand();
+        }
+
+        function toggleExim() {
+            const exim = document.getElementById('exim').checked;
+            ['dovecot-option', 'sieve-option', 'clamav-option', 'spamassassin-option'].forEach(id => {
+                document.getElementById(id).classList.toggle('disabled', !exim);
+            });
+            generateCommand();
+        }
+
+        function updateWebStack() {
+            generateCommand();
+        }
+
+        function updateStats() {
+            let services = 0;
+            let newFeatures = 0;
+
+            // Count services
+            if (document.getElementById('haproxy').checked) { services++; newFeatures++; }
+            if (document.getElementById('web-stack').value !== 'none') services++;
+            if (document.getElementById('phpfpm').checked) services++;
+            if (document.getElementById('nodejs').checked) { services++; newFeatures++; }
+            if (document.getElementById('python').checked) { services++; newFeatures++; }
+            if (document.getElementById('mysql').checked) services++;
+            if (document.getElementById('postgresql').checked) services++;
+            if (document.getElementById('mongodb').checked) { services++; newFeatures++; }
+            if (document.getElementById('rabbitmq').checked) { services++; newFeatures++; }
+            if (document.getElementById('kafka').checked) { services++; newFeatures++; }
+            if (document.getElementById('named').checked) services++;
+            if (document.getElementById('exim').checked) services++;
+            if (document.getElementById('dovecot').checked) services++;
+            if (document.getElementById('ftp').value !== 'none') services++;
+
+            // Estimate install time
+            let time = 10;
+            if (document.getElementById('clamav').checked) time += 5;
+            if (document.getElementById('mongodb').checked) time += 3;
+            if (document.getElementById('nodejs').checked) time += 2;
+            if (document.getElementById('python').checked) time += 2;
+            if (document.getElementById('rabbitmq').checked) time += 2;
+            if (document.getElementById('kafka').checked) time += 3;
+
+            document.getElementById('stat-services').textContent = services;
+            document.getElementById('stat-new').textContent = newFeatures;
+            document.getElementById('stat-time').textContent = `~${time}`;
+        }
+
+        function copyCommand() {
+            const cmd = document.getElementById('command-output').innerText;
+            copyToClipboard(cmd, document.querySelector('.command-box-header .copy-btn'));
+        }
+
+        function copyToClipboard(text, button) {
+            navigator.clipboard.writeText(text).then(() => {
+                const originalText = button.textContent;
+                button.textContent = '✓ Copied!';
+                button.classList.add('copied');
+                setTimeout(() => {
+                    button.textContent = originalText;
+                    button.classList.remove('copied');
+                }, 2000);
+            });
+        }
+
+        function resetOptions() {
+            // Reset all inputs to defaults
+            document.getElementById('hostname').value = '';
+            document.getElementById('email').value = '';
+            document.getElementById('password').value = '';
+            document.getElementById('port').value = '8083';
+            document.getElementById('lang').value = 'en';
+            
+            document.getElementById('haproxy').checked = false;
+            document.getElementById('haproxy-stats').checked = true;
+            document.getElementById('haproxy-ssl-mode').value = 'termination';
+            document.getElementById('haproxy-options').classList.add('hidden');
+            
+            document.getElementById('web-stack').value = 'nginx-apache';
+            document.getElementById('phpfpm').checked = true;
+            
+            document.getElementById('nodejs').checked = false;
+            document.getElementById('nodejs-options').classList.add('hidden');
+            
+            document.getElementById('python').checked = false;
+            document.getElementById('python-options').classList.add('hidden');
+            
+            document.getElementById('mysql').checked = true;
+            document.getElementById('mysql8').checked = false;
+            document.getElementById('postgresql').checked = false;
+            document.getElementById('mongodb').checked = false;
+            document.getElementById('mongodb-options').classList.add('hidden');
+            
+            document.getElementById('rabbitmq').checked = false;
+            document.getElementById('rabbitmq-options').classList.add('hidden');
+            document.getElementById('rabbitmq-management').checked = true;
+            
+            document.getElementById('kafka').checked = false;
+            document.getElementById('kafka-options').classList.add('hidden');
+            document.getElementById('kafka-ui').checked = true;
+            
+            document.getElementById('named').checked = true;
+            document.getElementById('exim').checked = true;
+            document.getElementById('dovecot').checked = true;
+            document.getElementById('sieve').checked = false;
+            document.getElementById('clamav').checked = true;
+            document.getElementById('spamassassin').checked = true;
+            
+            document.getElementById('iptables').checked = true;
+            document.getElementById('fail2ban').checked = true;
+            document.getElementById('ftp').value = 'vsftpd';
+            document.getElementById('quota').checked = false;
+            document.getElementById('api').checked = true;
+            document.getElementById('interactive').checked = false;
+
+            // Reset checkbox groups
+            document.querySelectorAll('.checkbox-item').forEach(item => {
+                const checkbox = item.querySelector('input[type="checkbox"]');
+                const isDefault = checkbox.hasAttribute('checked');
+                checkbox.checked = isDefault;
+                item.classList.toggle('checked', isDefault);
+            });
+
+            generateCommand();
+        }
+    </script>
+</body>
+</html>
