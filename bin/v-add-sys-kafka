@@ -12,7 +12,7 @@
 
 kafka_ui=${1:-yes}
 
-KAFKA_VERSION="3.7.0"
+KAFKA_VERSION="3.9.0"
 SCALA_VERSION="2.13"
 KAFKA_HOME="/opt/kafka"
 
@@ -47,23 +47,54 @@ if ! id "kafka" &>/dev/null; then
     useradd -r -s /sbin/nologin kafka
 fi
 
-# Download Kafka
+# Download Kafka with retry and verification
 echo "    - Downloading Kafka ${KAFKA_VERSION}..."
 cd /tmp
-wget -q "https://downloads.apache.org/kafka/${KAFKA_VERSION}/kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz" -O kafka.tgz 2>/dev/null
+rm -f kafka.tgz
 
-if [ ! -f "kafka.tgz" ]; then
-    # Try mirror
-    wget -q "https://archive.apache.org/dist/kafka/${KAFKA_VERSION}/kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz" -O kafka.tgz 2>/dev/null
+# Primary download URL (CDN)
+DOWNLOAD_URL="https://dlcdn.apache.org/kafka/${KAFKA_VERSION}/kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz"
+echo "    - Trying: $DOWNLOAD_URL"
+wget --timeout=60 -q "$DOWNLOAD_URL" -O kafka.tgz 2>/dev/null
+
+# Verify download size (should be > 50MB)
+if [ -f "kafka.tgz" ]; then
+    FILE_SIZE=$(stat -f%z "kafka.tgz" 2>/dev/null || stat -c%s "kafka.tgz" 2>/dev/null)
+    if [ "$FILE_SIZE" -lt 50000000 ]; then
+        echo "    - Download incomplete (${FILE_SIZE} bytes), trying mirror..."
+        rm -f kafka.tgz
+    fi
 fi
 
-if [ ! -f "kafka.tgz" ]; then
+# Try Apache archive mirror if primary failed
+if [ ! -f "kafka.tgz" ] || [ ! -s "kafka.tgz" ]; then
+    MIRROR_URL="https://archive.apache.org/dist/kafka/${KAFKA_VERSION}/kafka_${SCALA_VERSION}-${KAFKA_VERSION}.tgz"
+    echo "    - Trying archive mirror: $MIRROR_URL"
+    wget --timeout=120 -q "$MIRROR_URL" -O kafka.tgz 2>/dev/null
+fi
+
+# Final verification
+if [ ! -f "kafka.tgz" ] || [ ! -s "kafka.tgz" ]; then
     echo "Error: Failed to download Kafka"
     exit 1
 fi
 
+# Verify file is valid gzip
+if ! gzip -t kafka.tgz 2>/dev/null; then
+    echo "Error: Downloaded file is corrupted"
+    rm -f kafka.tgz
+    exit 1
+fi
+
+echo "    - Extracting Kafka..."
 # Extract and install
 tar -xzf kafka.tgz
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to extract Kafka"
+    rm -f kafka.tgz
+    exit 1
+fi
+
 mv "kafka_${SCALA_VERSION}-${KAFKA_VERSION}" "$KAFKA_HOME"
 rm -f kafka.tgz
 
