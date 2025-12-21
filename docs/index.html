@@ -924,32 +924,49 @@
                             </div>
                         </div>
 
-                        <!-- Load Balancer (NEW) -->
+                        <!-- Web Stack (Load Balancer + Web Server) -->
                         <div class="option-group">
                             <div class="group-header">
-                                <div class="group-icon cyan">⚡</div>
-                                <span class="group-title">Load Balancer</span>
-                                <span class="group-badge new">NEW</span>
+                                <div class="group-icon blue">🌐</div>
+                                <span class="group-title">Web Stack</span>
+                                <span class="group-badge new">ENHANCED</span>
                             </div>
-                            <div class="option-item highlight" id="haproxy-option">
+                            <div class="option-item">
                                 <div class="option-info">
                                     <div>
-                                        <div class="option-name">HAProxy</div>
-                                        <div class="option-desc">Load balancer & reverse proxy</div>
+                                        <div class="option-name">Web Server Configuration</div>
+                                        <div class="option-desc">Choose your web server and load balancer setup</div>
                                     </div>
                                 </div>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="haproxy" onchange="toggleHaproxy()">
-                                    <span class="toggle-slider"></span>
-                                </label>
+                                <select class="select-field" id="web-stack" onchange="updateWebStack()" style="min-width: 220px;">
+                                    <option value="haproxy-nginx">HAProxy → Nginx (Recommended)</option>
+                                    <option value="haproxy-apache">HAProxy → Apache</option>
+                                    <option value="nginx-apache">Nginx + Apache</option>
+                                    <option value="apache-nginx">Apache → Nginx</option>
+                                    <option value="nginx-only">Nginx Only</option>
+                                    <option value="apache-only">Apache Only</option>
+                                    <option value="none">No Web Server</option>
+                                </select>
                             </div>
-                            <div class="sub-options hidden" id="haproxy-options">
+                            
+                            <!-- Web Stack Description -->
+                            <div class="option-item" id="web-stack-desc" style="background: rgba(99, 102, 241, 0.1); border-left: 3px solid var(--accent-primary);">
+                                <div class="option-info">
+                                    <div>
+                                        <div class="option-name" style="color: var(--accent-primary);">💡 <span id="web-stack-title">HAProxy → Nginx</span></div>
+                                        <div class="option-desc" id="web-stack-detail">HAProxy handles SSL termination and load balancing, forwards to Nginx for static content and PHP-FPM</div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- HAProxy Options (shown when HAProxy is selected) -->
+                            <div class="sub-options" id="haproxy-options">
                                 <div class="sub-option-label">HAProxy Options</div>
                                 <div class="option-item">
                                     <div class="option-info">
                                         <div>
                                             <div class="option-name">Stats Dashboard</div>
-                                            <div class="option-desc">HAProxy statistics page</div>
+                                            <div class="option-desc">HAProxy statistics page (port 8404)</div>
                                         </div>
                                     </div>
                                     <label class="toggle-switch">
@@ -961,37 +978,17 @@
                                     <div class="option-info">
                                         <div>
                                             <div class="option-name">Default SSL Mode</div>
-                                            <div class="option-desc">SSL handling method</div>
+                                            <div class="option-desc">How HAProxy handles SSL connections</div>
                                         </div>
                                     </div>
                                     <select class="select-field" id="haproxy-ssl-mode" onchange="generateCommand()">
-                                        <option value="termination">Termination</option>
-                                        <option value="passthrough">Passthrough</option>
+                                        <option value="termination">SSL Termination (decrypt at HAProxy)</option>
+                                        <option value="passthrough">SSL Passthrough (end-to-end encryption)</option>
                                     </select>
                                 </div>
                             </div>
-                        </div>
 
-                        <!-- Web Server -->
-                        <div class="option-group">
-                            <div class="group-header">
-                                <div class="group-icon blue">🌐</div>
-                                <span class="group-title">Web Server</span>
-                            </div>
-                            <div class="option-item">
-                                <div class="option-info">
-                                    <div>
-                                        <div class="option-name">Web Stack</div>
-                                        <div class="option-desc">Choose your web server configuration</div>
-                                    </div>
-                                </div>
-                                <select class="select-field" id="web-stack" onchange="updateWebStack()">
-                                    <option value="nginx-apache">Nginx + Apache (Default)</option>
-                                    <option value="nginx-only">Nginx Only</option>
-                                    <option value="apache-only">Apache Only</option>
-                                </select>
-                            </div>
-                            <div class="option-item">
+                            <div class="option-item" id="phpfpm-option">
                                 <div class="option-info">
                                     <div>
                                         <div class="option-name">PHP-FPM</div>
@@ -1003,7 +1000,7 @@
                                     <span class="toggle-slider"></span>
                                 </label>
                             </div>
-                            <div class="option-item" style="background: rgba(255,193,7,0.1); border-left: 3px solid #ffc107;">
+                            <div class="option-item" id="multiphp-note" style="background: rgba(255,193,7,0.1); border-left: 3px solid #ffc107;">
                                 <div class="option-info">
                                     <div>
                                         <div class="option-name" style="color: #856404;">💡 Multi-PHP</div>
@@ -1537,7 +1534,10 @@
 
     <script>
         // Generate command on page load
-        document.addEventListener('DOMContentLoaded', generateCommand);
+        document.addEventListener('DOMContentLoaded', function() {
+            updateWebStack();
+            generateCommand();
+        });
 
         function generateCommand() {
             const hostname = document.getElementById('hostname').value || '';
@@ -1546,11 +1546,15 @@
             const port = document.getElementById('port').value || '8083';
             const lang = document.getElementById('lang').value;
 
-            const haproxy = document.getElementById('haproxy').checked;
             const haproxyStats = document.getElementById('haproxy-stats').checked;
+            const haproxySslMode = document.getElementById('haproxy-ssl-mode').value;
 
             const webStack = document.getElementById('web-stack').value;
             const phpfpm = document.getElementById('phpfpm').checked;
+            
+            // Determine HAProxy and web server from webStack
+            const hasHaproxy = webStack.startsWith('haproxy-');
+            const webBackend = webStack.replace('haproxy-', '');  // nginx, apache, nginx-apache, etc.
 
             const nodejs = document.getElementById('nodejs').checked;
             const python = document.getElementById('python').checked;
@@ -1595,22 +1599,30 @@
                 cmd += ` <span class="cmd-flag">-l</span> <span class="cmd-value">${lang}</span>`;
             }
 
-            // Web server: -a yes = nginx+apache, -a no = nginx only
-            if (webStack === 'nginx-apache') {
+            // Web server configuration
+            if (webStack === 'none') {
+                cmd += ` <span class="cmd-flag">-n</span> <span class="cmd-value">yes</span>`; // no web server
+            } else if (webStack === 'nginx-apache' || webStack === 'haproxy-nginx' || webStack === 'apache-nginx') {
                 cmd += ` <span class="cmd-flag">-a</span> <span class="cmd-value">yes</span>`;
+            } else if (webStack === 'haproxy-apache' || webStack === 'apache-only') {
+                cmd += ` <span class="cmd-flag">-a</span> <span class="cmd-value">yes</span>`;
+                cmd += ` <span class="cmd-flag">-n</span> <span class="cmd-value">yes</span>`; // no nginx
             } else {
                 cmd += ` <span class="cmd-flag">-a</span> <span class="cmd-value">no</span>`;
             }
 
-            cmd += ` <span class="cmd-flag">-w</span> <span class="cmd-value">${phpfpm ? 'yes' : 'no'}</span>`;
+            if (webStack !== 'none') {
+                cmd += ` <span class="cmd-flag">-w</span> <span class="cmd-value">${phpfpm ? 'yes' : 'no'}</span>`;
+            }
 
             // VHestiaCP Extended Options
             // HAProxy
-            if (haproxy) {
+            if (hasHaproxy) {
                 cmd += ` <span class="cmd-flag">--haproxy</span> <span class="cmd-value">yes</span>`;
                 if (haproxyStats) {
                     cmd += ` <span class="cmd-flag">--haproxy-stats</span> <span class="cmd-value">yes</span>`;
                 }
+                cmd += ` <span class="cmd-flag">--haproxy-ssl-mode</span> <span class="cmd-value">${haproxySslMode}</span>`;
             }
 
             // Node.js
@@ -1719,9 +1731,54 @@
             generateCommand();
         }
 
-        function toggleHaproxy() {
-            const enabled = document.getElementById('haproxy').checked;
-            document.getElementById('haproxy-options').classList.toggle('hidden', !enabled);
+        function updateWebStack() {
+            const webStack = document.getElementById('web-stack').value;
+            const hasHaproxy = webStack.startsWith('haproxy-');
+            const isNone = webStack === 'none';
+            
+            // Show/hide HAProxy options
+            document.getElementById('haproxy-options').classList.toggle('hidden', !hasHaproxy);
+            
+            // Show/hide PHP-FPM option
+            document.getElementById('phpfpm-option').style.display = isNone ? 'none' : 'flex';
+            document.getElementById('multiphp-note').style.display = isNone ? 'none' : 'flex';
+            
+            // Update description
+            const descriptions = {
+                'haproxy-nginx': {
+                    title: 'HAProxy → Nginx',
+                    desc: 'HAProxy handles SSL termination and load balancing, forwards to Nginx for static content and PHP-FPM. Best for high-traffic sites.'
+                },
+                'haproxy-apache': {
+                    title: 'HAProxy → Apache',
+                    desc: 'HAProxy handles SSL termination and load balancing, forwards to Apache. Good for .htaccess and mod_rewrite compatibility.'
+                },
+                'nginx-apache': {
+                    title: 'Nginx + Apache',
+                    desc: 'Nginx serves static files and proxies PHP requests to Apache. Classic HestiaCP setup with good compatibility.'
+                },
+                'apache-nginx': {
+                    title: 'Apache → Nginx',
+                    desc: 'Apache as reverse proxy to Nginx backend. Useful when you need Apache features like .htaccess in front.'
+                },
+                'nginx-only': {
+                    title: 'Nginx Only',
+                    desc: 'Pure Nginx setup with PHP-FPM. Lightweight and fast, but no .htaccess support.'
+                },
+                'apache-only': {
+                    title: 'Apache Only',
+                    desc: 'Traditional Apache setup with mod_php or PHP-FPM. Full .htaccess and mod_rewrite support.'
+                },
+                'none': {
+                    title: 'No Web Server',
+                    desc: 'Skip web server installation. Use for API servers, database servers, or custom setups.'
+                }
+            };
+            
+            const info = descriptions[webStack] || descriptions['nginx-apache'];
+            document.getElementById('web-stack-title').textContent = info.title;
+            document.getElementById('web-stack-detail').textContent = info.desc;
+            
             generateCommand();
         }
 
@@ -1819,17 +1876,16 @@
             generateCommand();
         }
 
-        function updateWebStack() {
-            generateCommand();
-        }
-
         function updateStats() {
             let services = 0;
             let newFeatures = 0;
+            
+            const webStack = document.getElementById('web-stack').value;
+            const hasHaproxy = webStack.startsWith('haproxy-');
 
             // Count services
-            if (document.getElementById('haproxy').checked) { services++; newFeatures++; }
-            if (document.getElementById('web-stack').value !== 'none') services++;
+            if (hasHaproxy) { services++; newFeatures++; }
+            if (webStack !== 'none') services++;
             if (document.getElementById('phpfpm').checked) services++;
             if (document.getElementById('nodejs').checked) { services++; newFeatures++; }
             if (document.getElementById('python').checked) { services++; newFeatures++; }
@@ -1846,6 +1902,7 @@
 
             // Estimate install time
             let time = 10;
+            if (hasHaproxy) time += 2;
             if (document.getElementById('clamav').checked) time += 5;
             if (document.getElementById('mongodb').checked) time += 3;
             if (document.getElementById('nodejs').checked) time += 2;
@@ -1884,13 +1941,11 @@
             document.getElementById('port').value = '8083';
             document.getElementById('lang').value = 'en';
             
-            document.getElementById('haproxy').checked = false;
+            document.getElementById('web-stack').value = 'haproxy-nginx';
             document.getElementById('haproxy-stats').checked = true;
             document.getElementById('haproxy-ssl-mode').value = 'termination';
-            document.getElementById('haproxy-options').classList.add('hidden');
-            
-            document.getElementById('web-stack').value = 'nginx-apache';
             document.getElementById('phpfpm').checked = true;
+            updateWebStack();
             
             document.getElementById('nodejs').checked = false;
             document.getElementById('nodejs-options').classList.add('hidden');
