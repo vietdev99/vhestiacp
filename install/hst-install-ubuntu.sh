@@ -2908,6 +2908,38 @@ echo "[ * ] Applying VHestiaCP modifications..."
 VHESTIACP_SRC="$(dirname "$(dirname "$(readlink -f "$0")")")"
 echo "    - VHestiaCP source: $VHESTIACP_SRC"
 
+# Check if VHestiaCP source files exist
+# If not (user only downloaded the install script), clone from GitHub
+if [ ! -d "$VHESTIACP_SRC/bin" ] || [ ! -f "$VHESTIACP_SRC/bin/v-add-sys-mongodb" ]; then
+    echo "    - VHestiaCP source files not found, downloading from GitHub..."
+    
+    # Install git if not available
+    if ! command -v git &> /dev/null; then
+        apt-get install -y git > /dev/null 2>&1
+    fi
+    
+    # Clone VHestiaCP repo
+    VHESTIACP_SRC="/tmp/vhestiacp-install"
+    rm -rf "$VHESTIACP_SRC"
+    
+    if git clone --depth 1 https://github.com/vietdev99/vhestiacp.git "$VHESTIACP_SRC" > /dev/null 2>&1; then
+        echo "    - Downloaded VHestiaCP from GitHub"
+    else
+        echo "    - ERROR: Failed to download VHestiaCP from GitHub"
+        echo "    - Please run: git clone https://github.com/vietdev99/vhestiacp.git"
+        echo "    - Then run installer from inside the cloned directory"
+        exit 1
+    fi
+fi
+
+# Verify VHestiaCP source
+if [ ! -d "$VHESTIACP_SRC/bin" ]; then
+    echo "    - ERROR: VHestiaCP bin directory not found at $VHESTIACP_SRC/bin"
+    exit 1
+fi
+
+echo "    - Using VHestiaCP source: $VHESTIACP_SRC"
+
 # Apply VHestiaCP bin scripts
 if [ -d "$VHESTIACP_SRC/bin" ]; then
     echo "    - Copying VHestiaCP bin scripts..."
