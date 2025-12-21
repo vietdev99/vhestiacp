@@ -1,70 +1,148 @@
 # VHestiaCP
 
-VHestiaCP is an extended fork of [HestiaCP](https://hestiacp.com) with additional features:
+[![GitHub](https://img.shields.io/badge/GitHub-vietdev99%2Fvhestiacp-blue?logo=github)](https://github.com/vietdev99/vhestiacp)
+[![Ubuntu](https://img.shields.io/badge/Ubuntu-24.04%20LTS-orange?logo=ubuntu)](https://ubuntu.com/)
+[![License](https://img.shields.io/badge/License-GPLv3-green)](LICENSE)
 
-- **HAProxy** - Load balancer with SSL termination/passthrough
-- **MongoDB** - NoSQL database with web management
-- **Node.js** - Multi-version support with PM2 process manager
-- **Python** - Multi-version support with Gunicorn/uWSGI
+VHestiaCP is an extended fork of [HestiaCP](https://hestiacp.com) with modern infrastructure components for full-stack application hosting.
 
-## Requirements
+## ✨ Extended Features
 
-- Ubuntu 24.04 LTS (fresh install)
-- Minimum 2GB RAM
-- 20GB disk space
+| Feature | Description |
+|---------|-------------|
+| **HAProxy** | Load balancer with SSL termination, stats dashboard, frontend/backend management |
+| **MongoDB** | NoSQL database (v7.0/8.0) with web panel management |
+| **Node.js** | Multi-version support (NVM) with PM2 process manager |
+| **Python** | Multi-version support (Pyenv) with Gunicorn WSGI server |
+| **RabbitMQ** | Message broker with Management UI |
+| **Apache Kafka** | Streaming platform with Kafka UI |
+| **Redis** | In-memory cache with config editor |
 
-## Quick Install
+## 📋 Requirements
+
+- **OS:** Ubuntu 24.04 LTS (fresh install only)
+- **RAM:** Minimum 2GB (4GB+ recommended)
+- **Disk:** 20GB+ free space
+- **Access:** Root SSH access
+
+## 🚀 Installation
+
+### Option 1: Interactive Installer (Recommended)
+
+Generate your custom installation command at:
+
+### 👉 **[https://vietdev99.github.io/vhestiacp/](https://vietdev99.github.io/vhestiacp/)**
+
+Select your options and copy the generated command.
+
+---
+
+### Option 2: Manual Installation
 
 ```bash
-# Download installer
-wget https://raw.githubusercontent.com/your-repo/vhestiacp/main/install/vhst-install.sh
+# Clone repository
+git clone https://github.com/vietdev99/vhestiacp.git
+cd vhestiacp/install
 
-# Run with minimal options (auto-detect hostname)
-sudo bash vhst-install.sh --email admin@example.com --interactive no
-
-# Or with full options
-sudo bash vhst-install.sh \
-  --hostname server.example.com \
-  --email admin@example.com \
+# Run installer with options
+bash hst-install-ubuntu.sh \
+  -e admin@example.com \
   --haproxy yes \
   --mongodb yes \
-  --mongodb-version 7.0 \
   --nodejs yes \
   --python yes \
-  --interactive no
+  --rabbitmq yes \
+  --kafka yes \
+  --redis yes \
+  -f
 ```
 
-## New Features
+### Installation Options
 
-### HAProxy Load Balancer
-- SSL termination or passthrough mode
-- Stats dashboard on port 8404
-- Multiple backend support
-- Admin panel integration
+| Option | Description | Default |
+|--------|-------------|---------|
+| `-e, --email` | Admin email | required |
+| `-s, --hostname` | Server hostname | auto-detect |
+| `-p, --password` | Admin password | auto-generate |
+| `--haproxy` | Install HAProxy | no |
+| `--haproxy-stats` | Enable stats dashboard | yes |
+| `--mongodb` | Install MongoDB | no |
+| `--mongodb-version` | MongoDB version (7.0/8.0) | 8.0 |
+| `--nodejs` | Install Node.js/PM2 | no |
+| `--nodejs-versions` | Node versions (18,20,22) | 20 |
+| `--python` | Install Python/Gunicorn | no |
+| `--rabbitmq` | Install RabbitMQ | no |
+| `--rabbitmq-management` | RabbitMQ Management UI | yes |
+| `--kafka` | Install Apache Kafka | no |
+| `--kafka-ui` | Kafka Web UI | yes |
+| `--redis` | Install Redis cache | no |
+| `-f, --force` | Non-interactive mode | no |
 
-### MongoDB
-- Version selection (4.4 - 7.0)
-- Database management in web panel
-- User management with role-based access
+## 🖥️ Web Panel
 
-### Node.js
-- Multi-version support via NVM
-- PM2 process management
-- Web panel integration
+### New Navigation Tabs
 
-### Python
-- Multi-version support via Pyenv
-- Gunicorn integration
-- Systemd service management
+| Tab | Features |
+|-----|----------|
+| **MONGO** | Create databases, manage users, view connection strings |
+| **NODE** | PM2 apps, multi-version Node.js, process management |
+| **PYTHON** | Gunicorn apps, virtual environments, multi-version Python |
+| **HAProxy** | Frontends, backends, listen blocks, config editor |
 
-## Web Panel Navigation
+### Server → Services
 
-New tabs:
-- **MONGO** - MongoDB database management
-- **NODE** - Node.js/PM2 applications
-- **PYTHON** - Python/Gunicorn applications
-- **HAProxy** button in Server > Services
+All VHestiaCP services appear in the services list:
+- HAProxy
+- MongoDB  
+- RabbitMQ
+- Kafka
+- Redis
 
-## License
+### Server → Configure → VHestiaCP Extensions
+
+View and manage:
+- Service status and credentials
+- Configuration editors
+- Quick links to management UIs
+
+## 🔐 Service Credentials
+
+After installation, credentials are stored in:
+
+| Service | Config File |
+|---------|-------------|
+| MongoDB | `/usr/local/hestia/conf/mongodb.conf` |
+| RabbitMQ | `/usr/local/hestia/conf/rabbitmq.conf` |
+| Kafka | `/usr/local/hestia/conf/kafka.conf` |
+| Redis | `/usr/local/hestia/conf/redis.conf` |
+
+Access via Admin Panel: **Server → Configure → VHestiaCP Extensions**
+
+## 🔗 Default Ports
+
+| Service | Port | Description |
+|---------|------|-------------|
+| HAProxy Stats | 8404 | Statistics dashboard |
+| MongoDB | 27017 | Database connection |
+| RabbitMQ AMQP | 5672 | Message broker |
+| RabbitMQ Management | 15672 | Web UI |
+| Kafka Broker | 9092 | Streaming |
+| Kafka UI | 8090 | Web UI |
+| Redis | 6379 | Cache |
+
+## 📖 Documentation
+
+- [HestiaCP Documentation](https://hestiacp.com/docs/)
+- [VHestiaCP Installer](https://vietdev99.github.io/vhestiacp/)
+
+## 🤝 Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 📄 License
 
 GPLv3 - Same as HestiaCP
+
+---
+
+**VHestiaCP** - Modern hosting control panel for full-stack applications
