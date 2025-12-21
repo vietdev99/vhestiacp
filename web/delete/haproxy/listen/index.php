@@ -1,44 +1,48 @@
 <?php
+use function Hestiacp\quoteshellarg\quoteshellarg;
+
 include $_SERVER["DOCUMENT_ROOT"] . "/inc/main.php";
 
 if ($_SESSION["userContext"] !== "admin") {
-	header("Location: /list/user");
-	exit();
+    header("Location: /list/user");
+    exit();
 }
 
 // Verify token
 if (empty($_GET['token']) || $_GET['token'] !== $_SESSION['token']) {
-	header("Location: /list/haproxy/");
-	exit();
+    header("Location: /list/haproxy/");
+    exit();
 }
 
 $name = $_GET['name'] ?? '';
 
 if (!empty($name) && preg_match('/^[a-zA-Z0-9_-]+$/', $name)) {
-	$cfg_file = '/etc/haproxy/haproxy.cfg';
-	if (file_exists($cfg_file)) {
-		$config = file_get_contents($cfg_file);
-		
-		// Remove listen section
-		$pattern = '/\nlisten\s+' . preg_quote($name, '/') . '\s*\n([ \t]+[^\n]+\n)*/';
-		$new_config = preg_replace($pattern, "\n", $config);
-		
-		if ($new_config !== $config) {
-			// Backup
-			copy($cfg_file, $cfg_file . '.bak');
-			file_put_contents($cfg_file, $new_config);
-			
-			// Validate
-			exec("/usr/sbin/haproxy -c -f {$cfg_file} 2>&1", $output, $return);
-			if ($return !== 0) {
-				copy($cfg_file . '.bak', $cfg_file);
-				$_SESSION['error_msg'] = _("Could not remove listen section - config validation failed.");
-			} else {
-				exec("systemctl reload haproxy 2>&1");
-				$_SESSION['ok_msg'] = _("Listen section deleted successfully.");
-			}
-		}
-	}
+    $cfg_file = '/etc/haproxy/haproxy.cfg';
+    if (file_exists($cfg_file)) {
+        $config = file_get_contents($cfg_file);
+        
+        // Remove listen section
+        $pattern = '/\nlisten\s+' . preg_quote($name, '/') . '\s*\n([ \t]+[^\n]+\n)*/';
+        $new_config = preg_replace($pattern, "\n", $config);
+        
+        if ($new_config !== $config) {
+            // Save to temp file and use hestia script
+            $temp_config = tempnam("/tmp", "haproxy_del_ls_");
+            file_put_contents($temp_config, $new_config);
+            chmod($temp_config, 0644);
+            
+            exec(HESTIA_CMD . "v-update-sys-haproxy-config " . escapeshellarg($temp_config) . " 2>&1", $output, $return_var);
+            unlink($temp_config);
+            
+            if ($return_var === 0) {
+                $_SESSION['ok_msg'] = _("Listen section deleted successfully.");
+            } else {
+                $_SESSION['error_msg'] = _("Failed to delete listen section: ") . implode("<br>", $output);
+            }
+        } else {
+            $_SESSION['error_msg'] = _("Listen section not found.");
+        }
+    }
 }
 
 header("Location: /list/haproxy/");
