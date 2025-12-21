@@ -1,7 +1,8 @@
 #!/bin/bash
 #==========================================================================
-# VHestiaCP Complete Fix Script
+# VHestiaCP Complete Fix Script v1.0
 # Fixes HAProxy permissions for all operations (add/edit/delete)
+# Run: bash complete-fix.sh
 #==========================================================================
 
 HESTIA="/usr/local/hestia"
@@ -12,11 +13,11 @@ if [ "$(id -u)" != "0" ]; then
 fi
 
 echo "=============================================="
-echo "VHestiaCP Complete Fix Script"
+echo "VHestiaCP Complete Fix Script v1.0"
 echo "=============================================="
 echo ""
 
-echo "[1/9] Updating sudoers..."
+echo "[1/8] Updating sudoers..."
 cat > /etc/sudoers.d/hestiaweb << 'EOF'
 Defaults:root !requiretty
 Defaults:hestiaweb !requiretty
@@ -35,12 +36,12 @@ chmod 440 /etc/sudoers.d/hestiaweb
 echo "    ✓ Done"
 
 echo ""
-echo "[2/9] Updating HESTIA_CMD in main.php..."
+echo "[2/8] Updating HESTIA_CMD in main.php..."
 sed -i 's|define("HESTIA_CMD", "/usr/bin/sudo /usr/local/hestia/bin/");|define("HESTIA_CMD", "/usr/bin/sudo -n /usr/local/hestia/bin/");|g' "$HESTIA/web/inc/main.php"
 echo "    ✓ Done"
 
 echo ""
-echo "[3/9] Creating v-update-sys-haproxy-config..."
+echo "[3/8] Creating v-update-sys-haproxy-config..."
 cat > "$HESTIA/bin/v-update-sys-haproxy-config" << 'SCRIPTEOF'
 #!/bin/bash
 config_input=$1
@@ -70,9 +71,10 @@ chmod 755 "$HESTIA/bin/v-update-sys-haproxy-config"
 echo "    ✓ Done"
 
 echo ""
-echo "[4/9] Updating edit controllers..."
+echo "[4/8] Updating HAProxy edit controllers..."
 
 # /edit/server/haproxy/index.php
+mkdir -p "$HESTIA/web/edit/server/haproxy"
 cat > "$HESTIA/web/edit/server/haproxy/index.php" << 'PHPEOF'
 <?php
 use function Hestiacp\quoteshellarg\quoteshellarg;
@@ -113,6 +115,7 @@ unset($_SESSION["error_msg"]); unset($_SESSION["ok_msg"]);
 PHPEOF
 
 # /edit/haproxy/index.php
+mkdir -p "$HESTIA/web/edit/haproxy"
 cat > "$HESTIA/web/edit/haproxy/index.php" << 'PHPEOF'
 <?php
 use function Hestiacp\quoteshellarg\quoteshellarg;
@@ -131,9 +134,6 @@ $config_file = '/etc/haproxy/haproxy.cfg';
 $v_config = file_exists($config_file) ? file_get_contents($config_file) : "";
 exec("systemctl is-active haproxy 2>/dev/null", $status_output, $status_return);
 $v_status = ($status_return === 0) ? 'running' : 'stopped';
-$v_stats_enabled = $_SESSION['HAPROXY_STATS'] ?? 'no';
-$v_stats_port = $_SESSION['HAPROXY_STATS_PORT'] ?? '8404';
-$v_stats_user = $_SESSION['HAPROXY_STATS_USER'] ?? 'admin';
 
 if (!empty($_POST["ok"])) {
     verify_csrf($_POST);
@@ -157,137 +157,7 @@ PHPEOF
 echo "    ✓ Done"
 
 echo ""
-echo "[5/9] Updating frontend/backend/listen edit controllers..."
-
-cat > "$HESTIA/web/edit/haproxy/frontend/index.php" << 'PHPEOF'
-<?php
-use function Hestiacp\quoteshellarg\quoteshellarg;
-ob_start();
-$TAB = "HAPROXY";
-include $_SERVER["DOCUMENT_ROOT"] . "/inc/main.php";
-if ($_SESSION["userContext"] !== "admin") { header("Location: /list/user"); exit(); }
-$name = $_GET["name"] ?? "";
-if (empty($name)) { header("Location: /list/haproxy/"); exit(); }
-$config_file = "/etc/haproxy/haproxy.cfg";
-if (!empty($_POST["ok"])) {
-    verify_csrf($_POST);
-    $new_name = trim($_POST["v_name"] ?? $name);
-    $new_config = $_POST["v_config"] ?? "";
-    if (!empty($new_name) && !empty($new_config)) {
-        $config = file_get_contents($config_file);
-        $pattern = '/^frontend\s+' . preg_quote($name, '/') . '\s*\n((?:(?!^(?:frontend|backend|listen|global|defaults)\s).*\n)*)/m';
-        $new_section = "frontend " . $new_name . "\n" . $new_config . "\n";
-        if (preg_match($pattern, $config)) {
-            $new_full_config = preg_replace($pattern, $new_section, $config);
-            $temp_config = tempnam("/tmp", "haproxy_fe_");
-            file_put_contents($temp_config, $new_full_config);
-            chmod($temp_config, 0644);
-            exec(HESTIA_CMD . "v-update-sys-haproxy-config " . escapeshellarg($temp_config) . " 2>&1", $output, $return_var);
-            unlink($temp_config);
-            if ($return_var === 0) {
-                $_SESSION["ok_msg"] = sprintf(_("Frontend '%s' updated."), htmlspecialchars($new_name));
-                header("Location: /list/haproxy/"); exit();
-            } else { $_SESSION["error_msg"] = _("Failed: ") . implode("<br>", $output); }
-        } else { $_SESSION["error_msg"] = sprintf(_("Frontend '%s' not found."), htmlspecialchars($name)); }
-    }
-}
-$section_config = "";
-if (file_exists($config_file)) {
-    $config = file_get_contents($config_file);
-    $pattern = '/^frontend\s+' . preg_quote($name, '/') . '\s*\n((?:(?!^(?:frontend|backend|listen|global|defaults)\s).*\n)*)/m';
-    if (preg_match($pattern, $config, $matches)) $section_config = trim($matches[1]);
-}
-$v_name = $name; $v_config = $section_config;
-render_page($user, $TAB, "edit_haproxy_section");
-PHPEOF
-
-cat > "$HESTIA/web/edit/haproxy/backend/index.php" << 'PHPEOF'
-<?php
-use function Hestiacp\quoteshellarg\quoteshellarg;
-ob_start();
-$TAB = "HAPROXY";
-include $_SERVER["DOCUMENT_ROOT"] . "/inc/main.php";
-if ($_SESSION["userContext"] !== "admin") { header("Location: /list/user"); exit(); }
-$name = $_GET["name"] ?? "";
-if (empty($name)) { header("Location: /list/haproxy/"); exit(); }
-$config_file = "/etc/haproxy/haproxy.cfg";
-if (!empty($_POST["ok"])) {
-    verify_csrf($_POST);
-    $new_name = trim($_POST["v_name"] ?? $name);
-    $new_config = $_POST["v_config"] ?? "";
-    if (!empty($new_name) && !empty($new_config)) {
-        $config = file_get_contents($config_file);
-        $pattern = '/^backend\s+' . preg_quote($name, '/') . '\s*\n((?:(?!^(?:frontend|backend|listen|global|defaults)\s).*\n)*)/m';
-        $new_section = "backend " . $new_name . "\n" . $new_config . "\n";
-        if (preg_match($pattern, $config)) {
-            $new_full_config = preg_replace($pattern, $new_section, $config);
-            $temp_config = tempnam("/tmp", "haproxy_be_");
-            file_put_contents($temp_config, $new_full_config);
-            chmod($temp_config, 0644);
-            exec(HESTIA_CMD . "v-update-sys-haproxy-config " . escapeshellarg($temp_config) . " 2>&1", $output, $return_var);
-            unlink($temp_config);
-            if ($return_var === 0) {
-                $_SESSION["ok_msg"] = sprintf(_("Backend '%s' updated."), htmlspecialchars($new_name));
-                header("Location: /list/haproxy/"); exit();
-            } else { $_SESSION["error_msg"] = _("Failed: ") . implode("<br>", $output); }
-        } else { $_SESSION["error_msg"] = sprintf(_("Backend '%s' not found."), htmlspecialchars($name)); }
-    }
-}
-$section_config = "";
-if (file_exists($config_file)) {
-    $config = file_get_contents($config_file);
-    $pattern = '/^backend\s+' . preg_quote($name, '/') . '\s*\n((?:(?!^(?:frontend|backend|listen|global|defaults)\s).*\n)*)/m';
-    if (preg_match($pattern, $config, $matches)) $section_config = trim($matches[1]);
-}
-$v_name = $name; $v_config = $section_config; $v_section_type = "backend";
-render_page($user, $TAB, "edit_haproxy_section");
-PHPEOF
-
-cat > "$HESTIA/web/edit/haproxy/listen/index.php" << 'PHPEOF'
-<?php
-use function Hestiacp\quoteshellarg\quoteshellarg;
-ob_start();
-$TAB = "HAPROXY";
-include $_SERVER["DOCUMENT_ROOT"] . "/inc/main.php";
-if ($_SESSION["userContext"] !== "admin") { header("Location: /list/user"); exit(); }
-$name = $_GET["name"] ?? "";
-if (empty($name)) { header("Location: /list/haproxy/"); exit(); }
-$config_file = "/etc/haproxy/haproxy.cfg";
-if (!empty($_POST["ok"])) {
-    verify_csrf($_POST);
-    $new_name = trim($_POST["v_name"] ?? $name);
-    $new_config = $_POST["v_config"] ?? "";
-    if (!empty($new_name) && !empty($new_config)) {
-        $config = file_get_contents($config_file);
-        $pattern = '/^listen\s+' . preg_quote($name, '/') . '\s*\n((?:(?!^(?:frontend|backend|listen|global|defaults)\s).*\n)*)/m';
-        $new_section = "listen " . $new_name . "\n" . $new_config . "\n";
-        if (preg_match($pattern, $config)) {
-            $new_full_config = preg_replace($pattern, $new_section, $config);
-            $temp_config = tempnam("/tmp", "haproxy_ls_");
-            file_put_contents($temp_config, $new_full_config);
-            chmod($temp_config, 0644);
-            exec(HESTIA_CMD . "v-update-sys-haproxy-config " . escapeshellarg($temp_config) . " 2>&1", $output, $return_var);
-            unlink($temp_config);
-            if ($return_var === 0) {
-                $_SESSION["ok_msg"] = sprintf(_("Listen '%s' updated."), htmlspecialchars($new_name));
-                header("Location: /list/haproxy/"); exit();
-            } else { $_SESSION["error_msg"] = _("Failed: ") . implode("<br>", $output); }
-        } else { $_SESSION["error_msg"] = sprintf(_("Listen '%s' not found."), htmlspecialchars($name)); }
-    }
-}
-$section_config = "";
-if (file_exists($config_file)) {
-    $config = file_get_contents($config_file);
-    $pattern = '/^listen\s+' . preg_quote($name, '/') . '\s*\n((?:(?!^(?:frontend|backend|listen|global|defaults)\s).*\n)*)/m';
-    if (preg_match($pattern, $config, $matches)) $section_config = trim($matches[1]);
-}
-$v_name = $name; $v_config = $section_config; $v_section_type = "listen";
-render_page($user, $TAB, "edit_haproxy_section");
-PHPEOF
-echo "    ✓ Done"
-
-echo ""
-echo "[6/9] Updating add controllers..."
+echo "[5/8] Updating HAProxy add controllers..."
 
 mkdir -p "$HESTIA/web/add/haproxy/frontend"
 mkdir -p "$HESTIA/web/add/haproxy/backend"
@@ -315,6 +185,13 @@ if (!empty($_POST)) {
     if (empty($bind)) {
         $_SESSION['error_msg'] = _("Bind address is required.");
         header("Location: /add/haproxy/frontend/"); exit();
+    }
+    
+    // Auto-fix bind format: if just port number, add *:
+    if (preg_match('/^\d+$/', $bind)) {
+        $bind = "*:" . $bind;
+    } elseif (preg_match('/^:\d+$/', $bind)) {
+        $bind = "*" . $bind;
     }
     
     $new_frontend = "\nfrontend {$name}\n    bind {$bind}\n    mode {$mode}\n";
@@ -408,7 +285,7 @@ PHPEOF
 echo "    ✓ Done"
 
 echo ""
-echo "[7/9] Updating delete controllers..."
+echo "[6/8] Updating HAProxy delete controllers..."
 
 mkdir -p "$HESTIA/web/delete/haproxy/frontend"
 mkdir -p "$HESTIA/web/delete/haproxy/backend"
@@ -497,7 +374,7 @@ PHPEOF
 echo "    ✓ Done"
 
 echo ""
-echo "[8/9] Updating hestia.conf..."
+echo "[7/8] Updating hestia.conf..."
 config_file="$HESTIA/conf/hestia.conf"
 systemctl is-active --quiet haproxy 2>/dev/null && grep -q "HAPROXY_SYSTEM" "$config_file" || echo "HAPROXY_SYSTEM='yes'" >> "$config_file"
 systemctl is-active --quiet rabbitmq-server 2>/dev/null && grep -q "RABBITMQ_SYSTEM" "$config_file" || echo "RABBITMQ_SYSTEM='yes'" >> "$config_file"
@@ -507,7 +384,7 @@ systemctl is-active --quiet mongod 2>/dev/null && grep -q "MONGODB_SYSTEM" "$con
 echo "    ✓ Done"
 
 echo ""
-echo "[9/9] Restarting services..."
+echo "[8/8] Restarting services..."
 systemctl restart hestia 2>/dev/null
 echo "    ✓ Done"
 
