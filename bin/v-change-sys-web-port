@@ -1,0 +1,303 @@
+#!/bin/bash
+# info: change web server port
+# options: PORT [SSL_PORT]
+#
+# example: v-change-sys-web-port 8080 8443
+#
+# This function changes the web server listening ports.
+# Used when HAProxy needs to take over ports 80/443.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+web_port=${1:-8080}
+web_ssl_port=${2:-8443}
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if running as root
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+# Validate port numbers
+if ! [[ "$web_port" =~ ^[0-9]+$ ]] || [ "$web_port" -lt 1 ] || [ "$web_port" -gt 65535 ]; then
+    echo "Error: Invalid HTTP port: $web_port"
+    exit 1
+fi
+
+if ! [[ "$web_ssl_port" =~ ^[0-9]+$ ]] || [ "$web_ssl_port" -lt 1 ] || [ "$web_ssl_port" -gt 65535 ]; then
+    echo "Error: Invalid HTTPS port: $web_ssl_port"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Changing web server ports to HTTP:$web_port HTTPS:$web_ssl_port..."
+
+# Create backup directory
+backup_dir="/root/hestia_port_backup_$(date +%Y%m%d_%H%M%S)"
+mkdir -p "$backup_dir"
+echo "Backup directory: $backup_dir"
+
+# ============================================
+# Update Nginx configuration
+# ============================================
+if [ -d /etc/nginx ]; then
+    echo ""
+    echo "Updating Nginx configuration..."
+    
+    # Backup nginx configs
+    cp -r /etc/nginx "$backup_dir/"
+    
+    # Function to update ports using perl (more reliable than sed for complex patterns)
+    update_ports_perl() {
+        local file="$1"
+        local http="$2"
+        local https="$3"
+        
+        if [ -f "$file" ]; then
+            # Update HTTP ports (80 -> new port)
+            perl -pi -e "s/listen\s+(\d+\.\d+\.\d+\.\d+):80(\s|;)/listen \$1:${http}\$2/g" "$file"
+            perl -pi -e "s/listen\s+80(\s|;)/listen ${http}\$1/g" "$file"
+            perl -pi -e "s/listen\s+\[::\]:80/listen [::]:${http}/g" "$file"
+            
+            # Update HTTPS ports (443 -> new port)
+            perl -pi -e "s/listen\s+(\d+\.\d+\.\d+\.\d+):443(\s|;)/listen \$1:${https}\$2/g" "$file"
+            perl -pi -e "s/listen\s+443(\s|;)/listen ${https}\$1/g" "$file"
+            perl -pi -e "s/listen\s+\[::\]:443/listen [::]:${https}/g" "$file"
+        fi
+    }
+    
+    # Update /etc/nginx/conf.d/*.conf (including IP configs like 192.168.0.125.conf)
+    echo "  Updating /etc/nginx/conf.d/*.conf..."
+    for conf in /etc/nginx/conf.d/*.conf; do
+        update_ports_perl "$conf" "$web_port" "$web_ssl_port"
+    done
+    
+    # Update /etc/nginx/conf.d/domains/*.conf
+    echo "  Updating /etc/nginx/conf.d/domains/*.conf..."
+    if [ -d /etc/nginx/conf.d/domains ]; then
+        for conf in /etc/nginx/conf.d/domains/*.conf; do
+            update_ports_perl "$conf" "$web_port" "$web_ssl_port"
+        done
+        echo "    Updated $(ls /etc/nginx/conf.d/domains/*.conf 2>/dev/null | wc -l) domain config(s)"
+    fi
+    
+    # Update nginx.conf
+    if [ -f /etc/nginx/nginx.conf ]; then
+        update_ports_perl "/etc/nginx/nginx.conf" "$web_port" "$web_ssl_port"
+    fi
+    
+    # Update Hestia's internal nginx configs (skip 8083 panel port)
+    if [ -d "$HESTIA/nginx/conf.d" ]; then
+        for conf in "$HESTIA/nginx/conf.d"/*.conf; do
+            if [ -f "$conf" ] && ! grep -q ":8083" "$conf"; then
+                update_ports_perl "$conf" "$web_port" "$web_ssl_port"
+            fi
+        done
+    fi
+    
+    # Update user domain configs in /home/*/conf/web/*/
+    echo "  Updating /home/*/conf/web/*/*.nginx*.conf..."
+    for domain_conf in /home/*/conf/web/*/*.nginx.conf /home/*/conf/web/*/*.nginx.ssl.conf; do
+        update_ports_perl "$domain_conf" "$web_port" "$web_ssl_port"
+    done
+    
+    # Update template for future IPs
+    if [ -f "$HESTIA/install/deb/nginx/unassigned.inc" ]; then
+        sed -i "s|directPORT|$web_port|g" "$HESTIA/install/deb/nginx/unassigned.inc"
+        sed -i "s|directSSLPORT|$web_ssl_port|g" "$HESTIA/install/deb/nginx/unassigned.inc"
+    fi
+    
+    # Verify no configs still have port 80
+    echo ""
+    echo "  Checking for remaining port 80 configs..."
+    remaining=$(grep -r "listen.*:80[^0-9]" /etc/nginx/conf.d/ 2>/dev/null | grep -v "#" | wc -l)
+    if [ "$remaining" -gt 0 ]; then
+        echo "    ⚠️ Found $remaining config(s) still with port 80:"
+        grep -r "listen.*:80[^0-9]" /etc/nginx/conf.d/ 2>/dev/null | grep -v "#"
+    else
+        echo "    ✅ All nginx configs updated to port $web_port"
+    fi
+fi
+
+# ============================================
+# Update Apache configuration (if installed)
+# ============================================
+if [ -d /etc/apache2 ] && systemctl is-enabled apache2 >/dev/null 2>&1; then
+    echo ""
+    echo "Updating Apache configuration..."
+    
+    # Backup apache configs
+    cp -r /etc/apache2 "$backup_dir/"
+    
+    # Update ports.conf
+    if [ -f /etc/apache2/ports.conf ]; then
+        sed -i "s|Listen 80|Listen $web_port|g" /etc/apache2/ports.conf
+        sed -i "s|Listen 443|Listen $web_ssl_port|g" /etc/apache2/ports.conf
+    fi
+    
+    # Update virtual host configs
+    for conf in /etc/apache2/sites-available/*.conf /etc/apache2/conf.d/*.conf; do
+        if [ -f "$conf" ]; then
+            sed -i "s|<VirtualHost \*:80>|<VirtualHost *:$web_port>|g" "$conf"
+            sed -i "s|<VirtualHost \*:443>|<VirtualHost *:$web_ssl_port>|g" "$conf"
+        fi
+    done
+fi
+
+# ============================================
+# Update Hestia configuration
+# ============================================
+echo ""
+echo "Updating Hestia configuration..."
+
+HESTIA_CONF="$HESTIA/conf/hestia.conf"
+
+# Update WEB_PORT
+echo "  Updating WEB_PORT to $web_port..."
+if grep -q "^WEB_PORT=" "$HESTIA_CONF"; then
+    sed -i "s|^WEB_PORT=.*|WEB_PORT='$web_port'|" "$HESTIA_CONF"
+else
+    echo "WEB_PORT='$web_port'" >> "$HESTIA_CONF"
+fi
+
+# Update WEB_SSL_PORT
+echo "  Updating WEB_SSL_PORT to $web_ssl_port..."
+if grep -q "^WEB_SSL_PORT=" "$HESTIA_CONF"; then
+    sed -i "s|^WEB_SSL_PORT=.*|WEB_SSL_PORT='$web_ssl_port'|" "$HESTIA_CONF"
+else
+    echo "WEB_SSL_PORT='$web_ssl_port'" >> "$HESTIA_CONF"
+fi
+
+# Update PROXY_PORT
+echo "  Updating PROXY_PORT to $web_port..."
+if grep -q "^PROXY_PORT=" "$HESTIA_CONF"; then
+    sed -i "s|^PROXY_PORT=.*|PROXY_PORT='$web_port'|" "$HESTIA_CONF"
+else
+    echo "PROXY_PORT='$web_port'" >> "$HESTIA_CONF"
+fi
+
+# Update PROXY_SSL_PORT
+echo "  Updating PROXY_SSL_PORT to $web_ssl_port..."
+if grep -q "^PROXY_SSL_PORT=" "$HESTIA_CONF"; then
+    sed -i "s|^PROXY_SSL_PORT=.*|PROXY_SSL_PORT='$web_ssl_port'|" "$HESTIA_CONF"
+else
+    echo "PROXY_SSL_PORT='$web_ssl_port'" >> "$HESTIA_CONF"
+fi
+
+# Store original ports for reference
+if ! grep -q "^WEB_PORT_ORIGINAL=" "$HESTIA_CONF"; then
+    echo "WEB_PORT_ORIGINAL='80'" >> "$HESTIA_CONF"
+    echo "WEB_SSL_PORT_ORIGINAL='443'" >> "$HESTIA_CONF"
+fi
+
+# Verify config
+echo ""
+echo "  Verifying configuration:"
+grep -E "^WEB_PORT=|^WEB_SSL_PORT=|^PROXY_PORT=|^PROXY_SSL_PORT=" "$HESTIA_CONF"
+
+# ============================================
+# Rebuild all user web domains
+# ============================================
+echo ""
+echo "Rebuilding web domains with new ports..."
+
+for user in $($HESTIA/bin/v-list-users plain | cut -f1); do
+    if [ -f "$HESTIA/data/users/$user/web.conf" ]; then
+        echo "  Rebuilding domains for user: $user"
+        $HESTIA/bin/v-rebuild-web-domains "$user" no > /dev/null 2>&1
+    fi
+done
+
+# ============================================
+# Restart services
+# ============================================
+echo ""
+echo "Restarting web services..."
+
+if [ -d /etc/nginx ]; then
+    # Test nginx config
+    nginx -t > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        systemctl restart nginx
+        sleep 2
+        
+        # Verify nginx is on new port
+        if ss -tlnp 2>/dev/null | grep -q ":${web_port}.*nginx"; then
+            echo "  ✅ Nginx restarted on port $web_port"
+        else
+            echo "  ⚠️ Nginx restarted but port verification pending"
+        fi
+        
+        # Check nginx is NOT on port 80
+        if [ "$web_port" != "80" ] && ss -tlnp 2>/dev/null | grep -q ":80.*nginx"; then
+            echo "  ❌ WARNING: Nginx still listening on port 80!"
+        fi
+    else
+        echo "  ERROR: Nginx configuration test failed!"
+        nginx -t
+        echo "  Restoring backup..."
+        cp -r "$backup_dir/nginx/"* /etc/nginx/
+        systemctl restart nginx
+        exit 1
+    fi
+fi
+
+# Only check Apache if it's actually installed and enabled
+if [ -d /etc/apache2 ] && systemctl is-enabled apache2 >/dev/null 2>&1; then
+    apache2ctl configtest > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        systemctl restart apache2
+        echo "  Apache restarted successfully"
+    else
+        echo "  ERROR: Apache configuration test failed!"
+        cp -r "$backup_dir/apache2/"* /etc/apache2/
+        systemctl restart apache2
+        exit 1
+    fi
+fi
+
+# ============================================
+# Update firewall rules
+# ============================================
+echo ""
+echo "Updating firewall rules..."
+
+$HESTIA/bin/v-add-firewall-rule ACCEPT 0.0.0.0/0 $web_port TCP "Web HTTP" 2>/dev/null || true
+$HESTIA/bin/v-add-firewall-rule ACCEPT 0.0.0.0/0 $web_ssl_port TCP "Web HTTPS" 2>/dev/null || true
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo ""
+echo "═══════════════════════════════════════════════════════════"
+echo "  Web server ports changed successfully!"
+echo "═══════════════════════════════════════════════════════════"
+echo ""
+echo "  HTTP Port:  $web_port"
+echo "  HTTPS Port: $web_ssl_port"
+echo ""
+echo "  Backup saved to: $backup_dir"
+echo ""
+echo "  Ports 80 and 443 are now available for HAProxy."
+echo ""
+
+# Logging
+$HESTIA/bin/v-log-action "system" "Info" "System" "Web ports changed to $web_port/$web_ssl_port"
+
+exit 0

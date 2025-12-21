@@ -1,0 +1,296 @@
+#!/bin/bash
+# info: setup admin tools routing for HAProxy (phpMyAdmin, Mongo Express, etc.)
+# options: NONE
+#
+# example: v-setup-haproxy-admin-routes
+#
+# This script configures HAProxy and Nginx to properly route admin tools
+# when accessed via server IP (not domain). This fixes the issue where
+# IP/phpMyAdmin returns 404 after changing nginx port to 8080.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+# Check if HAProxy is installed
+if ! command -v haproxy &> /dev/null; then
+    echo "Error: HAProxy is not installed"
+    echo "Run: v-add-sys-haproxy"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "  Setting up Admin Tools Routing"
+echo "═══════════════════════════════════════════════════════════════"
+echo ""
+
+# Get current web port
+WEB_PORT=$(grep "^WEB_PORT=" $HESTIA/conf/hestia.conf 2>/dev/null | cut -d"'" -f2)
+WEB_PORT=${WEB_PORT:-8080}
+
+echo "Current Web Port: $WEB_PORT"
+echo ""
+
+# ============================================
+# Step 1: Update HAProxy configuration
+# ============================================
+echo "Step 1: Updating HAProxy configuration..."
+
+HAPROXY_CFG="/etc/haproxy/haproxy.cfg"
+
+# Check if admin_tools_backend already exists
+if grep -q "backend admin_tools_backend" "$HAPROXY_CFG"; then
+    echo "  Admin tools backend already configured in HAProxy"
+else
+    echo "  Adding admin tools routing to HAProxy..."
+    
+    # Backup
+    cp "$HAPROXY_CFG" "${HAPROXY_CFG}.backup.$(date +%Y%m%d_%H%M%S)"
+    
+    # Add ACLs to HTTP frontend
+    if grep -q "frontend http_front" "$HAPROXY_CFG"; then
+        # Check if ACLs already exist
+        if ! grep -q "is_phpmyadmin" "$HAPROXY_CFG"; then
+            sed -i '/frontend http_front/,/default_backend/ {
+                /default_backend/i\    # Admin Tools - forward to Nginx\n    acl is_phpmyadmin path_beg /phpmyadmin /phpMyAdmin /pma /PMA\n    acl is_mongoexpress path_beg /mongo-express /mongoexpress /mongoadmin\n    acl is_roundcube path_beg /webmail /roundcube /mail\n    use_backend admin_tools_backend if is_phpmyadmin\n    use_backend admin_tools_backend if is_mongoexpress\n    use_backend admin_tools_backend if is_roundcube\n
+            }' "$HAPROXY_CFG"
+        fi
+    fi
+    
+    # Add ACLs to HTTPS frontend
+    if grep -q "frontend https_front" "$HAPROXY_CFG"; then
+        if ! grep -q "is_phpmyadmin" "$HAPROXY_CFG" | grep -q "https_front"; then
+            sed -i '/frontend https_front/,/default_backend/ {
+                /default_backend/i\    # Admin Tools - forward to Nginx\n    acl is_phpmyadmin path_beg /phpmyadmin /phpMyAdmin /pma /PMA\n    acl is_mongoexpress path_beg /mongo-express /mongoexpress /mongoadmin\n    acl is_roundcube path_beg /webmail /roundcube /mail\n    use_backend admin_tools_backend if is_phpmyadmin\n    use_backend admin_tools_backend if is_mongoexpress\n    use_backend admin_tools_backend if is_roundcube\n
+            }' "$HAPROXY_CFG"
+        fi
+    fi
+    
+    # Add admin_tools_backend if not exists
+    if ! grep -q "backend admin_tools_backend" "$HAPROXY_CFG"; then
+        cat >> "$HAPROXY_CFG" << EOF
+
+#---------------------------------------------------------------------
+# Admin Tools Backend (Nginx on $WEB_PORT)
+# Handles phpMyAdmin, Mongo Express, Roundcube when accessed via IP
+#---------------------------------------------------------------------
+backend admin_tools_backend
+    mode http
+    option forwardfor
+    http-request set-header X-Real-IP %[src]
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    http-request set-header X-Forwarded-Proto http if !{ ssl_fc }
+    server nginx 127.0.0.1:$WEB_PORT
+EOF
+    fi
+    
+    echo "  ✅ HAProxy configuration updated"
+fi
+
+# ============================================
+# Step 2: Update Nginx default server
+# ============================================
+echo ""
+echo "Step 2: Updating Nginx default server configuration..."
+
+# Find nginx default config
+NGINX_DEFAULT="/etc/nginx/conf.d/default.conf"
+if [ ! -f "$NGINX_DEFAULT" ]; then
+    NGINX_DEFAULT="/etc/nginx/sites-available/default"
+fi
+
+# Create admin tools include file
+ADMIN_TOOLS_INC="/etc/nginx/conf.d/admin-tools.inc"
+
+echo "  Creating admin tools include file..."
+
+cat > "$ADMIN_TOOLS_INC" << 'EOF'
+# VHestiaCP Admin Tools Configuration
+# Include this in your default server block
+
+# phpMyAdmin
+location /phpmyadmin {
+    alias /usr/share/phpmyadmin;
+    index index.php index.html;
+    
+    location ~ \.php$ {
+        fastcgi_pass unix:/run/php/php-fpm.sock;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $request_filename;
+        include fastcgi_params;
+    }
+    
+    location ~* \.(js|css|png|jpg|jpeg|gif|ico)$ {
+        expires max;
+        log_not_found off;
+    }
+}
+
+# phpMyAdmin case-insensitive aliases
+location /phpMyAdmin { return 301 /phpmyadmin$request_uri; }
+location /pma { return 301 /phpmyadmin$request_uri; }
+location /PMA { return 301 /phpmyadmin$request_uri; }
+
+# Mongo Express (proxy to Node.js app on 8081)
+location /mongo-express {
+    proxy_pass http://127.0.0.1:8081;
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection 'upgrade';
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_cache_bypass $http_upgrade;
+    
+    # Rewrite base URL for Mongo Express
+    sub_filter_once off;
+    sub_filter 'href="/' 'href="/mongo-express/';
+    sub_filter 'src="/' 'src="/mongo-express/';
+}
+
+location /mongoexpress { return 301 /mongo-express$request_uri; }
+location /mongoadmin { return 301 /mongo-express$request_uri; }
+
+# Roundcube Webmail
+location /webmail {
+    alias /var/lib/roundcube;
+    index index.php;
+    
+    location ~ \.php$ {
+        fastcgi_pass unix:/run/php/php-fpm.sock;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME $request_filename;
+        include fastcgi_params;
+    }
+}
+
+location /roundcube { return 301 /webmail$request_uri; }
+location /mail { return 301 /webmail$request_uri; }
+EOF
+
+echo "  ✅ Created $ADMIN_TOOLS_INC"
+
+# ============================================
+# Step 3: Create/Update Nginx IP-based server
+# ============================================
+echo ""
+echo "Step 3: Creating Nginx IP-based server configuration..."
+
+# Get server IP
+SERVER_IP=$(hostname -I | awk '{print $1}')
+
+# Create IP-based server config
+IP_SERVER_CONF="/etc/nginx/conf.d/00-ip-admin.conf"
+
+cat > "$IP_SERVER_CONF" << EOF
+# VHestiaCP - IP-based Admin Tools Server
+# Handles requests to http://IP/phpMyAdmin, http://IP/mongo-express, etc.
+# 
+# This server block catches requests by IP address and routes admin tools correctly.
+
+server {
+    listen $WEB_PORT default_server;
+    listen [::]:$WEB_PORT default_server;
+    
+    server_name $SERVER_IP _;
+    
+    root /var/www/html;
+    index index.html index.php;
+    
+    # Include admin tools configuration
+    include /etc/nginx/conf.d/admin-tools.inc;
+    
+    # Default location
+    location / {
+        try_files \$uri \$uri/ =404;
+    }
+    
+    # PHP handling for root
+    location ~ \.php$ {
+        fastcgi_pass unix:/run/php/php-fpm.sock;
+        fastcgi_index index.php;
+        fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+        include fastcgi_params;
+    }
+    
+    # Deny access to hidden files
+    location ~ /\. {
+        deny all;
+    }
+}
+EOF
+
+echo "  ✅ Created $IP_SERVER_CONF"
+
+# ============================================
+# Step 4: Test and Reload
+# ============================================
+echo ""
+echo "Step 4: Testing and reloading services..."
+
+# Test HAProxy config
+if haproxy -c -f "$HAPROXY_CFG" > /dev/null 2>&1; then
+    echo "  ✅ HAProxy configuration is valid"
+    systemctl reload haproxy
+    echo "  ✅ HAProxy reloaded"
+else
+    echo "  ❌ HAProxy configuration error!"
+    haproxy -c -f "$HAPROXY_CFG"
+    exit 1
+fi
+
+# Test Nginx config
+if nginx -t > /dev/null 2>&1; then
+    echo "  ✅ Nginx configuration is valid"
+    systemctl reload nginx
+    echo "  ✅ Nginx reloaded"
+else
+    echo "  ❌ Nginx configuration error!"
+    nginx -t
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo ""
+echo "═══════════════════════════════════════════════════════════════"
+echo "  ✅ Admin Tools Routing Configured!"
+echo "═══════════════════════════════════════════════════════════════"
+echo ""
+echo "  You can now access admin tools via IP:"
+echo ""
+echo "    phpMyAdmin:    http://$SERVER_IP/phpmyadmin"
+echo "    Mongo Express: http://$SERVER_IP/mongo-express"
+echo "    Webmail:       http://$SERVER_IP/webmail"
+echo ""
+echo "  Files created/updated:"
+echo "    - $HAPROXY_CFG"
+echo "    - $ADMIN_TOOLS_INC"
+echo "    - $IP_SERVER_CONF"
+echo ""
+
+# Log
+$HESTIA/bin/v-log-action "system" "Info" "System" "Admin tools routing configured for HAProxy"
+
+exit 0

@@ -1,0 +1,76 @@
+#!/bin/bash
+# info: list PM2 processes for a user
+# options: USER [FORMAT]
+#
+# example: v-list-pm2-apps admin
+# example: v-list-pm2-apps admin json
+#
+# This function lists all PM2 processes for a specific user.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+user=$1
+format=${2:-json}
+
+# Includes
+HESTIA="${HESTIA:-/usr/local/hestia}"
+[ -f "$HESTIA/conf/hestia.conf" ] && source "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if user is provided
+if [ -z "$user" ]; then
+    [ "$format" = "json" ] && echo "[]" || echo "Error: User not specified"
+    exit 0
+fi
+
+# Check if user exists
+if ! id "$user" &>/dev/null; then
+    [ "$format" = "json" ] && echo "[]" || echo "Error: User does not exist"
+    exit 0
+fi
+
+# Check if PM2 is available
+if ! command -v pm2 &>/dev/null; then
+    [ "$format" = "json" ] && echo "[]" || echo "Error: PM2 not installed"
+    exit 0
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Get user's home directory
+user_home=$(eval echo ~$user)
+pm2_home="$user_home/.pm2"
+
+# Check if user has PM2 directory
+if [ ! -d "$pm2_home" ]; then
+    [ "$format" = "json" ] && echo "[]" || echo "No PM2 processes for $user"
+    exit 0
+fi
+
+# Get PM2 processes for the user
+# Run as the target user to read their PM2 config
+if [ "$format" = "json" ]; then
+    # Use PM2_HOME environment variable to read correct user's PM2
+    result=$(sudo -u "$user" PM2_HOME="$pm2_home" pm2 jlist 2>/dev/null)
+    
+    if [ -z "$result" ] || [ "$result" = "[]" ]; then
+        echo "[]"
+    else
+        echo "$result"
+    fi
+else
+    echo ""
+    echo "PM2 Processes for: $user"
+    echo "================================"
+    sudo -u "$user" PM2_HOME="$pm2_home" pm2 list 2>/dev/null
+    echo ""
+fi
+
+exit 0

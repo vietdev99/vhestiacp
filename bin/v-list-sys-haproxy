@@ -1,0 +1,139 @@
+#!/bin/bash
+# info: list haproxy configuration and status
+# options: [FORMAT]
+#
+# example: v-list-sys-haproxy
+# example: v-list-sys-haproxy json
+#
+# This function lists HAProxy configuration, backends, and status.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+format=${1:-shell}
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Source haproxy.sh if exists (optional)
+if [ -f "$HESTIA/func/haproxy.sh" ]; then
+    source $HESTIA/func/haproxy.sh
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Check if HAProxy is installed (simple check)
+if ! command -v haproxy &> /dev/null; then
+    if [ "$format" = "json" ]; then
+        echo '{}'
+    else
+        echo "HAProxy is not installed"
+    fi
+    exit 0
+fi
+
+# Get HAProxy version
+if type get_haproxy_version &>/dev/null; then
+    version=$(get_haproxy_version)
+else
+    version=$(haproxy -v 2>&1 | head -1 | awk '{print $3}')
+fi
+
+# Get status
+status="stopped"
+if systemctl is-active --quiet haproxy 2>/dev/null; then
+    status="running"
+fi
+
+# Get stats config
+stats_enabled="${HAPROXY_STATS:-no}"
+stats_port="${HAPROXY_STATS_PORT:-8404}"
+stats_user="${HAPROXY_STATS_USER:-admin}"
+
+# Get backends from config
+backends=""
+if [ -d /etc/haproxy/conf.d ]; then
+    for cfg in /etc/haproxy/conf.d/*.cfg; do
+        if [ -f "$cfg" ] && [ "$(basename $cfg)" != "00-acls.cfg" ]; then
+            domain=$(basename "$cfg" .cfg)
+            backends+="${domain},"
+        fi
+    done
+    backends=${backends%,}
+fi
+
+# Get registered ports
+ports_info=""
+if [ -f "$HESTIA/data/haproxy_ports.conf" ]; then
+    while IFS=: read -r domain port; do
+        ports_info+="${domain}:${port},"
+    done < "$HESTIA/data/haproxy_ports.conf"
+    ports_info=${ports_info%,}
+fi
+
+#----------------------------------------------------------#
+#                       Output                             #
+#----------------------------------------------------------#
+
+case "$format" in
+    json)
+        cat << EOF
+{
+    "STATUS": "${status}",
+    "VERSION": "${version}",
+    "STATS": "${stats_enabled}",
+    "STATS_PORT": "${stats_port}",
+    "STATS_USER": "${stats_user}",
+    "BACKENDS": "${backends}",
+    "PORTS": "${ports_info}"
+}
+EOF
+        ;;
+    plain)
+        echo "VERSION:${version}"
+        echo "STATUS:${status}"
+        echo "STATS:${stats_enabled}"
+        echo "STATS_PORT:${stats_port}"
+        echo "STATS_USER:${stats_user}"
+        echo "BACKENDS:${backends}"
+        echo "PORTS:${ports_info}"
+        ;;
+    *)
+        echo "═══════════════════════════════════════════════════════════"
+        echo "                    HAProxy Status"
+        echo "═══════════════════════════════════════════════════════════"
+        echo ""
+        echo "  Version:      ${version}"
+        echo "  Status:       ${status}"
+        echo ""
+        echo "  Stats Dashboard:"
+        echo "    Enabled:    ${stats_enabled}"
+        if [ "$stats_enabled" = "yes" ]; then
+            echo "    Port:       ${stats_port}"
+            echo "    User:       ${stats_user}"
+            echo "    URL:        http://$(hostname -I | awk '{print $1}'):${stats_port}/stats"
+        fi
+        echo ""
+        echo "  Configured Backends:"
+        if [ -n "$backends" ]; then
+            echo "$backends" | tr ',' '\n' | while read -r domain; do
+                echo "    - ${domain}"
+            done
+        else
+            echo "    (none)"
+        fi
+        echo ""
+        echo "═══════════════════════════════════════════════════════════"
+        ;;
+esac
+
+exit 0

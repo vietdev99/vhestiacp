@@ -1,0 +1,35 @@
+#!/bin/bash
+# info: start python application for domain
+# options: USER DOMAIN
+#
+# example: v-start-web-domain-python admin example.com
+
+user=$1
+domain=$2
+
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source $HESTIA/func/python.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+check_args '2' "$#" 'USER DOMAIN'
+is_object_valid 'user' 'USER' "$user"
+is_object_valid 'web' 'DOMAIN' "$domain"
+
+echo "Starting Python application for $domain..."
+
+start_python_app "$user" "$domain"
+
+if [ $? -eq 0 ]; then
+    user_conf="$HESTIA/data/users/$user/web.conf"
+    sed -i "/^DOMAIN='$domain'/ s/PYTHON_STATUS='[^']*'/PYTHON_STATUS='running'/" "$user_conf"
+    echo "Application started successfully!"
+else
+    echo "Error: Failed to start application"
+    exit 1
+fi
+
+log_python_event "INFO" "Application started for $domain"
+$HESTIA/bin/v-log-action "$user" "Info" "Python" "Application started for $domain"
+
+exit 0

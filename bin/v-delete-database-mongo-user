@@ -1,0 +1,97 @@
+#!/bin/bash
+# info: delete mongodb database user
+# options: USER DATABASE DBUSER
+#
+# example: v-delete-database-mongo-user admin myapp_db myapp_reader
+#
+# This function removes a MongoDB user from a database.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+database=$2
+dbuser=$3
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source $HESTIA/func/mongodb.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Load MongoDB root password
+if [ -f "$HESTIA/conf/mongodb.conf" ]; then
+    source "$HESTIA/conf/mongodb.conf"
+    export MONGODB_ROOT_PASSWORD="$ROOT_PASSWORD"
+fi
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '3' "$#" 'USER DATABASE DBUSER'
+
+# Check if MongoDB is installed
+if [ "$MONGODB_SYSTEM" != "yes" ]; then
+    echo "Error: MongoDB is not installed"
+    exit 1
+fi
+
+# Validate Hestia user
+is_object_valid 'user' 'USER' "$user"
+
+# Sanitize database name
+if [[ ! "$database" =~ ^${user}_ ]]; then
+    database="${user}_${database}"
+fi
+
+# Check if database exists
+if ! is_mongodb_database_exists "$database"; then
+    echo "Error: Database '$database' does not exist"
+    exit 1
+fi
+
+# Check if user exists
+if ! is_mongodb_user_exists "$dbuser" "$database"; then
+    echo "Error: User '$dbuser' does not exist in database '$database'"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Deleting MongoDB user: $dbuser..."
+
+# Delete user
+delete_mongodb_user "$dbuser" "$database"
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to delete user"
+    exit 1
+fi
+
+# Remove from config file
+user_conf_dir="$HESTIA/data/users/$user"
+mongo_users_file="$user_conf_dir/mongodb_users.conf"
+
+if [ -f "$mongo_users_file" ]; then
+    # Remove line with this user
+    sed -i "/^${database}:${dbuser}:/d" "$mongo_users_file"
+fi
+
+# Log event
+log_mongodb_event "INFO" "User deleted: $dbuser from database $database"
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo "MongoDB user '$dbuser' deleted successfully from database '$database'"
+
+# Logging
+$HESTIA/bin/v-log-action "$user" "Info" "MongoDB" "User $dbuser deleted from database $database"
+
+exit 0

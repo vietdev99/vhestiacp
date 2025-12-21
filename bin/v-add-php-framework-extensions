@@ -1,0 +1,115 @@
+#!/bin/bash
+# info: install recommended PHP extensions for a framework
+# options: FRAMEWORK PHP_VERSION
+#
+# example: v-add-php-framework-extensions phalcon 8.2
+# example: v-add-php-framework-extensions laravel 8.3
+# example: v-add-php-framework-extensions wordpress all
+#
+# Installs all recommended extensions for the specified framework.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+FRAMEWORK="$1"
+PHP_VERSION="${2:-all}"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ -z "$FRAMEWORK" ]; then
+    echo "Usage: v-add-php-framework-extensions <FRAMEWORK> [PHP_VERSION]"
+    echo ""
+    echo "Available frameworks:"
+    echo "  phalcon    - Phalcon PHP Framework (phalcon, psr)"
+    echo "  laravel    - Laravel Framework (bcmath, ctype, fileinfo, json, mbstring, openssl, pdo, tokenizer, xml)"
+    echo "  symfony    - Symfony Framework (intl, mbstring, xml, json, ctype)"
+    echo "  wordpress  - WordPress CMS (curl, gd, imagick, mbstring, xml, zip)"
+    echo "  drupal     - Drupal CMS (gd, mbstring, xml, json, opcache)"
+    echo "  magento    - Magento eCommerce (bcmath, gd, intl, mbstring, soap, xsl, zip)"
+    echo "  prestashop - PrestaShop (gd, curl, intl, mbstring, xml, zip)"
+    echo "  opencart   - OpenCart (curl, gd, zip)"
+    echo ""
+    exit 1
+fi
+
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                Framework Extensions                      #
+#----------------------------------------------------------#
+
+get_framework_extensions() {
+    local framework="$1"
+    
+    case "$framework" in
+        phalcon)
+            echo "phalcon psr mbstring json openssl pdo curl"
+            ;;
+        laravel)
+            echo "bcmath ctype fileinfo mbstring openssl pdo tokenizer xml json curl redis"
+            ;;
+        symfony)
+            echo "intl mbstring xml json ctype pdo opcache apcu"
+            ;;
+        wordpress)
+            echo "curl gd imagick mbstring xml zip mysqli exif intl"
+            ;;
+        drupal)
+            echo "gd mbstring xml json opcache pdo curl"
+            ;;
+        magento)
+            echo "bcmath gd intl mbstring soap xsl zip pdo curl opcache redis"
+            ;;
+        prestashop)
+            echo "gd curl intl mbstring xml zip pdo json fileinfo"
+            ;;
+        opencart)
+            echo "curl gd zip mysqli mbstring json"
+            ;;
+        *)
+            echo ""
+            ;;
+    esac
+}
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+extensions=$(get_framework_extensions "$FRAMEWORK")
+
+if [ -z "$extensions" ]; then
+    echo "Error: Unknown framework: $FRAMEWORK"
+    exit 1
+fi
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "  Installing $FRAMEWORK Extensions"
+echo "═══════════════════════════════════════════════════════════════"
+echo ""
+echo "  Extensions: $extensions"
+echo "  PHP Version: $PHP_VERSION"
+echo ""
+
+for ext in $extensions; do
+    echo "Installing $ext..."
+    $HESTIA/bin/v-add-php-extension "$PHP_VERSION" "$ext"
+    echo ""
+done
+
+echo ""
+echo "═══════════════════════════════════════════════════════════════"
+echo "  $FRAMEWORK extensions installed!"
+echo "═══════════════════════════════════════════════════════════════"
+
+exit 0

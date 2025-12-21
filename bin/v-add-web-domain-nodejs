@@ -1,0 +1,262 @@
+#!/bin/bash
+# info: enable nodejs for web domain
+# options: USER DOMAIN [VERSION] [PORT] [ENTRY_POINT]
+#
+# example: v-add-web-domain-nodejs admin example.com 20 3000 app.js
+#
+# This function enables Node.js for a web domain, sets up PM2,
+# and configures the reverse proxy.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+domain=$2
+version=${3:-20}
+port=$4
+entry_point=${5:-app.js}
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# shellcheck source=/usr/local/hestia/func/nodejs.sh
+source $HESTIA/func/nodejs.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if Node.js system is enabled
+if [ "$NODEJS_SYSTEM" != "yes" ]; then
+    echo "Error: Node.js is not installed. Run v-add-sys-nodejs first."
+    exit 1
+fi
+
+# Argument check
+check_args '2' "$#" 'USER DOMAIN [VERSION] [PORT] [ENTRY_POINT]'
+
+# Validate user
+is_object_valid 'user' 'USER' "$user"
+
+# Validate domain
+is_object_valid 'web' 'DOMAIN' "$domain"
+
+# Check if Node.js version is installed
+load_nvm
+if ! is_nodejs_version_installed "$version"; then
+    echo "Error: Node.js v$version is not installed. Run: v-add-sys-nodejs $version"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+homedir="$HOMEDIR/$user"
+app_dir="$homedir/web/$domain/nodeapp"
+logs_dir="$homedir/web/$domain/logs"
+conf_dir="$homedir/web/$domain/conf"
+
+echo "Setting up Node.js for $domain..."
+
+# Create directories
+mkdir -p "$app_dir"
+mkdir -p "$logs_dir"
+mkdir -p "$conf_dir"
+
+# Create .env file if not exists
+if [ ! -f "$app_dir/.env" ]; then
+    touch "$app_dir/.env"
+fi
+
+# Detect port if not specified
+if [ -z "$port" ]; then
+    # Try to detect from .env or package.json
+    port=$(detect_app_port "$app_dir" "")
+    
+    # If still no port, get next available
+    if [ -z "$port" ]; then
+        port=$(get_next_available_port 3000 4000)
+    fi
+fi
+
+# Check port conflict
+conflict_domain=$(check_port_conflict "$port" "$domain")
+conflict_result=$?
+
+if [ $conflict_result -eq 1 ]; then
+    echo "Error: Port $port is already registered to domain: $conflict_domain"
+    exit 1
+elif [ $conflict_result -eq 2 ]; then
+    echo "Warning: Port $port is already in use by another service"
+    # Don't exit, the user might know what they're doing
+fi
+
+# Detect entry point if package.json exists
+if [ -f "$app_dir/package.json" ]; then
+    detected_entry=$(get_entry_point "$app_dir/package.json")
+    if [ -n "$detected_entry" ]; then
+        entry_point="$detected_entry"
+    fi
+fi
+
+# Get full Node.js version
+full_version=$(nvm ls "$version" --no-colors 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/v//')
+
+# Add PORT to .env if not present
+if ! grep -q "^PORT=" "$app_dir/.env"; then
+    echo "PORT=$port" >> "$app_dir/.env"
+else
+    sed -i "s/^PORT=.*/PORT=$port/" "$app_dir/.env"
+fi
+
+# Add NODE_ENV if not present
+if ! grep -q "^NODE_ENV=" "$app_dir/.env"; then
+    echo "NODE_ENV=production" >> "$app_dir/.env"
+fi
+
+# Create PM2 ecosystem file
+ecosystem_file=$(create_pm2_ecosystem "$user" "$domain" "$app_dir" "$entry_point" "$port" "$full_version")
+
+# Set permissions
+chown -R "$user:$user" "$app_dir"
+chown -R "$user:$user" "$logs_dir"
+chown -R "$user:$user" "$conf_dir"
+chmod 755 "$app_dir"
+
+# Setup PM2 for user if not done
+setup_pm2_for_user "$user"
+
+# Register port
+register_nodejs_port "$domain" "$port"
+
+# Update user's web.conf
+user_conf="$HESTIA/data/users/$user/web.conf"
+if [ -f "$user_conf" ]; then
+    # Remove existing NODEJS settings first
+    sed -i "/^DOMAIN='$domain'/ {
+        s/ NODEJS='[^']*'//g
+        s/ NODEJS_VERSION='[^']*'//g
+        s/ NODEJS_PORT='[^']*'//g
+        s/ NODEJS_ENTRY='[^']*'//g
+        s/ NODEJS_STATUS='[^']*'//g
+    }" "$user_conf"
+    
+    # Add new NODEJS settings
+    sed -i "/^DOMAIN='$domain'/ s/$/ NODEJS='yes' NODEJS_VERSION='$version' NODEJS_PORT='$port' NODEJS_ENTRY='$entry_point' NODEJS_STATUS='stopped'/" "$user_conf"
+fi
+
+# Create sample app.js if no app exists
+if [ ! -f "$app_dir/app.js" ] && [ ! -f "$app_dir/index.js" ] && [ ! -f "$app_dir/server.js" ]; then
+    cat > "$app_dir/app.js" << 'EOF'
+// Sample Node.js application
+// Replace this with your own application code
+
+const http = require('http');
+
+const port = process.env.PORT || 3000;
+
+const server = http.createServer((req, res) => {
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'text/html');
+    res.end(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Node.js App</title>
+            <style>
+                body {
+                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                    display: flex;
+                    justify-content: center;
+                    align-items: center;
+                    height: 100vh;
+                    margin: 0;
+                    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                    color: white;
+                }
+                .container {
+                    text-align: center;
+                    padding: 40px;
+                    background: rgba(255,255,255,0.1);
+                    border-radius: 20px;
+                    backdrop-filter: blur(10px);
+                }
+                h1 { font-size: 2.5em; margin-bottom: 10px; }
+                p { font-size: 1.2em; opacity: 0.9; }
+                .info { margin-top: 20px; font-size: 0.9em; opacity: 0.7; }
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <h1>🚀 Node.js is Running!</h1>
+                <p>Your application is ready.</p>
+                <div class="info">
+                    <p>Node.js ${process.version}</p>
+                    <p>Port: ${port}</p>
+                </div>
+            </div>
+        </body>
+        </html>
+    `);
+});
+
+server.listen(port, () => {
+    console.log(`Server running on port ${port}`);
+});
+EOF
+    chown "$user:$user" "$app_dir/app.js"
+fi
+
+# Create package.json if not exists
+if [ ! -f "$app_dir/package.json" ]; then
+    cat > "$app_dir/package.json" << EOF
+{
+    "name": "${domain}",
+    "version": "1.0.0",
+    "description": "Node.js application for ${domain}",
+    "main": "${entry_point}",
+    "scripts": {
+        "start": "node ${entry_point}"
+    },
+    "engines": {
+        "node": ">=${version}.0.0"
+    }
+}
+EOF
+    chown "$user:$user" "$app_dir/package.json"
+fi
+
+# Log event
+log_nodejs_event "INFO" "Node.js enabled for $domain (user: $user, port: $port)"
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo ""
+echo "Node.js has been enabled for $domain!"
+echo ""
+echo "  Directory:    $app_dir"
+echo "  Node Version: v$full_version"
+echo "  Port:         $port"
+echo "  Entry Point:  $entry_point"
+echo "  Status:       stopped"
+echo ""
+echo "To start the application, run:"
+echo "  v-start-web-domain-nodejs $user $domain"
+echo ""
+echo "To add environment variables:"
+echo "  v-add-web-domain-nodejs-env $user $domain KEY VALUE"
+echo ""
+
+# Logging
+$HESTIA/bin/v-log-action "$user" "Info" "Node.js" "Enabled for $domain (port: $port)"
+
+exit 0

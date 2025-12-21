@@ -1,0 +1,276 @@
+#!/bin/bash
+# info: enable python for web domain
+# options: USER DOMAIN [VERSION] [PORT] [FRAMEWORK]
+#
+# example: v-add-web-domain-python admin example.com 3.11 8000 flask
+#
+# This function enables Python for a web domain with Gunicorn.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+user=$1
+domain=$2
+version=${3:-3.11}
+port=$4
+framework=${5:-generic}  # django, flask, fastapi, generic
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source $HESTIA/func/python.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '2' "$#" 'USER DOMAIN [VERSION] [PORT] [FRAMEWORK]'
+
+if [ "$PYTHON_SYSTEM" != "yes" ]; then
+    echo "Error: Python is not installed. Install it first."
+    exit 1
+fi
+
+is_object_valid 'user' 'USER' "$user"
+is_object_valid 'web' 'DOMAIN' "$domain"
+
+# Check if Python version is installed
+load_pyenv
+if ! is_python_version_installed "$version"; then
+    echo "Error: Python $version is not installed"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+homedir="$HOMEDIR/$user"
+app_dir="$homedir/web/$domain/pythonapp"
+logs_dir="$homedir/web/$domain/logs"
+conf_dir="$homedir/web/$domain/conf"
+
+echo "Setting up Python for $domain..."
+
+# Create directories
+mkdir -p "$app_dir"
+mkdir -p "$logs_dir"
+mkdir -p "$conf_dir"
+
+# Get port if not specified
+if [ -z "$port" ]; then
+    port=$(get_next_available_port 8000 9000)
+fi
+
+# Check port availability
+if ss -tuln | grep -q ":${port} "; then
+    echo "Warning: Port $port is already in use"
+fi
+
+# Create virtualenv
+echo "Creating virtual environment..."
+create_python_venv "$user" "$domain" "$version"
+
+# Detect framework if app exists
+if [ -f "$app_dir/manage.py" ]; then
+    framework="django"
+elif [ -f "$app_dir/requirements.txt" ]; then
+    framework=$(detect_python_framework "$app_dir")
+fi
+
+# Get app module based on framework
+app_module=$(get_app_module "$app_dir" "$framework")
+
+# Create .env file
+if [ ! -f "$app_dir/.env" ]; then
+    cat > "$app_dir/.env" << EOF
+# Environment variables for $domain
+PORT=$port
+PYTHON_ENV=production
+DEBUG=False
+EOF
+    chown "$user:$user" "$app_dir/.env"
+fi
+
+# Create sample app if none exists
+if [ ! -f "$app_dir/app.py" ] && [ ! -f "$app_dir/main.py" ] && [ ! -f "$app_dir/manage.py" ]; then
+    case "$framework" in
+        flask)
+            cat > "$app_dir/app.py" << 'PYEOF'
+from flask import Flask
+
+app = Flask(__name__)
+
+@app.route('/')
+def hello():
+    return '''
+    <!DOCTYPE html>
+    <html>
+    <head><title>Flask App</title>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; 
+               align-items: center; height: 100vh; margin: 0;
+               background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .container { text-align: center; padding: 40px; background: rgba(255,255,255,0.1);
+                     border-radius: 20px; }
+    </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🐍 Flask is Running!</h1>
+            <p>Your Python application is ready.</p>
+        </div>
+    </body>
+    </html>
+    '''
+
+if __name__ == '__main__':
+    app.run()
+PYEOF
+            app_module="app:app"
+            ;;
+        fastapi)
+            cat > "$app_dir/main.py" << 'PYEOF'
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+
+app = FastAPI()
+
+@app.get("/", response_class=HTMLResponse)
+async def root():
+    return """
+    <!DOCTYPE html>
+    <html>
+    <head><title>FastAPI App</title>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; 
+               align-items: center; height: 100vh; margin: 0;
+               background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .container { text-align: center; padding: 40px; background: rgba(255,255,255,0.1);
+                     border-radius: 20px; }
+    </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>⚡ FastAPI is Running!</h1>
+            <p>Your Python application is ready.</p>
+        </div>
+    </body>
+    </html>
+    """
+PYEOF
+            app_module="main:app"
+            # Install uvicorn for FastAPI
+            runuser -l "$user" -c "cd $app_dir && source venv/bin/activate && pip install uvicorn"
+            ;;
+        *)
+            cat > "$app_dir/app.py" << 'PYEOF'
+def app(environ, start_response):
+    status = '200 OK'
+    headers = [('Content-type', 'text/html')]
+    start_response(status, headers)
+    return [b'''
+    <!DOCTYPE html>
+    <html>
+    <head><title>Python App</title>
+    <style>
+        body { font-family: sans-serif; display: flex; justify-content: center; 
+               align-items: center; height: 100vh; margin: 0;
+               background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; }
+        .container { text-align: center; padding: 40px; background: rgba(255,255,255,0.1);
+                     border-radius: 20px; }
+    </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🐍 Python is Running!</h1>
+            <p>Your WSGI application is ready.</p>
+        </div>
+    </body>
+    </html>
+    ''']
+PYEOF
+            app_module="app:app"
+            ;;
+    esac
+    chown "$user:$user" "$app_dir"/*.py 2>/dev/null
+fi
+
+# Create requirements.txt if not exists
+if [ ! -f "$app_dir/requirements.txt" ]; then
+    case "$framework" in
+        flask)
+            echo "flask>=2.0" > "$app_dir/requirements.txt"
+            ;;
+        fastapi)
+            echo -e "fastapi>=0.100\nuvicorn>=0.20" > "$app_dir/requirements.txt"
+            ;;
+        django)
+            echo "django>=4.0" > "$app_dir/requirements.txt"
+            ;;
+        *)
+            touch "$app_dir/requirements.txt"
+            ;;
+    esac
+    chown "$user:$user" "$app_dir/requirements.txt"
+fi
+
+# Install requirements
+echo "Installing requirements..."
+install_python_requirements "$user" "$domain"
+
+# Create Gunicorn config
+echo "Creating Gunicorn configuration..."
+create_gunicorn_config "$user" "$domain" "$port" "$(get_gunicorn_workers)" "$app_module"
+
+# Create systemd service
+echo "Creating systemd service..."
+service_name=$(create_python_service "$user" "$domain" "$app_module")
+
+# Set permissions
+chown -R "$user:$user" "$app_dir"
+chown -R "$user:$user" "$logs_dir"
+chown -R "$user:$user" "$conf_dir"
+
+# Register port
+register_python_port "$domain" "$port"
+
+# Update user's web.conf
+user_conf="$HESTIA/data/users/$user/web.conf"
+if [ -f "$user_conf" ]; then
+    sed -i "/^DOMAIN='$domain'/ {
+        s/ PYTHON='[^']*'//g
+        s/ PYTHON_VERSION='[^']*'//g
+        s/ PYTHON_PORT='[^']*'//g
+        s/ PYTHON_FRAMEWORK='[^']*'//g
+        s/ PYTHON_STATUS='[^']*'//g
+    }" "$user_conf"
+    
+    sed -i "/^DOMAIN='$domain'/ s/$/ PYTHON='yes' PYTHON_VERSION='$version' PYTHON_PORT='$port' PYTHON_FRAMEWORK='$framework' PYTHON_STATUS='stopped'/" "$user_conf"
+fi
+
+log_python_event "INFO" "Python enabled for $domain (user: $user, port: $port)"
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo ""
+echo "Python has been enabled for $domain!"
+echo ""
+echo "  Directory:      $app_dir"
+echo "  Python Version: $version"
+echo "  Port:           $port"
+echo "  Framework:      $framework"
+echo "  App Module:     $app_module"
+echo "  Status:         stopped"
+echo ""
+echo "To start the application:"
+echo "  v-start-web-domain-python $user $domain"
+echo ""
+
+$HESTIA/bin/v-log-action "$user" "Info" "Python" "Enabled for $domain (port: $port)"
+
+exit 0

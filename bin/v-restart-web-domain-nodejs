@@ -1,0 +1,29 @@
+#!/bin/bash
+# info: restart nodejs application for domain
+# options: USER DOMAIN
+#
+# example: v-restart-web-domain-nodejs admin example.com
+
+user=$1
+domain=$2
+
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source $HESTIA/func/nodejs.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+check_args '2' "$#" 'USER DOMAIN'
+is_object_valid 'user' 'USER' "$user"
+is_object_valid 'web' 'DOMAIN' "$domain"
+
+echo "Restarting Node.js application for $domain..."
+
+load_nvm
+restart_nodejs_app "$user" "$domain"
+
+echo "Application restarted successfully!"
+
+log_nodejs_event "INFO" "Application restarted for $domain"
+$HESTIA/bin/v-log-action "$user" "Info" "Node.js" "Application restarted for $domain"
+
+exit 0

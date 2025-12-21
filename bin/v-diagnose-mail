@@ -1,0 +1,297 @@
+#!/bin/bash
+# info: diagnose mail system issues
+# options: [DOMAIN]
+#
+# example: v-diagnose-mail
+# example: v-diagnose-mail example.com
+#
+# Performs comprehensive mail system diagnostics
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+DOMAIN="$1"
+
+#----------------------------------------------------------#
+#                    Functions                             #
+#----------------------------------------------------------#
+
+print_status() {
+    local status="$1"
+    local message="$2"
+    
+    case "$status" in
+        ok)     printf "  ✅ %s\n" "$message" ;;
+        warn)   printf "  ⚠️  %s\n" "$message" ;;
+        error)  printf "  ❌ %s\n" "$message" ;;
+        info)   printf "  ℹ️  %s\n" "$message" ;;
+    esac
+}
+
+is_private_ip() {
+    local ip="$1"
+    echo "$ip" | grep -qE "^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.|127\.)"
+}
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo ""
+echo "╔═══════════════════════════════════════════════════════════════╗"
+echo "║              VHestiaCP Mail Diagnostics                       ║"
+echo "╚═══════════════════════════════════════════════════════════════╝"
+echo ""
+
+# 1. Service Status
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "1. SERVICE STATUS"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# Exim
+if systemctl is-active --quiet exim4 2>/dev/null; then
+    print_status ok "Exim4 is running"
+    exim_version=$(exim4 --version 2>/dev/null | head -1 | awk '{print $3}')
+    print_status info "Version: $exim_version"
+else
+    print_status error "Exim4 is NOT running"
+    echo "    → Run: systemctl start exim4"
+fi
+
+# Dovecot
+if systemctl is-active --quiet dovecot 2>/dev/null; then
+    print_status ok "Dovecot is running"
+else
+    print_status warn "Dovecot is not running (IMAP/POP3 disabled)"
+fi
+
+# ClamAV
+if systemctl is-active --quiet clamav-daemon 2>/dev/null; then
+    print_status ok "ClamAV is running"
+else
+    print_status info "ClamAV is not running (anti-virus disabled)"
+fi
+
+# SpamAssassin
+if systemctl is-active --quiet spamassassin 2>/dev/null; then
+    print_status ok "SpamAssassin is running"
+else
+    print_status info "SpamAssassin is not running (anti-spam disabled)"
+fi
+
+echo ""
+
+# 2. Network Interface Check
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "2. NETWORK INTERFACE (Multi-NIC Check)"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+all_ips=$(hostname -I)
+ip_count=$(echo "$all_ips" | wc -w)
+
+print_status info "Server IPs: $all_ips"
+print_status info "IP Count: $ip_count"
+
+if [ "$ip_count" -gt 1 ]; then
+    print_status warn "Multi-NIC server detected!"
+    
+    # Check Exim interface
+    exim_if=""
+    if [ -f /etc/exim4/exim4.conf.template ]; then
+        exim_if=$(grep "interface = " /etc/exim4/exim4.conf.template | awk -F'= ' '{print $2}' | head -1)
+    fi
+    
+    if [ -z "$exim_if" ]; then
+        print_status error "Exim interface NOT configured!"
+        echo "    → Exim may use wrong IP for outgoing mail"
+        echo "    → Fix: v-fix-exim-interface"
+    else
+        if is_private_ip "$exim_if"; then
+            print_status error "Exim using PRIVATE IP: $exim_if"
+            echo "    → Outgoing mail will likely fail!"
+            echo "    → Fix: v-fix-exim-interface"
+        else
+            print_status ok "Exim interface: $exim_if (public)"
+        fi
+    fi
+else
+    print_status ok "Single IP server - no interface issues"
+fi
+
+echo ""
+
+# 3. Port Status
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "3. MAIL PORTS"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+declare -A ports=(
+    [25]="SMTP"
+    [465]="SMTPS"
+    [587]="Submission"
+    [110]="POP3"
+    [995]="POP3S"
+    [143]="IMAP"
+    [993]="IMAPS"
+)
+
+for port in 25 465 587 110 995 143 993; do
+    name="${ports[$port]}"
+    if ss -tlnp 2>/dev/null | grep -q ":$port "; then
+        print_status ok "Port $port ($name) is listening"
+    else
+        if [ "$port" = "25" ] || [ "$port" = "587" ]; then
+            print_status error "Port $port ($name) NOT listening"
+        else
+            print_status info "Port $port ($name) not listening"
+        fi
+    fi
+done
+
+echo ""
+
+# 4. Mail Queue
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "4. MAIL QUEUE"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+queue_count=$(exim4 -bpc 2>/dev/null || echo "0")
+print_status info "Messages in queue: $queue_count"
+
+if [ "$queue_count" -gt 100 ]; then
+    print_status warn "Large queue! Check for issues"
+    echo "    → View queue: exim4 -bp | head -20"
+    echo "    → Flush queue: exim4 -qff"
+fi
+
+if [ "$queue_count" -gt 0 ] && [ "$queue_count" -lt 20 ]; then
+    echo "  Recent queue entries:"
+    exim4 -bp 2>/dev/null | head -10 | sed 's/^/    /'
+fi
+
+echo ""
+
+# 5. Domain-specific checks
+if [ -n "$DOMAIN" ]; then
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "5. DOMAIN: $DOMAIN"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    
+    # MX record
+    mx=$(dig +short MX "$DOMAIN" 2>/dev/null | head -1)
+    if [ -n "$mx" ]; then
+        print_status ok "MX record: $mx"
+    else
+        print_status error "No MX record found!"
+    fi
+    
+    # SPF record
+    spf=$(dig +short TXT "$DOMAIN" 2>/dev/null | grep "spf")
+    if [ -n "$spf" ]; then
+        print_status ok "SPF record found"
+        echo "    $spf"
+    else
+        print_status warn "No SPF record!"
+        echo "    → Recommended: v=spf1 a mx ip4:$(hostname -I | awk '{print $1}') ~all"
+    fi
+    
+    # DKIM
+    if [ -f "/etc/exim4/dkim/${DOMAIN}.private" ]; then
+        print_status ok "DKIM key exists"
+        
+        # Check DNS record
+        dkim_dns=$(dig +short TXT "mail._domainkey.$DOMAIN" 2>/dev/null)
+        if [ -n "$dkim_dns" ]; then
+            print_status ok "DKIM DNS record found"
+        else
+            print_status warn "DKIM DNS record not found"
+        fi
+    else
+        print_status info "DKIM not configured for this domain"
+    fi
+    
+    # DMARC
+    dmarc=$(dig +short TXT "_dmarc.$DOMAIN" 2>/dev/null | grep "DMARC")
+    if [ -n "$dmarc" ]; then
+        print_status ok "DMARC record found"
+        echo "    $dmarc"
+    else
+        print_status warn "No DMARC record"
+        echo "    → Recommended: v=DMARC1; p=quarantine; rua=mailto:admin@$DOMAIN"
+    fi
+    
+    echo ""
+fi
+
+# 6. Recent Errors
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "6. RECENT LOG ENTRIES"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+if [ -f /var/log/exim4/mainlog ]; then
+    echo "  Recent errors/warnings:"
+    grep -iE "error|fail|reject|defer" /var/log/exim4/mainlog 2>/dev/null | tail -5 | while read line; do
+        echo "    $line"
+    done
+    
+    # Check for common issues
+    echo ""
+    
+    if grep -q "Connection refused" /var/log/exim4/mainlog 2>/dev/null; then
+        print_status warn "Connection refused errors found"
+        echo "    → Check firewall and remote server"
+    fi
+    
+    if grep -q "Mismatch" /var/log/exim4/mainlog 2>/dev/null; then
+        print_status warn "HELO/IP mismatch errors found"
+        echo "    → Check v-fix-exim-interface"
+    fi
+    
+    if grep -q "blacklist" /var/log/exim4/mainlog 2>/dev/null; then
+        print_status error "IP may be blacklisted!"
+        echo "    → Check: https://mxtoolbox.com/blacklists.aspx"
+    fi
+else
+    print_status info "No mail log found"
+fi
+
+echo ""
+
+# 7. Recommendations
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "7. RECOMMENDATIONS"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+recommendations=0
+
+if [ "$ip_count" -gt 1 ] && [ -z "$exim_if" ]; then
+    echo "  • Run: v-fix-exim-interface"
+    recommendations=$((recommendations + 1))
+fi
+
+if [ "$queue_count" -gt 100 ]; then
+    echo "  • Investigate mail queue: exim4 -bp"
+    recommendations=$((recommendations + 1))
+fi
+
+if ! ss -tlnp 2>/dev/null | grep -q ":25 "; then
+    echo "  • Start Exim: systemctl start exim4"
+    recommendations=$((recommendations + 1))
+fi
+
+if [ $recommendations -eq 0 ]; then
+    print_status ok "No immediate issues found"
+fi
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "  Diagnostics complete!"
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo ""
+
+exit 0

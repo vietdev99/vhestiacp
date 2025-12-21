@@ -1,0 +1,172 @@
+#!/bin/bash
+# info: list installed PHP extensions for a PHP version
+# options: [PHP_VERSION] [FORMAT]
+#
+# example: v-list-php-extensions 8.2
+# example: v-list-php-extensions 8.2 json
+# example: v-list-php-extensions all
+#
+# Lists all installed extensions for the specified PHP version.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+PHP_VERSION="${1:-all}"
+FORMAT="${2:-plain}"
+
+#----------------------------------------------------------#
+#                    Functions                             #
+#----------------------------------------------------------#
+
+# Get installed PHP versions
+get_installed_php_versions() {
+    local versions=""
+    for v in 7.2 7.3 7.4 8.0 8.1 8.2 8.3 8.4; do
+        if [ -f "/etc/php/$v/fpm/php.ini" ] || [ -f "/etc/php/$v/cli/php.ini" ]; then
+            versions="$versions $v"
+        fi
+    done
+    echo "$versions"
+}
+
+# Get extensions for a PHP version
+get_extensions() {
+    local version="$1"
+    php${version} -m 2>/dev/null | grep -v "^\[" | sort
+}
+
+# Check if extension is from Zend
+is_zend_extension() {
+    local version="$1"
+    local ext="$2"
+    php${version} -i 2>/dev/null | grep -qi "zend.*$ext"
+}
+
+# Get extension version
+get_extension_version() {
+    local version="$1"
+    local ext="$2"
+    php${version} --ri "$ext" 2>/dev/null | grep -i "version" | head -1 | awk '{print $NF}'
+}
+
+# Notable extensions to highlight
+notable_extensions="phalcon redis memcached imagick mongodb swoole xdebug apcu opcache ioncube"
+
+# Print extensions for a version
+print_extensions() {
+    local version="$1"
+    
+    if [ ! -f "/etc/php/$version/fpm/php.ini" ]; then
+        return
+    fi
+    
+    echo "PHP $version"
+    echo "═══════════════════════════════════════════════════════"
+    
+    local exts=$(get_extensions "$version")
+    local count=$(echo "$exts" | wc -l)
+    
+    printf "  %-25s %-15s %s\n" "EXTENSION" "VERSION" "TYPE"
+    printf "  %-25s %-15s %s\n" "─────────────────────────" "───────────────" "────────"
+    
+    for ext in $exts; do
+        local ext_ver=$(get_extension_version "$version" "$ext")
+        local ext_type="standard"
+        
+        # Check if Zend extension
+        if is_zend_extension "$version" "$ext"; then
+            ext_type="zend"
+        fi
+        
+        # Check if notable
+        if echo "$notable_extensions" | grep -qi "$ext"; then
+            ext_type="$ext_type ★"
+        fi
+        
+        printf "  %-25s %-15s %s\n" "$ext" "${ext_ver:-N/A}" "$ext_type"
+    done
+    
+    echo ""
+    echo "  Total: $count extensions"
+    echo ""
+}
+
+# Print as JSON
+print_json() {
+    local version="$1"
+    
+    if [ ! -f "/etc/php/$version/fpm/php.ini" ]; then
+        echo "{}"
+        return
+    fi
+    
+    echo "{"
+    echo "  \"php_version\": \"$version\","
+    echo "  \"extensions\": ["
+    
+    local exts=$(get_extensions "$version")
+    local first=true
+    
+    for ext in $exts; do
+        local ext_ver=$(get_extension_version "$version" "$ext")
+        
+        if [ "$first" = true ]; then
+            first=false
+        else
+            echo ","
+        fi
+        
+        printf "    {\"name\": \"%s\", \"version\": \"%s\"}" "$ext" "${ext_ver:-unknown}"
+    done
+    
+    echo ""
+    echo "  ]"
+    echo "}"
+}
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+if [ "$PHP_VERSION" = "all" ]; then
+    versions=$(get_installed_php_versions)
+else
+    versions="$PHP_VERSION"
+fi
+
+if [ "$FORMAT" = "json" ]; then
+    echo "{"
+    echo "  \"php_extensions\": ["
+    first=true
+    for version in $versions; do
+        if [ "$first" = true ]; then
+            first=false
+        else
+            echo ","
+        fi
+        print_json "$version"
+    done
+    echo "  ]"
+    echo "}"
+else
+    echo ""
+    echo "╔═══════════════════════════════════════════════════════════╗"
+    echo "║              PHP Extensions Report                        ║"
+    echo "╚═══════════════════════════════════════════════════════════╝"
+    echo ""
+    
+    for version in $versions; do
+        print_extensions "$version"
+    done
+    
+    echo "Legend: ★ = Notable/Framework extension"
+    echo ""
+fi
+
+exit 0

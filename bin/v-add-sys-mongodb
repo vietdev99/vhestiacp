@@ -1,0 +1,366 @@
+#!/bin/bash
+# info: install mongodb database server
+# options: [VERSION] [MODE] [AUTH_METHOD]
+#
+# example: v-add-sys-mongodb 7.0 standalone scram
+#
+# This function installs MongoDB and configures it with the specified mode
+# and authentication method.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+version=${1:-7.0}
+mode=${2:-standalone}       # standalone, replicaset, sharding
+auth_method=${3:-scram}     # scram, scram256, scram1, ldap, x509
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source $HESTIA/func/mongodb.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if running as root
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+# Check if MongoDB is already installed
+if is_mongodb_installed; then
+    echo "MongoDB is already installed"
+    exit 0
+fi
+
+# Validate mode
+case "$mode" in
+    standalone|replicaset|sharding) ;;
+    *)
+        echo "Error: Invalid mode. Use: standalone, replicaset, sharding"
+        exit 1
+        ;;
+esac
+
+# Validate auth method
+case "$auth_method" in
+    scram|scram256|scram1|ldap|x509) ;;
+    *)
+        echo "Error: Invalid auth method. Use: scram, scram256, scram1, ldap, x509"
+        exit 1
+        ;;
+esac
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Determine Ubuntu version
+ubuntu_version=$(lsb_release -rs)
+ubuntu_codename=$(lsb_release -cs)
+
+# MongoDB version compatibility check
+# MongoDB 7.0 doesn't support Ubuntu 24.04 (noble)
+if [ "$ubuntu_codename" = "noble" ] && [ "$version" = "7.0" ]; then
+    echo "Warning: MongoDB 7.0 doesn't support Ubuntu 24.04, switching to 8.0"
+    version="8.0"
+fi
+
+echo "Installing MongoDB ${version}..."
+echo "  - Ubuntu version: $ubuntu_version ($ubuntu_codename)"
+echo "  - MongoDB version: $version"
+
+# Check if MongoDB repo already exists
+repo_file="/etc/apt/sources.list.d/mongodb-org-${version}.list"
+gpg_file="/usr/share/keyrings/mongodb-server-${version}.gpg"
+
+if [ ! -f "$gpg_file" ]; then
+    echo "Downloading MongoDB GPG key..."
+    curl -fsSL "https://www.mongodb.org/static/pgp/server-${version}.asc" | \
+        gpg --dearmor -o "$gpg_file" 2>/dev/null
+    if [ ! -f "$gpg_file" ]; then
+        echo "Error: Failed to download MongoDB GPG key"
+        exit 1
+    fi
+    echo "  - GPG key saved to $gpg_file"
+fi
+
+if [ ! -f "$repo_file" ]; then
+    echo "Adding MongoDB repository..."
+    echo "deb [ arch=amd64,arm64 signed-by=${gpg_file} ] https://repo.mongodb.org/apt/ubuntu ${ubuntu_codename}/mongodb-org/${version} multiverse" > "$repo_file"
+    echo "  - Repository added: $repo_file"
+fi
+
+# Update package list
+echo "Updating package list..."
+apt-get update 2>&1 | grep -E "mongodb|Get:|Err:" || true
+
+# Install MongoDB
+echo "Installing MongoDB packages..."
+DEBIAN_FRONTEND=noninteractive apt-get install -y mongodb-org 2>&1
+
+install_result=$?
+if [ $install_result -ne 0 ]; then
+    echo "Error: Failed to install MongoDB (exit code: $install_result)"
+    echo "Trying alternative package names..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y mongodb-org-server mongodb-org-shell mongodb-org-tools 2>&1
+    if [ $? -ne 0 ]; then
+        echo "Error: MongoDB installation failed"
+        echo "Please check if MongoDB $version is available for Ubuntu $ubuntu_codename"
+        exit 1
+    fi
+fi
+
+# Install mongosh (MongoDB Shell)
+echo "Installing MongoDB Shell..."
+DEBIAN_FRONTEND=noninteractive apt-get install -y mongodb-mongosh 2>/dev/null || \
+DEBIAN_FRONTEND=noninteractive apt-get install -y mongosh 2>/dev/null || \
+echo "  - MongoDB Shell (mongosh) not available, using legacy mongo"
+
+# Create directories
+echo "Creating MongoDB directories..."
+mkdir -p /var/lib/mongodb
+mkdir -p /var/log/mongodb
+mkdir -p /var/log/hestia
+chown -R mongodb:mongodb /var/lib/mongodb 2>/dev/null || true
+chown -R mongodb:mongodb /var/log/mongodb 2>/dev/null || true
+
+# Generate root password
+root_password=$(generate_mongodb_password 24)
+
+# Create base configuration based on version
+echo "Creating MongoDB configuration for version ${version}..."
+
+# Get major version number
+major_version=$(echo "$version" | cut -d. -f1)
+
+if [ "$major_version" -ge 8 ]; then
+    # MongoDB 8.0+ - journal.enabled is deprecated
+    cat > /etc/mongod.conf << 'EOF'
+# VHestiaCP MongoDB Configuration
+# Template for MongoDB 8.x and later
+# Note: journal.enabled is deprecated in MongoDB 8.0+
+
+storage:
+  dbPath: /var/lib/mongodb
+
+systemLog:
+  destination: file
+  logAppend: true
+  path: /var/log/mongodb/mongod.log
+
+net:
+  port: 27017
+  bindIp: 127.0.0.1
+
+processManagement:
+  timeZoneInfo: /usr/share/zoneinfo
+EOF
+else
+    # MongoDB 7.x and earlier - journal.enabled is supported
+    cat > /etc/mongod.conf << 'EOF'
+# VHestiaCP MongoDB Configuration
+# Template for MongoDB 6.x and 7.x
+
+storage:
+  dbPath: /var/lib/mongodb
+  journal:
+    enabled: true
+
+systemLog:
+  destination: file
+  logAppend: true
+  path: /var/log/mongodb/mongod.log
+
+net:
+  port: 27017
+  bindIp: 127.0.0.1
+
+processManagement:
+  timeZoneInfo: /usr/share/zoneinfo
+EOF
+fi
+
+echo "  - Configuration created for MongoDB ${version}"
+
+# Enable and start MongoDB (without auth first)
+echo "Starting MongoDB service..."
+systemctl daemon-reload
+systemctl enable mongod
+systemctl start mongod
+
+# Wait for MongoDB to start
+echo "Waiting for MongoDB to start..."
+sleep 5
+
+# Check if MongoDB started
+if systemctl is-active --quiet mongod; then
+    echo "  ✅ MongoDB started successfully"
+else
+    echo "  ⚠️ MongoDB failed to start"
+    echo "Checking service status..."
+    systemctl status mongod --no-pager || true
+    journalctl -u mongod --no-pager -n 20 || true
+    echo ""
+    echo "Attempting to start again..."
+    systemctl restart mongod
+    sleep 3
+fi
+
+# Check if authentication setup function exists
+if type setup_mongodb_auth &>/dev/null; then
+    # Setup authentication
+    echo "Setting up authentication..."
+    if ! setup_mongodb_auth "$root_password" "$auth_method"; then
+        echo "  ⚠️ Authentication setup had issues. Running reset script..."
+        # Create and run inline reset
+        systemctl stop mongod
+        sed -i 's/authorization: enabled/#authorization: disabled/' /etc/mongod.conf
+        sed -i '/^security:/,/^[a-z]/{s/authorization: enabled/#authorization: disabled/}' /etc/mongod.conf
+        systemctl start mongod
+        sleep 3
+        
+        # Try again
+        setup_mongodb_auth "$root_password" "$auth_method"
+    fi
+    
+    # Restart with authentication
+    echo "Restarting MongoDB with authentication enabled..."
+    systemctl restart mongod
+    sleep 5
+    
+    # Wait for MongoDB to be ready
+    retry=0
+    while [ $retry -lt 10 ]; do
+        if systemctl is-active --quiet mongod; then
+            break
+        fi
+        echo "  Waiting for MongoDB..."
+        sleep 2
+        ((retry++))
+    done
+    
+    # Verify authentication works
+    echo "Verifying authentication..."
+    
+    # Detect mongo shell
+    mongo_shell=""
+    if command -v mongosh &>/dev/null; then
+        mongo_shell="mongosh"
+    elif command -v mongo &>/dev/null; then
+        mongo_shell="mongo"
+    fi
+    
+    if [ -n "$mongo_shell" ]; then
+        # Try authentication
+        auth_result=$($mongo_shell --quiet --eval "db.runCommand({ping:1}).ok" \
+            -u admin -p "$root_password" --authenticationDatabase admin 2>&1)
+        
+        if [ "$auth_result" = "1" ]; then
+            echo "  ✅ Authentication verified successfully"
+        else
+            echo "  ⚠️ Authentication test returned: $auth_result"
+            echo ""
+            echo "  Trying without explicit mechanism..."
+            
+            # Try with different auth database
+            auth_result=$($mongo_shell --quiet \
+                "mongodb://admin:${root_password}@localhost:27017/admin?authSource=admin" \
+                --eval "db.runCommand({ping:1}).ok" 2>&1)
+            
+            if [ "$auth_result" = "1" ]; then
+                echo "  ✅ Authentication verified with connection string"
+            else
+                echo "  ❌ Authentication failed!"
+                echo ""
+                echo "  To fix this issue, run:"
+                echo "    sudo $HESTIA/install/vhestiacp/reset-mongodb-password.sh"
+                echo ""
+                echo "  Or check MongoDB logs:"
+                echo "    sudo journalctl -u mongod -n 50"
+            fi
+        fi
+    fi
+else
+    echo "  - Skipping authentication setup (function not available)"
+    echo "  - This may indicate mongodb.sh was not loaded properly"
+fi
+
+# Configure mode-specific settings
+case "$mode" in
+    replicaset)
+        echo "Configuring replica set mode..."
+        local_ip=$(hostname -I | awk '{print $1}')
+        setup_mongodb_replicaset "rs0" "${local_ip}:27017"
+        ;;
+    sharding)
+        echo "Note: Sharding requires additional configuration"
+        # Sharding setup would require config servers and shard servers
+        ;;
+esac
+
+# Update Hestia configuration
+echo "MONGODB_SYSTEM='yes'" >> $HESTIA/conf/hestia.conf 2>/dev/null || \
+    sed -i "s/MONGODB_SYSTEM=.*/MONGODB_SYSTEM='yes'/" $HESTIA/conf/hestia.conf
+
+cat >> $HESTIA/conf/hestia.conf << EOF
+MONGODB_VERSION='${version}'
+MONGODB_MODE='${mode}'
+MONGODB_AUTH='${auth_method}'
+MONGODB_HOST='localhost'
+MONGODB_PORT='27017'
+MONGODB_ROOT_PASSWORD='${root_password}'
+EOF
+
+# Also store in separate file
+mkdir -p $HESTIA/conf
+cat > $HESTIA/conf/mongodb.conf << EOF
+ROOT_PASSWORD='${root_password}'
+AUTH_METHOD='${auth_method}'
+MODE='${mode}'
+VERSION='${version}'
+EOF
+# Use 644 so hestiaweb can read it for web panel
+chmod 644 $HESTIA/conf/mongodb.conf
+
+# Add firewall rule for localhost only
+# MongoDB should not be exposed externally by default
+
+# Log installation
+log_mongodb_event "INFO" "MongoDB ${version} installed (mode: ${mode}, auth: ${auth_method})"
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo ""
+echo "════════════════════════════════════════════════════════════"
+echo "  MongoDB has been installed successfully!"
+echo "════════════════════════════════════════════════════════════"
+echo ""
+echo "  Version:        $(get_mongodb_version)"
+echo "  Mode:           ${mode}"
+echo "  Auth Method:    ${auth_method}"
+echo "  Host:           127.0.0.1"
+echo "  Port:           27017"
+echo ""
+echo "  Root User:      admin"
+echo "  Root Password:  ${root_password}"
+echo ""
+echo "  Connection String:"
+echo "  mongodb://admin:${root_password}@127.0.0.1:27017/admin"
+echo ""
+echo "════════════════════════════════════════════════════════════"
+echo ""
+echo "  IMPORTANT: Save the root password securely!"
+echo ""
+
+# Logging
+$HESTIA/bin/v-log-action "system" "Info" "MongoDB" "MongoDB ${version} installed"
+
+exit 0

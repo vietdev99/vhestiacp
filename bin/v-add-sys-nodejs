@@ -1,0 +1,211 @@
+#!/bin/bash
+# info: install nodejs version via nvm
+# options: VERSION [SET_DEFAULT]
+#
+# example: v-add-sys-nodejs 20
+# example: v-add-sys-nodejs 22 yes
+#
+# This function installs a specific Node.js version using NVM.
+# It also installs PM2 globally if not already installed.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+version=$1
+set_default=${2:-no}
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# shellcheck source=/usr/local/hestia/func/nodejs.sh
+source $HESTIA/func/nodejs.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Argument check
+check_args '1' "$#" 'VERSION [SET_DEFAULT]'
+
+# Validate version format (should be a number like 18, 20, 22 or full version)
+if ! [[ "$version" =~ ^[0-9]+(\.[0-9]+)*$ ]]; then
+    echo "Error: Invalid version format. Use: 18, 20, 22, or full version like 20.10.0"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Install NVM if not already installed
+if ! is_nvm_installed; then
+    echo "Installing NVM..."
+    
+    # Create NVM directory
+    mkdir -p $NVM_DIR
+    
+    # Download and install NVM
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+    
+    # Source NVM
+    export NVM_DIR="/opt/nvm"
+    [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+    
+    # Add NVM to system profile
+    cat > /etc/profile.d/nvm.sh << 'EOF'
+export NVM_DIR="/opt/nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+[ -s "$NVM_DIR/bash_completion" ] && \. "$NVM_DIR/bash_completion"
+EOF
+    chmod +x /etc/profile.d/nvm.sh
+fi
+
+# Load NVM
+load_nvm
+
+# Check if version is already installed
+if is_nodejs_version_installed "$version"; then
+    echo "Node.js v$version is already installed"
+else
+    echo "Installing Node.js v$version..."
+    nvm install "$version"
+    
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to install Node.js v$version"
+        exit 1
+    fi
+fi
+
+# Set as default if requested
+if [ "$set_default" = "yes" ]; then
+    echo "Setting Node.js v$version as default..."
+    nvm alias default "$version"
+    nvm use default
+fi
+
+# Install PM2 if not installed
+if ! is_pm2_installed; then
+    echo "Installing PM2..."
+    npm install -g pm2
+    
+    # Setup PM2 startup
+    pm2 startup systemd -u root --hp /root 2>/dev/null || true
+fi
+
+# Get full version number
+full_version=$(nvm ls "$version" --no-colors 2>/dev/null | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 | sed 's/v//')
+
+# ============================================
+# CRITICAL: Create symlinks so ALL users can use node/npm/pm2
+# NVM only loads for root, symlinks make it available system-wide
+# ============================================
+echo "Creating system-wide symlinks for node/npm/pm2..."
+
+# Find the node binary path
+NODE_PATH=$(which node 2>/dev/null)
+if [ -n "$NODE_PATH" ] && [ -f "$NODE_PATH" ]; then
+    NODE_DIR=$(dirname "$NODE_PATH")
+    
+    # Create symlinks in /usr/local/bin for core commands
+    for cmd in node npm npx corepack; do
+        if [ -f "$NODE_DIR/$cmd" ]; then
+            ln -sf "$NODE_DIR/$cmd" /usr/local/bin/$cmd
+            echo "  - Linked $cmd -> $NODE_DIR/$cmd"
+        fi
+    done
+    
+    # Link PM2 - check multiple locations
+    PM2_PATH=""
+    if [ -f "$NODE_DIR/pm2" ]; then
+        PM2_PATH="$NODE_DIR/pm2"
+    elif command -v pm2 &>/dev/null; then
+        PM2_PATH=$(which pm2)
+    fi
+    
+    if [ -n "$PM2_PATH" ] && [ -f "$PM2_PATH" ]; then
+        ln -sf "$PM2_PATH" /usr/local/bin/pm2
+        echo "  - Linked pm2 -> $PM2_PATH"
+    fi
+    
+    # Link other common global packages if they exist
+    for cmd in yarn pnpm; do
+        if [ -f "$NODE_DIR/$cmd" ]; then
+            ln -sf "$NODE_DIR/$cmd" /usr/local/bin/$cmd
+            echo "  - Linked $cmd -> $NODE_DIR/$cmd"
+        fi
+    done
+fi
+
+# Verify symlinks work for all users
+echo "  Verifying commands are available system-wide..."
+for cmd in node npm pm2; do
+    if [ -L "/usr/local/bin/$cmd" ] && [ -e "/usr/local/bin/$cmd" ]; then
+        echo "    ✓ $cmd ready"
+    else
+        echo "    ⚠ $cmd not linked"
+    fi
+done
+
+# Update Hestia configuration
+if ! grep -q "NODEJS_SYSTEM" $HESTIA/conf/hestia.conf; then
+    echo "NODEJS_SYSTEM='yes'" >> $HESTIA/conf/hestia.conf
+fi
+sed -i "s/NODEJS_SYSTEM=.*/NODEJS_SYSTEM='yes'/" $HESTIA/conf/hestia.conf
+
+# Update installed versions list
+current_versions=$(grep "NODEJS_VERSIONS=" $HESTIA/conf/hestia.conf | cut -d"'" -f2)
+major_version=$(echo "$version" | cut -d. -f1)
+
+if [ -n "$current_versions" ]; then
+    if ! echo "$current_versions" | grep -q "$major_version"; then
+        new_versions="${current_versions},${major_version}"
+        sed -i "s/NODEJS_VERSIONS=.*/NODEJS_VERSIONS='${new_versions}'/" $HESTIA/conf/hestia.conf
+    fi
+else
+    echo "NODEJS_VERSIONS='${major_version}'" >> $HESTIA/conf/hestia.conf
+fi
+
+# Update default version if set
+if [ "$set_default" = "yes" ]; then
+    if grep -q "NODEJS_DEFAULT=" $HESTIA/conf/hestia.conf; then
+        sed -i "s/NODEJS_DEFAULT=.*/NODEJS_DEFAULT='${major_version}'/" $HESTIA/conf/hestia.conf
+    else
+        echo "NODEJS_DEFAULT='${major_version}'" >> $HESTIA/conf/hestia.conf
+    fi
+fi
+
+# Create ports tracking file
+touch $HESTIA/data/nodejs_ports.conf
+
+# Log event
+log_nodejs_event "INFO" "Node.js v$full_version installed"
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo ""
+echo "Node.js v$full_version has been installed successfully!"
+echo ""
+echo "Installed versions:"
+get_installed_nodejs_versions | while read v; do
+    if [ "$(get_default_nodejs_version)" = "$v" ]; then
+        echo "  - v$v (default)"
+    else
+        echo "  - v$v"
+    fi
+done
+echo ""
+echo "PM2 version: $(get_pm2_version)"
+echo ""
+
+# Logging
+$HESTIA/bin/v-log-action "system" "Info" "Node.js" "Node.js v$full_version installed"
+
+exit 0

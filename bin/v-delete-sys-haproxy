@@ -1,0 +1,96 @@
+#!/bin/bash
+# info: remove haproxy load balancer
+# options: NONE
+#
+# example: v-delete-sys-haproxy
+#
+# This function removes HAProxy from the system.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# shellcheck source=/usr/local/hestia/func/haproxy.sh
+source $HESTIA/func/haproxy.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if HAProxy is installed
+if ! is_haproxy_installed; then
+    echo "HAProxy is not installed"
+    exit 0
+fi
+
+# Check if running as root
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Removing HAProxy..."
+
+# Stop and disable HAProxy
+systemctl stop haproxy
+systemctl disable haproxy
+
+# Remove HAProxy package
+apt-get remove -y haproxy
+apt-get autoremove -y
+
+# Backup and remove configuration files
+if [ -d /etc/haproxy ]; then
+    timestamp=$(date +%Y%m%d_%H%M%S)
+    tar -czf /root/haproxy_backup_${timestamp}.tar.gz /etc/haproxy 2>/dev/null
+    rm -rf /etc/haproxy
+fi
+
+# Remove runtime files
+rm -rf /var/run/haproxy
+
+# Update Hestia configuration
+sed -i "s/HAPROXY_SYSTEM=.*/HAPROXY_SYSTEM='no'/" $HESTIA/conf/hestia.conf
+sed -i "/HAPROXY_STATS=/d" $HESTIA/conf/hestia.conf
+sed -i "/HAPROXY_STATS_PORT=/d" $HESTIA/conf/hestia.conf
+sed -i "/HAPROXY_STATS_USER=/d" $HESTIA/conf/hestia.conf
+sed -i "/HAPROXY_STATS_PASSWORD=/d" $HESTIA/conf/hestia.conf
+
+# Remove firewall rule
+if [ -n "$HAPROXY_STATS_PORT" ]; then
+    $HESTIA/bin/v-delete-firewall-rule $HAPROXY_STATS_PORT 2>/dev/null || true
+fi
+
+# Remove haproxy ports tracking file
+rm -f $HESTIA/data/haproxy_ports.conf
+
+# Restore web server ports to 80/443
+echo ""
+echo "Restoring web server ports to 80/443..."
+$HESTIA/bin/v-restore-sys-web-port
+
+# Log removal
+log_haproxy_event "INFO" "HAProxy removed successfully"
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo "HAProxy has been removed successfully!"
+echo "Backup saved to: /root/haproxy_backup_${timestamp}.tar.gz"
+
+# Logging
+$HESTIA/bin/v-log-action "system" "Info" "HAProxy" "HAProxy removed"
+
+exit 0

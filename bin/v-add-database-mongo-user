@@ -1,0 +1,152 @@
+#!/bin/bash
+# info: add mongodb database user
+# options: USER DATABASE DBUSER [DBPASSWORD] [ROLE]
+#
+# example: v-add-database-mongo-user admin myapp_db myapp_reader password123 read
+# example: v-add-database-mongo-user admin myapp_db myapp_admin password123 dbOwner
+#
+# This function creates a new MongoDB user for a specific database.
+# Available roles: read, readWrite, dbAdmin, dbOwner, userAdmin
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+database=$2
+dbuser=$3
+dbpassword=$4
+role=${5:-readWrite}
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source $HESTIA/func/mongodb.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Load MongoDB root password
+if [ -f "$HESTIA/conf/mongodb.conf" ]; then
+    source "$HESTIA/conf/mongodb.conf"
+    export MONGODB_ROOT_PASSWORD="$ROOT_PASSWORD"
+fi
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '3' "$#" 'USER DATABASE DBUSER [DBPASSWORD] [ROLE]'
+
+# Check if MongoDB is installed
+if [ "$MONGODB_SYSTEM" != "yes" ]; then
+    echo "Error: MongoDB is not installed"
+    exit 1
+fi
+
+# Validate Hestia user
+is_object_valid 'user' 'USER' "$user"
+
+# Generate password if not provided
+if [ -z "$dbpassword" ]; then
+    dbpassword=$(generate_mongodb_password 16)
+fi
+
+# Validate role
+case "$role" in
+    read|readWrite|dbAdmin|dbOwner|userAdmin|readAnyDatabase|readWriteAnyDatabase)
+        ;;
+    *)
+        echo "Error: Invalid role. Use: read, readWrite, dbAdmin, dbOwner, userAdmin"
+        exit 1
+        ;;
+esac
+
+# Sanitize database name (should start with username)
+if [[ ! "$database" =~ ^${user}_ ]]; then
+    database="${user}_${database}"
+fi
+
+# Sanitize dbuser name
+if [[ ! "$dbuser" =~ ^${user}_ ]]; then
+    dbuser="${user}_$(echo $dbuser | sed "s/^${user}_//")"
+fi
+
+# Check if database exists
+if ! is_mongodb_database_exists "$database"; then
+    echo "Error: Database '$database' does not exist"
+    exit 1
+fi
+
+# Check if user already exists
+if is_mongodb_user_exists "$dbuser" "$database"; then
+    echo "Error: User '$dbuser' already exists in database '$database'"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Creating MongoDB user: $dbuser..."
+
+# Get auth method from config
+auth_method=$(grep "^MONGODB_AUTH=" "$HESTIA/conf/hestia.conf" 2>/dev/null | cut -d"'" -f2)
+
+# Determine mechanisms based on auth method
+mechanisms_clause=""
+case "$auth_method" in
+    scram256)
+        mechanisms_clause=", mechanisms: ['SCRAM-SHA-256']"
+        ;;
+    scram1)
+        mechanisms_clause=", mechanisms: ['SCRAM-SHA-1']"
+        ;;
+esac
+
+# Create user
+mongo_exec "
+    db.getSiblingDB('$database').createUser({
+        user: '$dbuser',
+        pwd: '$dbpassword',
+        roles: [{ role: '$role', db: '$database' }]$mechanisms_clause
+    })
+"
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to create user"
+    exit 1
+fi
+
+# Store user info in config
+user_conf_dir="$HESTIA/data/users/$user"
+mongo_users_file="$user_conf_dir/mongodb_users.conf"
+
+mkdir -p "$user_conf_dir"
+
+# Append user info
+echo "${database}:${dbuser}:${dbpassword}:${role}" >> "$mongo_users_file"
+chmod 600 "$mongo_users_file"
+
+# Log event
+log_mongodb_event "INFO" "User created: $dbuser for database $database (role: $role)"
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo ""
+echo "MongoDB user created successfully!"
+echo ""
+echo "  Database:    $database"
+echo "  User:        $dbuser"
+echo "  Password:    $dbpassword"
+echo "  Role:        $role"
+echo ""
+echo "  Connection String:"
+echo "  $(get_mongodb_connection_string "$dbuser" "$dbpassword" "$database" "localhost" "27017")"
+echo ""
+
+# Logging
+$HESTIA/bin/v-log-action "$user" "Info" "MongoDB" "User $dbuser created for database $database"
+
+exit 0

@@ -1,0 +1,91 @@
+#!/bin/bash
+# info: remove Mongo Express web interface
+# options: NONE
+#
+# example: v-delete-sys-mongo-express
+#
+# This script removes Mongo Express and its configuration.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Removing Mongo Express..."
+
+# Stop and disable service
+if systemctl is-active --quiet mongo-express; then
+    systemctl stop mongo-express
+fi
+
+if systemctl is-enabled --quiet mongo-express 2>/dev/null; then
+    systemctl disable mongo-express
+fi
+
+# Remove service file
+rm -f /etc/systemd/system/mongo-express.service
+systemctl daemon-reload
+
+# Remove application
+rm -rf /opt/mongo-express
+rm -rf /etc/mongo-express
+
+# Remove npm global package
+npm uninstall -g mongo-express 2>/dev/null || true
+
+# Remove firewall rule for port 8081
+echo "  Removing firewall rule for port 8081..."
+if command -v ufw &>/dev/null; then
+    ufw delete allow 8081/tcp 2>/dev/null
+fi
+if command -v iptables &>/dev/null; then
+    iptables -D INPUT -p tcp --dport 8081 -j ACCEPT 2>/dev/null
+    if command -v netfilter-persistent &>/dev/null; then
+        netfilter-persistent save 2>/dev/null
+    elif [ -f /etc/iptables/rules.v4 ]; then
+        iptables-save > /etc/iptables/rules.v4
+    fi
+fi
+
+# Remove Hestia firewall rule if available
+if [ -x "$HESTIA/bin/v-delete-firewall-rule" ]; then
+    # Find and delete rule by port
+    rule_id=$($HESTIA/bin/v-list-firewall json 2>/dev/null | grep -B5 '"PORT": "8081"' | grep '"RULE":' | grep -oE '[0-9]+' | head -1)
+    if [ -n "$rule_id" ]; then
+        $HESTIA/bin/v-delete-firewall-rule "$rule_id" 2>/dev/null
+    fi
+fi
+
+# Remove Hestia config
+rm -f $HESTIA/data/mongo-express.conf
+
+# Update hestia.conf
+sed -i "/^MONGO_EXPRESS=/d" $HESTIA/conf/hestia.conf
+sed -i "/^MONGO_EXPRESS_SYSTEM=/d" $HESTIA/conf/hestia.conf
+sed -i "/^MONGO_EXPRESS_PORT=/d" $HESTIA/conf/hestia.conf
+sed -i "/^MONGOEXPRESS_SYSTEM=/d" $HESTIA/conf/hestia.conf
+sed -i "/^MONGOEXPRESS_PORT=/d" $HESTIA/conf/hestia.conf
+
+echo "  ✅ Mongo Express removed"
+
+# Log
+$HESTIA/bin/v-log-action "system" "Info" "Database" "Mongo Express removed"
+
+exit 0

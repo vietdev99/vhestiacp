@@ -1,0 +1,164 @@
+#!/bin/bash
+# info: list mongodb database users
+# options: USER [DATABASE] [FORMAT]
+#
+# example: v-list-database-mongo-users admin
+# example: v-list-database-mongo-users admin myapp_db
+# example: v-list-database-mongo-users admin myapp_db json
+#
+# This function lists MongoDB users for a specific database or all databases.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+database=$2
+format=${3:-plain}
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source $HESTIA/func/mongodb.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Load MongoDB root password
+if [ -f "$HESTIA/conf/mongodb.conf" ]; then
+    source "$HESTIA/conf/mongodb.conf"
+    export MONGODB_ROOT_PASSWORD="$ROOT_PASSWORD"
+fi
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '1' "$#" 'USER [DATABASE] [FORMAT]'
+
+# Check if MongoDB is installed
+if [ "$MONGODB_SYSTEM" != "yes" ]; then
+    echo "Error: MongoDB is not installed"
+    exit 1
+fi
+
+# Validate Hestia user
+is_object_valid 'user' 'USER' "$user"
+
+# Sanitize database name if provided
+if [ -n "$database" ] && [[ ! "$database" =~ ^${user}_ ]]; then
+    database="${user}_${database}"
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Get user config file
+user_conf_dir="$HESTIA/data/users/$user"
+mongo_users_file="$user_conf_dir/mongodb_users.conf"
+
+# Also query MongoDB directly for accurate data
+get_mongodb_users() {
+    local db="$1"
+    
+    if [ -n "$db" ]; then
+        # List users for specific database
+        mongo_exec "db.getSiblingDB('$db').getUsers().users.forEach(function(u) { print(u.user + ':' + u.db + ':' + u.roles.map(r => r.role).join(',')) })" 2>/dev/null
+    else
+        # List all users for user's databases
+        mongo_exec "db.adminCommand('listDatabases').databases.forEach(function(d) { 
+            if (d.name.startsWith('${user}_')) {
+                db.getSiblingDB(d.name).getUsers().users.forEach(function(u) { 
+                    print(u.user + ':' + d.name + ':' + u.roles.map(r => r.role).join(',')) 
+                })
+            }
+        })" 2>/dev/null
+    fi
+}
+
+#----------------------------------------------------------#
+#                       Output                             #
+#----------------------------------------------------------#
+
+if [ "$format" = "json" ]; then
+    # JSON output
+    echo "{"
+    echo "  \"users\": ["
+    
+    first=true
+    
+    if [ -n "$database" ]; then
+        # Single database
+        while IFS=':' read -r dbuser db roles; do
+            if [ -n "$dbuser" ]; then
+                if [ "$first" = true ]; then
+                    first=false
+                else
+                    echo ","
+                fi
+                printf "    {\"user\": \"%s\", \"database\": \"%s\", \"roles\": \"%s\"}" "$dbuser" "$db" "$roles"
+            fi
+        done < <(get_mongodb_users "$database")
+    else
+        # All databases
+        while IFS=':' read -r dbuser db roles; do
+            if [ -n "$dbuser" ]; then
+                if [ "$first" = true ]; then
+                    first=false
+                else
+                    echo ","
+                fi
+                printf "    {\"user\": \"%s\", \"database\": \"%s\", \"roles\": \"%s\"}" "$dbuser" "$db" "$roles"
+            fi
+        done < <(get_mongodb_users "")
+    fi
+    
+    echo ""
+    echo "  ]"
+    echo "}"
+else
+    # Plain text output
+    echo ""
+    echo "╔═══════════════════════════════════════════════════════════════════════════════╗"
+    echo "║                         MongoDB Users for: $user"
+    echo "╚═══════════════════════════════════════════════════════════════════════════════╝"
+    echo ""
+    
+    printf "%-25s %-30s %-20s\n" "USER" "DATABASE" "ROLES"
+    printf "%-25s %-30s %-20s\n" "─────────────────────────" "──────────────────────────────" "────────────────────"
+    
+    user_count=0
+    
+    if [ -n "$database" ]; then
+        # Single database
+        while IFS=':' read -r dbuser db roles; do
+            if [ -n "$dbuser" ]; then
+                printf "%-25s %-30s %-20s\n" "$dbuser" "$db" "$roles"
+                user_count=$((user_count + 1))
+            fi
+        done < <(get_mongodb_users "$database")
+    else
+        # All databases
+        while IFS=':' read -r dbuser db roles; do
+            if [ -n "$dbuser" ]; then
+                printf "%-25s %-30s %-20s\n" "$dbuser" "$db" "$roles"
+                user_count=$((user_count + 1))
+            fi
+        done < <(get_mongodb_users "")
+    fi
+    
+    echo ""
+    echo "───────────────────────────────────────────────────────────────────────────────"
+    echo "  Total users: $user_count"
+    echo ""
+    
+    # Also show from config file if different
+    if [ -f "$mongo_users_file" ]; then
+        stored_count=$(wc -l < "$mongo_users_file" 2>/dev/null || echo "0")
+        if [ "$stored_count" != "$user_count" ]; then
+            echo "  Note: Config file shows $stored_count users (may need sync)"
+        fi
+    fi
+fi
+
+exit 0

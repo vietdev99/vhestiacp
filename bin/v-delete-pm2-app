@@ -1,0 +1,27 @@
+#!/bin/bash
+# info: delete PM2 process for a user
+# options: USER ID
+#
+# example: v-delete-pm2-app admin 0
+#
+# This function deletes a PM2 process for a specific user.
+
+user=$1
+pm_id=$2
+
+HESTIA="${HESTIA:-/usr/local/hestia}"
+
+[ -z "$user" ] && { echo "Error: User not specified"; exit 1; }
+[ -z "$pm_id" ] && { echo "Error: Process ID not specified"; exit 1; }
+id "$user" &>/dev/null || { echo "Error: User does not exist"; exit 1; }
+command -v pm2 &>/dev/null || { echo "Error: PM2 not installed"; exit 1; }
+
+user_home=$(eval echo ~$user)
+pm2_home="$user_home/.pm2"
+
+[ ! -d "$pm2_home" ] && { echo "Error: No PM2 directory for $user"; exit 1; }
+
+sudo -u "$user" PM2_HOME="$pm2_home" pm2 delete "$pm_id" 2>&1
+# Save after delete
+sudo -u "$user" PM2_HOME="$pm2_home" pm2 save 2>&1
+exit $?

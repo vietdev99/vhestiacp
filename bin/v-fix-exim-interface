@@ -1,0 +1,373 @@
+#!/bin/bash
+# info: fix exim4 to use correct network interface for outgoing mail
+# options: [PUBLIC_IP] [AUTO]
+#
+# example: v-fix-exim-interface                    # Auto-detect public IP
+# example: v-fix-exim-interface 203.0.113.10       # Specify IP
+# example: v-fix-exim-interface auto               # Force auto-detection
+#
+# This script fixes Exim4 on servers with multiple network interfaces
+# where Exim might use wrong (local/private) IP for outgoing mail.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+PUBLIC_IP="$1"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+# Check if Exim is installed
+if [ ! -f /etc/exim4/exim4.conf.template ] && [ ! -d /etc/exim4/conf.d ]; then
+    echo "Error: Exim4 is not installed"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                    Functions                             #
+#----------------------------------------------------------#
+
+# Detect public IP automatically
+detect_public_ip() {
+    local public_ip=""
+    
+    # Method 1: Check external IP services
+    for service in "ifconfig.me" "icanhazip.com" "ipinfo.io/ip" "api.ipify.org"; do
+        public_ip=$(curl -s -4 --connect-timeout 5 "https://$service" 2>/dev/null)
+        if [[ "$public_ip" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "$public_ip"
+            return 0
+        fi
+    done
+    
+    # Method 2: Get from Hestia config
+    if [ -n "$SERVER_IP" ]; then
+        echo "$SERVER_IP"
+        return 0
+    fi
+    
+    # Method 3: Get first non-private IP from interfaces
+    for ip in $(hostname -I); do
+        # Skip private IPs (10.x, 172.16-31.x, 192.168.x, 127.x)
+        if ! echo "$ip" | grep -qE "^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.|127\.)"; then
+            echo "$ip"
+            return 0
+        fi
+    done
+    
+    return 1
+}
+
+# Get all network interfaces with IPs
+list_interfaces() {
+    echo "Available network interfaces:"
+    echo ""
+    ip -4 addr show | grep -E "^[0-9]+:|inet " | while read line; do
+        if echo "$line" | grep -q "^[0-9]"; then
+            iface=$(echo "$line" | awk -F': ' '{print $2}')
+            echo "  Interface: $iface"
+        else
+            ip=$(echo "$line" | awk '{print $2}' | cut -d'/' -f1)
+            # Check if private
+            if echo "$ip" | grep -qE "^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.|127\.)"; then
+                echo "    IP: $ip (PRIVATE)"
+            else
+                echo "    IP: $ip (PUBLIC)"
+            fi
+        fi
+    done
+}
+
+# Backup Exim config
+backup_exim_config() {
+    local backup_dir="/root/exim_backup_$(date +%Y%m%d_%H%M%S)"
+    mkdir -p "$backup_dir"
+    
+    if [ -f /etc/exim4/exim4.conf.template ]; then
+        cp /etc/exim4/exim4.conf.template "$backup_dir/"
+    fi
+    
+    if [ -d /etc/exim4/conf.d ]; then
+        cp -r /etc/exim4/conf.d "$backup_dir/"
+    fi
+    
+    if [ -f /etc/exim4/update-exim4.conf.conf ]; then
+        cp /etc/exim4/update-exim4.conf.conf "$backup_dir/"
+    fi
+    
+    echo "$backup_dir"
+}
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "  Exim4 Network Interface Fix"
+echo "═══════════════════════════════════════════════════════════════"
+echo ""
+
+# List interfaces
+list_interfaces
+echo ""
+
+# Detect or use provided IP
+if [ -z "$PUBLIC_IP" ] || [ "$PUBLIC_IP" = "auto" ]; then
+    echo "Auto-detecting public IP..."
+    PUBLIC_IP=$(detect_public_ip)
+    
+    if [ -z "$PUBLIC_IP" ]; then
+        echo "Error: Could not auto-detect public IP"
+        echo ""
+        echo "Please specify the public IP manually:"
+        echo "  v-fix-exim-interface <PUBLIC_IP>"
+        exit 1
+    fi
+    
+    echo "  Detected: $PUBLIC_IP"
+else
+    echo "Using specified IP: $PUBLIC_IP"
+fi
+
+# Validate IP format
+if ! [[ "$PUBLIC_IP" =~ ^[0-9]+\.[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "Error: Invalid IP format: $PUBLIC_IP"
+    exit 1
+fi
+
+echo ""
+
+# Backup current config
+echo "Backing up Exim configuration..."
+backup_dir=$(backup_exim_config)
+echo "  Backup saved to: $backup_dir"
+echo ""
+
+# ============================================
+# Fix Method 1: Update exim4.conf.template (Hestia style)
+# ============================================
+if [ -f /etc/exim4/exim4.conf.template ]; then
+    echo "Updating exim4.conf.template..."
+    
+    # Check if interface is already set in remote_smtp transport
+    if grep -q "interface = " /etc/exim4/exim4.conf.template; then
+        # Update existing interface setting
+        sed -i "s/interface = .*/interface = $PUBLIC_IP/" /etc/exim4/exim4.conf.template
+        echo "  Updated existing interface setting"
+    else
+        # Add interface to remote_smtp transport
+        # Look for remote_smtp transport and add interface after driver = smtp
+        if grep -q "remote_smtp:" /etc/exim4/exim4.conf.template; then
+            sed -i '/remote_smtp:/,/^[a-z]/ {
+                /driver = smtp/a\  interface = '"$PUBLIC_IP"'
+            }' /etc/exim4/exim4.conf.template
+            echo "  Added interface to remote_smtp transport"
+        fi
+    fi
+    
+    # Also set helo_data to use correct hostname/IP
+    if ! grep -q "helo_data = " /etc/exim4/exim4.conf.template; then
+        sed -i '/remote_smtp:/,/^[a-z]/ {
+            /driver = smtp/a\  helo_data = ${if def:sending_ip_address{$sending_ip_address}{$primary_hostname}}
+        }' /etc/exim4/exim4.conf.template
+    fi
+fi
+
+# ============================================
+# Fix Method 2: Create/update Hestia Exim config
+# ============================================
+HESTIA_EXIM_CONF="$HESTIA/data/exim/exim.conf"
+if [ -d "$HESTIA/data/exim" ]; then
+    echo "Updating Hestia Exim configuration..."
+    
+    # Create interface config file
+    cat > "$HESTIA/data/exim/interface.conf" << EOF
+# Exim4 Outgoing Interface Configuration
+# Generated by v-fix-exim-interface on $(date)
+#
+# This forces Exim to use the public IP for outgoing mail
+# on servers with multiple network interfaces.
+
+EXIM_OUTGOING_IP=$PUBLIC_IP
+EOF
+    
+    echo "  Created $HESTIA/data/exim/interface.conf"
+fi
+
+# ============================================
+# Fix Method 3: Update debian-style config
+# ============================================
+if [ -f /etc/exim4/update-exim4.conf.conf ]; then
+    echo "Updating update-exim4.conf.conf..."
+    
+    # Set dc_local_interfaces to include public IP
+    if grep -q "^dc_local_interfaces=" /etc/exim4/update-exim4.conf.conf; then
+        # Check current value
+        current=$(grep "^dc_local_interfaces=" /etc/exim4/update-exim4.conf.conf | cut -d"'" -f2)
+        if [ -n "$current" ] && ! echo "$current" | grep -q "$PUBLIC_IP"; then
+            # Add public IP if not already there
+            new_value="$current ; $PUBLIC_IP"
+            sed -i "s|^dc_local_interfaces=.*|dc_local_interfaces='$new_value'|" /etc/exim4/update-exim4.conf.conf
+            echo "  Added $PUBLIC_IP to dc_local_interfaces"
+        fi
+    fi
+fi
+
+# ============================================
+# Create custom transport config for outgoing mail
+# ============================================
+echo "Creating custom transport configuration..."
+
+mkdir -p /etc/exim4/conf.d/transport
+
+cat > /etc/exim4/conf.d/transport/35_vhestia_remote_smtp << EOF
+### transport/35_vhestia_remote_smtp
+### VHestiaCP: Force outgoing mail to use public IP
+###
+
+# This overrides the default remote_smtp transport to bind
+# outgoing connections to the public IP address.
+
+remote_smtp_public:
+  driver = smtp
+  interface = $PUBLIC_IP
+  helo_data = \${if def:sending_ip_address{\$sending_ip_address}{\$primary_hostname}}
+  message_size_limit = \${if > {\$max_received_linelength}{998} {1}{0}}
+  
+EOF
+
+echo "  Created /etc/exim4/conf.d/transport/35_vhestia_remote_smtp"
+
+# ============================================
+# Create router to use the new transport
+# ============================================
+mkdir -p /etc/exim4/conf.d/router
+
+cat > /etc/exim4/conf.d/router/199_vhestia_public_smtp << EOF
+### router/199_vhestia_public_smtp
+### VHestiaCP: Route outgoing mail through public IP
+###
+
+# This router sends all outgoing mail through the remote_smtp_public
+# transport which binds to the public IP.
+
+vhestia_public_smtp:
+  driver = dnslookup
+  domains = ! +local_domains
+  transport = remote_smtp_public
+  ignore_target_hosts = 0.0.0.0 : 127.0.0.0/8 : 192.168.0.0/16 : 172.16.0.0/12 : 10.0.0.0/8
+  no_more
+
+EOF
+
+echo "  Created /etc/exim4/conf.d/router/199_vhestia_public_smtp"
+
+# ============================================
+# Update Hestia conf
+# ============================================
+echo ""
+echo "Updating Hestia configuration..."
+
+if grep -q "^EXIM_OUTGOING_IP=" "$HESTIA/conf/hestia.conf" 2>/dev/null; then
+    sed -i "s/^EXIM_OUTGOING_IP=.*/EXIM_OUTGOING_IP='$PUBLIC_IP'/" "$HESTIA/conf/hestia.conf"
+else
+    echo "EXIM_OUTGOING_IP='$PUBLIC_IP'" >> "$HESTIA/conf/hestia.conf"
+fi
+
+echo "  Set EXIM_OUTGOING_IP='$PUBLIC_IP'"
+
+# ============================================
+# Regenerate Exim config and restart
+# ============================================
+echo ""
+echo "Regenerating Exim configuration..."
+
+# For split config
+if [ -x /usr/sbin/update-exim4.conf ]; then
+    update-exim4.conf
+    echo "  Ran update-exim4.conf"
+fi
+
+# Verify config
+echo ""
+echo "Verifying Exim configuration..."
+if exim4 -bV > /dev/null 2>&1; then
+    echo "  ✅ Configuration is valid"
+else
+    echo "  ❌ Configuration error detected!"
+    echo "  Restoring backup..."
+    
+    if [ -f "$backup_dir/exim4.conf.template" ]; then
+        cp "$backup_dir/exim4.conf.template" /etc/exim4/
+    fi
+    if [ -d "$backup_dir/conf.d" ]; then
+        cp -r "$backup_dir/conf.d/"* /etc/exim4/conf.d/
+    fi
+    
+    update-exim4.conf 2>/dev/null
+    exit 1
+fi
+
+# Restart Exim
+echo ""
+echo "Restarting Exim4..."
+systemctl restart exim4
+
+if systemctl is-active --quiet exim4; then
+    echo "  ✅ Exim4 restarted successfully"
+else
+    echo "  ❌ Exim4 failed to restart!"
+    echo "  Check: journalctl -u exim4"
+    exit 1
+fi
+
+# ============================================
+# Test outgoing connection
+# ============================================
+echo ""
+echo "Testing outgoing mail configuration..."
+
+# Check which IP Exim will use
+test_result=$(exim4 -bh 8.8.8.8 2>&1 | head -20)
+if echo "$test_result" | grep -q "$PUBLIC_IP"; then
+    echo "  ✅ Exim will use $PUBLIC_IP for outgoing connections"
+else
+    echo "  ⚠️  Could not verify outgoing IP (may still work correctly)"
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo ""
+echo "═══════════════════════════════════════════════════════════════"
+echo "  ✅ Exim4 Interface Fix Complete!"
+echo "═══════════════════════════════════════════════════════════════"
+echo ""
+echo "  Public IP configured: $PUBLIC_IP"
+echo "  Backup location: $backup_dir"
+echo ""
+echo "  To test, send an email and check the headers."
+echo "  The 'Received:' header should show: $PUBLIC_IP"
+echo ""
+echo "  To revert changes:"
+echo "    cp $backup_dir/* /etc/exim4/"
+echo "    update-exim4.conf && systemctl restart exim4"
+echo ""
+
+# Log
+$HESTIA/bin/v-log-action "system" "Info" "Mail" "Exim interface set to $PUBLIC_IP"
+
+exit 0

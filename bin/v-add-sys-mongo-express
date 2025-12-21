@@ -1,0 +1,283 @@
+#!/bin/bash
+# info: install mongo-express web interface
+# options: NONE
+#
+# example: v-add-sys-mongo-express
+#
+# This function installs mongo-express, a web-based MongoDB admin interface
+# similar to phpMyAdmin for MySQL.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if running as root
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+# Check if MongoDB is installed
+if [ "$MONGODB_SYSTEM" != "yes" ]; then
+    echo "Error: MongoDB is not installed"
+    echo "Install MongoDB first with: v-add-sys-mongodb"
+    exit 1
+fi
+
+# Load NVM if available (CRITICAL for npm to work)
+export NVM_DIR="${NVM_DIR:-/opt/nvm}"
+if [ -s "$NVM_DIR/nvm.sh" ]; then
+    \. "$NVM_DIR/nvm.sh"
+elif [ -s "/root/.nvm/nvm.sh" ]; then
+    export NVM_DIR="/root/.nvm"
+    \. "$NVM_DIR/nvm.sh"
+elif [ -s "$HOME/.nvm/nvm.sh" ]; then
+    export NVM_DIR="$HOME/.nvm"
+    \. "$NVM_DIR/nvm.sh"
+fi
+
+# Check if Node.js/npm is available
+if ! command -v npm &>/dev/null; then
+    echo "Error: npm is not installed"
+    echo "Install Node.js first with: v-add-sys-nodejs"
+    exit 1
+fi
+
+echo "Using npm: $(which npm)"
+echo "npm version: $(npm -v)"
+
+# Check if already installed
+if [ "$MONGOEXPRESS_SYSTEM" = "yes" ]; then
+    echo "mongo-express is already installed"
+    exit 0
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Installing mongo-express..."
+
+# Get MongoDB root password
+ME_MONGO_PASS=""
+if [ -f "$HESTIA/conf/mongodb.conf" ]; then
+    source "$HESTIA/conf/mongodb.conf"
+    ME_MONGO_PASS="${ROOT_PASSWORD:-}"
+fi
+
+if [ -z "$ME_MONGO_PASS" ]; then
+    echo "Error: Could not find MongoDB password"
+    echo "Run reset-mongodb-password.sh first"
+    exit 1
+fi
+
+# Install mongo-express globally
+echo "  Installing mongo-express via npm..."
+npm install -g mongo-express 2>&1
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to install mongo-express"
+    exit 1
+fi
+
+# Find mongo-express binary
+ME_BIN=$(which mongo-express 2>/dev/null)
+if [ -z "$ME_BIN" ]; then
+    # Try npm global bin
+    NPM_GLOBAL_BIN=$(npm bin -g 2>/dev/null)
+    if [ -n "$NPM_GLOBAL_BIN" ] && [ -f "$NPM_GLOBAL_BIN/mongo-express" ]; then
+        ME_BIN="$NPM_GLOBAL_BIN/mongo-express"
+    elif [ -f "/usr/local/bin/mongo-express" ]; then
+        ME_BIN="/usr/local/bin/mongo-express"
+    else
+        # Try NVM path
+        NVM_NODE_BIN=$(dirname "$(which node)" 2>/dev/null)
+        if [ -n "$NVM_NODE_BIN" ] && [ -f "$NVM_NODE_BIN/mongo-express" ]; then
+            ME_BIN="$NVM_NODE_BIN/mongo-express"
+        fi
+    fi
+fi
+
+if [ -z "$ME_BIN" ] || [ ! -f "$ME_BIN" ]; then
+    echo "Error: Could not find mongo-express binary"
+    echo "Trying to locate..."
+    find /opt/nvm -name "mongo-express" -type f 2>/dev/null | head -3
+    find /root/.nvm -name "mongo-express" -type f 2>/dev/null | head -3
+    exit 1
+fi
+
+echo "  mongo-express binary: $ME_BIN"
+
+# Generate cookie secret
+COOKIE_SECRET=$(head -c 32 /dev/urandom | base64 | tr -d '/+=')
+
+# Create mongo-express config directory
+mkdir -p /etc/mongo-express
+
+# Create config file
+echo "  Creating configuration..."
+cat > /etc/mongo-express/config.js << EOF
+'use strict';
+module.exports = {
+    mongodb: {
+        connectionString: process.env.ME_CONFIG_MONGODB_URL || '',
+        server: 'localhost',
+        port: 27017,
+        admin: true,
+        auth: [
+            {
+                database: 'admin',
+                username: 'admin',
+                password: '${ME_MONGO_PASS}'
+            }
+        ],
+        adminUsername: 'admin',
+        adminPassword: '${ME_MONGO_PASS}'
+    },
+    site: {
+        baseUrl: '/',
+        cookieKeyName: 'mongo-express',
+        cookieSecret: '${COOKIE_SECRET}',
+        host: '127.0.0.1',
+        port: 8081,
+        requestSizeLimit: '50mb',
+        sslEnabled: false,
+        sslCert: '',
+        sslKey: ''
+    },
+    useBasicAuth: true,
+    basicAuth: {
+        username: 'admin',
+        password: '${ME_MONGO_PASS}'
+    }
+};
+EOF
+chmod 600 /etc/mongo-express/config.js
+
+# Get node binary path
+NODE_BIN=$(which node 2>/dev/null)
+if [ -z "$NODE_BIN" ]; then
+    echo "Error: Could not find node binary"
+    exit 1
+fi
+
+# Find mongo-express installation directory (where package.json is)
+ME_DIR=$(dirname "$ME_BIN")
+ME_INSTALL_DIR=$(cd "$ME_DIR/.." && pwd)
+if [ ! -f "$ME_INSTALL_DIR/package.json" ]; then
+    # Try npm root
+    ME_INSTALL_DIR=$(npm root -g)/mongo-express
+fi
+echo "  mongo-express directory: $ME_INSTALL_DIR"
+
+# Create systemd service
+echo "  Creating systemd service..."
+cat > /etc/systemd/system/mongo-express.service << EOF
+[Unit]
+Description=Mongo Express - Web-based MongoDB Admin Interface
+After=network.target mongod.service
+Requires=mongod.service
+
+[Service]
+Type=simple
+Environment=NODE_ENV=production
+Environment=ME_CONFIG_MONGODB_ADMINUSERNAME=admin
+Environment=ME_CONFIG_MONGODB_ADMINPASSWORD=${ME_MONGO_PASS}
+Environment=ME_CONFIG_BASICAUTH_USERNAME=admin
+Environment=ME_CONFIG_BASICAUTH_PASSWORD=${ME_MONGO_PASS}
+Environment=ME_CONFIG_MONGODB_SERVER=localhost
+Environment=ME_CONFIG_MONGODB_PORT=27017
+Environment=ME_CONFIG_SITE_BASEURL=/
+Environment=ME_CONFIG_SITE_PORT=8081
+Environment=VCAP_APP_HOST=0.0.0.0
+ExecStart=${NODE_BIN} ${ME_INSTALL_DIR}/app.js
+Restart=always
+RestartSec=10
+User=root
+WorkingDirectory=${ME_INSTALL_DIR}
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+# Reload and start service
+echo "  Starting mongo-express service..."
+systemctl daemon-reload
+systemctl enable mongo-express
+systemctl start mongo-express
+
+# Wait and check
+sleep 3
+if systemctl is-active --quiet mongo-express; then
+    echo "  ✅ mongo-express started successfully"
+else
+    echo "  ⚠️ mongo-express may have failed to start"
+    echo "  Check: journalctl -u mongo-express -n 20"
+fi
+
+# Add firewall rule for port 8081
+echo "  Adding firewall rule for port 8081..."
+if command -v ufw &>/dev/null; then
+    ufw allow 8081/tcp comment "MongoExpress" 2>/dev/null
+    echo "  ✅ UFW rule added for port 8081"
+elif command -v iptables &>/dev/null; then
+    # Check if rule already exists
+    if ! iptables -C INPUT -p tcp --dport 8081 -j ACCEPT 2>/dev/null; then
+        iptables -I INPUT -p tcp --dport 8081 -j ACCEPT
+        echo "  ✅ iptables rule added for port 8081"
+    fi
+    # Save iptables rules
+    if command -v netfilter-persistent &>/dev/null; then
+        netfilter-persistent save 2>/dev/null
+    elif [ -f /etc/iptables/rules.v4 ]; then
+        iptables-save > /etc/iptables/rules.v4
+    fi
+fi
+
+# Also try Hestia's firewall if available
+if [ -x "$HESTIA/bin/v-add-firewall-rule" ]; then
+    $HESTIA/bin/v-add-firewall-rule ACCEPT 0.0.0.0/0 8081 TCP "MongoExpress" 2>/dev/null
+    echo "  ✅ Hestia firewall rule added for port 8081"
+fi
+
+# Update Hestia config
+if ! grep -q "MONGO_EXPRESS_SYSTEM" "$HESTIA/conf/hestia.conf"; then
+    echo "MONGO_EXPRESS_SYSTEM='yes'" >> $HESTIA/conf/hestia.conf
+fi
+if ! grep -q "MONGO_EXPRESS_PORT" "$HESTIA/conf/hestia.conf"; then
+    echo "MONGO_EXPRESS_PORT='8081'" >> $HESTIA/conf/hestia.conf
+fi
+# Also add old-style config for compatibility
+if ! grep -q "MONGOEXPRESS_SYSTEM" "$HESTIA/conf/hestia.conf"; then
+    echo "MONGOEXPRESS_SYSTEM='yes'" >> $HESTIA/conf/hestia.conf
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo ""
+echo "════════════════════════════════════════════════════════════"
+echo "  mongo-express has been installed!"
+echo "════════════════════════════════════════════════════════════"
+echo ""
+echo "  URL:      http://YOUR_SERVER_IP:8081/"
+echo "  Username: admin"
+echo "  Password: (same as MongoDB admin password)"
+echo ""
+echo "  Service:  systemctl status mongo-express"
+echo ""
+
+# Log event
+$HESTIA/bin/v-log-action "system" "Info" "MongoDB" "mongo-express installed"
+
+exit 0

@@ -1,0 +1,574 @@
+#!/bin/bash
+# info: install haproxy load balancer
+# options: [STATS] [STATS_PORT] [STATS_USER] [STATS_PASSWORD]
+#
+# example: v-add-sys-haproxy yes 8404 admin mypassword
+#
+# This function installs and configures HAProxy as a load balancer/reverse proxy.
+# It sets up the base configuration, stats dashboard, and SSL support.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+stats=${1:-yes}
+stats_port=${2:-8404}
+stats_user=${3:-admin}
+stats_password=$4
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+
+# Source haproxy functions if exists
+if [ -f "$HESTIA/func/haproxy.sh" ]; then
+    source $HESTIA/func/haproxy.sh
+fi
+
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if HAProxy is already installed
+if is_haproxy_installed; then
+    echo "HAProxy is already installed"
+    exit 0
+fi
+
+# Check if running as root
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+# Generate password if not provided
+if [ -z "$stats_password" ]; then
+    stats_password=$(generate_haproxy_password 16)
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Installing HAProxy..."
+
+# ============================================
+# Step 1: Change web server ports to free up 80/443 for HAProxy
+# ============================================
+echo ""
+echo "Step 1: Changing web server ports..."
+echo "  Nginx/Apache will move from 80/443 to 8080/8443"
+echo ""
+
+# Check current WEB_PORT
+current_web_port=$(grep "^WEB_PORT=" $HESTIA/conf/hestia.conf 2>/dev/null | cut -d"'" -f2)
+echo "  Current WEB_PORT: ${current_web_port:-80}"
+
+if [ "$current_web_port" != "8080" ]; then
+    echo "  Running v-change-sys-web-port 8080 8443..."
+    $HESTIA/bin/v-change-sys-web-port 8080 8443
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to change web server ports"
+        exit 1
+    fi
+    
+    # Verify the change
+    new_web_port=$(grep "^WEB_PORT=" $HESTIA/conf/hestia.conf 2>/dev/null | cut -d"'" -f2)
+    echo "  New WEB_PORT: $new_web_port"
+    
+    if [ "$new_web_port" != "8080" ]; then
+        echo "  ⚠️ WEB_PORT not updated correctly, forcing update..."
+        sed -i "s|^WEB_PORT=.*|WEB_PORT='8080'|" "$HESTIA/conf/hestia.conf"
+        sed -i "s|^WEB_SSL_PORT=.*|WEB_SSL_PORT='8443'|" "$HESTIA/conf/hestia.conf"
+    fi
+else
+    echo "  ✅ Web ports already configured (8080/8443)"
+fi
+
+# Ensure all port variables are set correctly
+echo "  Ensuring all port variables are set..."
+for var_value in "WEB_PORT='8080'" "WEB_SSL_PORT='8443'" "PROXY_PORT='8080'" "PROXY_SSL_PORT='8443'"; do
+    var_name=$(echo "$var_value" | cut -d'=' -f1)
+    if ! grep -q "^${var_name}='8" "$HESTIA/conf/hestia.conf"; then
+        if grep -q "^${var_name}=" "$HESTIA/conf/hestia.conf"; then
+            sed -i "s|^${var_name}=.*|${var_value}|" "$HESTIA/conf/hestia.conf"
+        else
+            echo "$var_value" >> "$HESTIA/conf/hestia.conf"
+        fi
+        echo "    Updated $var_name"
+    fi
+done
+
+# Force nginx to release port 80 NOW
+echo "  Ensuring nginx releases port 80..."
+if systemctl is-active --quiet nginx; then
+    
+    # Function to update ports in nginx config files
+    update_nginx_ports() {
+        local file="$1"
+        if [ -f "$file" ]; then
+            # Use perl for reliable regex
+            # Handle: listen IP:80; listen IP:80 ssl; listen 80; listen [::]:80; etc
+            perl -pi -e 's/listen\s+(\d+\.\d+\.\d+\.\d+):80\b/listen $1:8080/g' "$file"
+            perl -pi -e 's/listen\s+80\b/listen 8080/g' "$file"
+            perl -pi -e 's/listen\s+\[::\]:80\b/listen [::]:8080/g' "$file"
+            perl -pi -e 's/listen\s+(\d+\.\d+\.\d+\.\d+):443\b/listen $1:8443/g' "$file"
+            perl -pi -e 's/listen\s+443\b/listen 8443/g' "$file"
+            perl -pi -e 's/listen\s+\[::\]:443\b/listen [::]:8443/g' "$file"
+        fi
+    }
+    
+    # Update /etc/nginx/conf.d/*.conf (includes IP configs like 192.168.0.125.conf)
+    echo "    Updating /etc/nginx/conf.d/*.conf..."
+    for conf in /etc/nginx/conf.d/*.conf; do
+        if [ -f "$conf" ]; then
+            update_nginx_ports "$conf"
+        fi
+    done
+    
+    # Update /etc/nginx/conf.d/domains/*.conf
+    echo "    Updating /etc/nginx/conf.d/domains/*.conf..."
+    if [ -d /etc/nginx/conf.d/domains ]; then
+        for conf in /etc/nginx/conf.d/domains/*.conf; do
+            if [ -f "$conf" ]; then
+                update_nginx_ports "$conf"
+            fi
+        done
+    fi
+    
+    # Update user domain configs
+    echo "    Updating /home/*/conf/web/*/*.nginx*.conf..."
+    for conf in /home/*/conf/web/*/*.nginx.conf /home/*/conf/web/*/*.nginx.ssl.conf 2>/dev/null; do
+        if [ -f "$conf" ]; then
+            update_nginx_ports "$conf"
+        fi
+    done
+    
+    # CRITICAL: Also update nginx.conf if it has default server on port 80
+    if [ -f /etc/nginx/nginx.conf ]; then
+        update_nginx_ports "/etc/nginx/nginx.conf"
+    fi
+    
+    # Verify no port 80 remaining
+    remaining=$(grep -rE "listen\s+[^#]*:80[^0-9]|listen\s+80[^0-9]" /etc/nginx/ 2>/dev/null | grep -v "#" | wc -l)
+    if [ "$remaining" -gt 0 ]; then
+        echo "    ⚠️ Still found $remaining configs with port 80:"
+        grep -rE "listen\s+[^#]*:80[^0-9]|listen\s+80[^0-9]" /etc/nginx/ 2>/dev/null | grep -v "#" | head -5
+        
+        # Force fix any remaining
+        echo "    Force fixing remaining configs..."
+        find /etc/nginx -name "*.conf" -exec sed -i 's/:80;/:8080;/g' {} \;
+        find /etc/nginx -name "*.conf" -exec sed -i 's/:80 /:8080 /g' {} \;
+    else
+        echo "    ✅ All nginx configs updated to port 8080"
+    fi
+    
+    # Test and restart nginx
+    nginx -t > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        systemctl restart nginx
+        sleep 2
+    else
+        echo "    ⚠️ Nginx config test failed:"
+        nginx -t
+    fi
+fi
+
+# Double-check: if nginx still on 80, force kill and update configs again
+if ss -tlnp 2>/dev/null | grep -q ":80.*nginx"; then
+    echo "  Nginx still on port 80, forcing update..."
+    systemctl stop nginx
+    sleep 1
+    
+    # Aggressive update of all configs
+    find /etc/nginx -name "*.conf" -type f -exec sed -i \
+        -e 's/listen[[:space:]]*80;/listen 8080;/g' \
+        -e 's/listen[[:space:]]*80[[:space:]]/listen 8080 /g' \
+        -e 's/:80;/:8080;/g' \
+        -e 's/:80[[:space:]]/:8080 /g' \
+        {} \;
+    
+    # Kill any remaining nginx processes on port 80
+    fuser -k 80/tcp 2>/dev/null || true
+    sleep 1
+    
+    # Start nginx again
+    systemctl start nginx
+    sleep 1
+fi
+
+# Final verification
+echo ""
+echo "  Port configuration:"
+grep -E "^WEB_PORT=|^WEB_SSL_PORT=|^PROXY_PORT=|^PROXY_SSL_PORT=" "$HESTIA/conf/hestia.conf"
+
+# ============================================
+# Step 2: Install HAProxy
+# ============================================
+echo ""
+echo "Step 2: Installing HAProxy..."
+
+# Install HAProxy
+apt-get update -qq
+apt-get install -y haproxy socat
+
+# Create necessary directories
+mkdir -p /etc/haproxy/conf.d
+mkdir -p /etc/haproxy/certs
+mkdir -p /etc/haproxy/errors
+mkdir -p /var/run/haproxy
+mkdir -p /var/log/hestia
+
+# Generate maintenance page
+generate_maintenance_page "Service Unavailable" "The service is temporarily unavailable. Please try again later." > /etc/haproxy/errors/503.http
+
+# Create base HAProxy configuration
+cat > /etc/haproxy/haproxy.cfg << EOF
+#---------------------------------------------------------------------
+# VHestiaCP HAProxy Configuration
+# Generated: $(date)
+#---------------------------------------------------------------------
+
+#---------------------------------------------------------------------
+# Global settings
+#---------------------------------------------------------------------
+global
+    log /dev/log local0
+    log /dev/log local1 notice
+    chroot /var/lib/haproxy
+    stats socket /var/run/haproxy/admin.sock mode 660 level admin expose-fd listeners
+    stats timeout 30s
+    user haproxy
+    group haproxy
+    daemon
+
+    # Default SSL material locations
+    ca-base /etc/ssl/certs
+    crt-base /etc/ssl/private
+
+    # SSL settings
+    ssl-default-bind-ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384
+    ssl-default-bind-ciphersuites TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256
+    ssl-default-bind-options ssl-min-ver TLSv1.2 no-tls-tickets
+
+#---------------------------------------------------------------------
+# Default settings
+#---------------------------------------------------------------------
+defaults
+    log     global
+    mode    http
+    option  httplog
+    option  dontlognull
+    option  forwardfor
+    option  http-server-close
+    timeout connect 5000
+    timeout client  50000
+    timeout server  50000
+    errorfile 400 /etc/haproxy/errors/400.http
+    errorfile 403 /etc/haproxy/errors/403.http
+    errorfile 408 /etc/haproxy/errors/408.http
+    errorfile 500 /etc/haproxy/errors/500.http
+    errorfile 502 /etc/haproxy/errors/502.http
+    errorfile 503 /etc/haproxy/errors/503.http
+    errorfile 504 /etc/haproxy/errors/504.http
+
+#---------------------------------------------------------------------
+# Stats Dashboard
+#---------------------------------------------------------------------
+EOF
+
+# Add stats configuration if enabled
+if [ "$stats" = "yes" ]; then
+    cat >> /etc/haproxy/haproxy.cfg << EOF
+listen stats
+    bind *:${stats_port}
+    mode http
+    stats enable
+    stats hide-version
+    stats realm HAProxy\ Statistics
+    stats uri /stats
+    stats auth ${stats_user}:${stats_password}
+    stats refresh 30s
+    stats admin if TRUE
+
+EOF
+fi
+
+# Add HTTP frontend
+cat >> /etc/haproxy/haproxy.cfg << EOF
+#---------------------------------------------------------------------
+# HTTP Frontend
+#---------------------------------------------------------------------
+frontend http_front
+    bind *:80
+    mode http
+    
+    # ACLs for Let's Encrypt
+    acl letsencrypt path_beg /.well-known/acme-challenge/
+    use_backend letsencrypt_backend if letsencrypt
+    
+    # Default backend
+    default_backend default_backend
+
+#---------------------------------------------------------------------
+# Let's Encrypt Backend (Nginx on port 8080)
+#---------------------------------------------------------------------
+backend letsencrypt_backend
+    mode http
+    server letsencrypt 127.0.0.1:8080
+
+#---------------------------------------------------------------------
+# Default Backend (Nginx on port 8080)
+# HAProxy listens on 80/443, Nginx moved to 8080/8443
+#---------------------------------------------------------------------
+backend default_backend
+    mode http
+    balance roundrobin
+    option httpchk GET /
+    http-check expect status 200-499
+    
+    # Forward headers
+    option forwardfor
+    http-request set-header X-Real-IP %[src]
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    http-request set-header X-Forwarded-Proto http if !{ ssl_fc }
+    http-request set-header X-Forwarded-Port %[dst_port]
+    
+    server nginx1 127.0.0.1:8080 check inter 5s fall 3 rise 2
+
+#---------------------------------------------------------------------
+# Domain-specific configurations
+# Include files from /etc/haproxy/conf.d/
+#---------------------------------------------------------------------
+EOF
+
+# Create self-signed certificate for default SSL
+echo "Creating default SSL certificate..."
+mkdir -p /etc/haproxy/certs
+if [ ! -f /etc/haproxy/certs/default.pem ]; then
+    openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
+        -keyout /tmp/default.key \
+        -out /tmp/default.crt \
+        -subj "/C=US/ST=State/L=City/O=Organization/CN=localhost" 2>/dev/null
+    cat /tmp/default.crt /tmp/default.key > /etc/haproxy/certs/default.pem
+    rm -f /tmp/default.crt /tmp/default.key
+    chmod 600 /etc/haproxy/certs/default.pem
+    echo "  - Default SSL certificate created"
+fi
+
+# Add HTTPS frontend AFTER certificate is created
+cat >> /etc/haproxy/haproxy.cfg << EOF
+
+#---------------------------------------------------------------------
+# HTTPS Frontend (SSL Termination)
+#---------------------------------------------------------------------
+frontend https_front
+    bind *:443 ssl crt /etc/haproxy/certs/default.pem alpn h2,http/1.1
+    mode http
+    
+    # Add security headers
+    http-response set-header Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+    http-response set-header X-Frame-Options "SAMEORIGIN"
+    http-response set-header X-Content-Type-Options "nosniff"
+    
+    # Default backend
+    default_backend default_backend
+EOF
+
+# Copy base config for rebuilding
+cp /etc/haproxy/haproxy.cfg /etc/haproxy/haproxy.cfg.base
+
+# Create error pages
+for code in 400 403 408 500 502 504; do
+    cat > /etc/haproxy/errors/${code}.http << EOF
+HTTP/1.0 ${code} Error
+Cache-Control: no-cache
+Connection: close
+Content-Type: text/html
+
+<!DOCTYPE html>
+<html>
+<head><title>Error ${code}</title></head>
+<body>
+<h1>Error ${code}</h1>
+<p>An error occurred while processing your request.</p>
+</body>
+</html>
+EOF
+done
+
+# Validate configuration
+echo "Validating HAProxy configuration..."
+/usr/sbin/haproxy -c -f /etc/haproxy/haproxy.cfg
+if [ $? -ne 0 ]; then
+    echo "Warning: HAProxy configuration validation failed"
+    echo "Checking config file..."
+    cat /etc/haproxy/haproxy.cfg
+    echo ""
+    echo "Attempting to fix common issues..."
+fi
+
+# IMPORTANT: Ensure nginx is using port 8080 BEFORE starting haproxy on 80
+echo ""
+echo "Step 4: Verifying nginx is on port 8080..."
+
+# Wait for nginx to be on new port
+sleep 2
+
+# Check if nginx is still on port 80
+if ss -tlnp | grep -q ":80.*nginx"; then
+    echo "  Warning: Nginx still on port 80, restarting..."
+    systemctl restart nginx
+    sleep 2
+fi
+
+# Check again and force if needed
+if ss -tlnp | grep -q ":80.*nginx"; then
+    echo "  Force stopping nginx..."
+    systemctl stop nginx
+    sleep 1
+    
+    # Update any remaining configs with port 80
+    for conf in /etc/nginx/conf.d/*.conf; do
+        if [ -f "$conf" ]; then
+            sed -i 's/:80;/:8080;/g' "$conf"
+            sed -i 's/:80 /:8080 /g' "$conf"
+        fi
+    done
+    
+    systemctl start nginx
+    sleep 1
+fi
+
+# Verify nginx port
+if ss -tlnp | grep -q ":8080.*nginx"; then
+    echo "  ✅ Nginx is now listening on port 8080"
+else
+    echo "  ⚠️ Warning: Could not verify nginx port"
+fi
+
+# Enable and start HAProxy
+echo ""
+echo "Step 5: Starting HAProxy service..."
+systemctl enable haproxy
+systemctl restart haproxy
+
+# Check if HAProxy started
+sleep 2
+if systemctl is-active --quiet haproxy; then
+    echo "  ✅ HAProxy started successfully"
+    
+    # Verify HAProxy is on port 80
+    if ss -tlnp | grep -q ":80.*haproxy"; then
+        echo "  ✅ HAProxy is listening on port 80"
+    fi
+else
+    echo "  ⚠️ HAProxy failed to start, checking status..."
+    systemctl status haproxy --no-pager
+    journalctl -u haproxy --no-pager -n 20
+fi
+
+# Update Hestia configuration
+if ! grep -q "HAPROXY_SYSTEM" $HESTIA/conf/hestia.conf; then
+    echo "HAPROXY_SYSTEM='yes'" >> $HESTIA/conf/hestia.conf
+fi
+
+sed -i "s/HAPROXY_SYSTEM=.*/HAPROXY_SYSTEM='yes'/" $HESTIA/conf/hestia.conf
+
+if [ "$stats" = "yes" ]; then
+    # Add or update HAProxy stats settings
+    if grep -q "HAPROXY_STATS=" $HESTIA/conf/hestia.conf; then
+        sed -i "s/HAPROXY_STATS=.*/HAPROXY_STATS='yes'/" $HESTIA/conf/hestia.conf
+    else
+        echo "HAPROXY_STATS='yes'" >> $HESTIA/conf/hestia.conf
+    fi
+    
+    if grep -q "HAPROXY_STATS_PORT=" $HESTIA/conf/hestia.conf; then
+        sed -i "s/HAPROXY_STATS_PORT=.*/HAPROXY_STATS_PORT='${stats_port}'/" $HESTIA/conf/hestia.conf
+    else
+        echo "HAPROXY_STATS_PORT='${stats_port}'" >> $HESTIA/conf/hestia.conf
+    fi
+    
+    if grep -q "HAPROXY_STATS_USER=" $HESTIA/conf/hestia.conf; then
+        sed -i "s/HAPROXY_STATS_USER=.*/HAPROXY_STATS_USER='${stats_user}'/" $HESTIA/conf/hestia.conf
+    else
+        echo "HAPROXY_STATS_USER='${stats_user}'" >> $HESTIA/conf/hestia.conf
+    fi
+    
+    if grep -q "HAPROXY_STATS_PASSWORD=" $HESTIA/conf/hestia.conf; then
+        sed -i "s/HAPROXY_STATS_PASSWORD=.*/HAPROXY_STATS_PASSWORD='${stats_password}'/" $HESTIA/conf/hestia.conf
+    else
+        echo "HAPROXY_STATS_PASSWORD='${stats_password}'" >> $HESTIA/conf/hestia.conf
+    fi
+fi
+
+# Add firewall rule for stats port
+if [ "$stats" = "yes" ]; then
+    echo "Adding firewall rule for HAProxy stats port ${stats_port}..."
+    if [ -x "$HESTIA/bin/v-add-firewall-rule" ]; then
+        $HESTIA/bin/v-add-firewall-rule ACCEPT 0.0.0.0/0 ${stats_port} TCP "HAProxy Stats" 2>/dev/null || {
+            echo "  - Hestia firewall command failed, using iptables directly..."
+            iptables -I INPUT -p tcp --dport ${stats_port} -j ACCEPT 2>/dev/null || true
+        }
+    else
+        echo "  - v-add-firewall-rule not found, using iptables directly..."
+        iptables -I INPUT -p tcp --dport ${stats_port} -j ACCEPT 2>/dev/null || true
+    fi
+    
+    # Also add to Hestia firewall config file directly
+    firewall_conf="$HESTIA/data/firewall/rules.conf"
+    if [ -f "$firewall_conf" ]; then
+        if ! grep -q "HAPROXY_STATS" "$firewall_conf" 2>/dev/null; then
+            # Find next rule number
+            last_rule=$(grep "^RULE=" "$firewall_conf" 2>/dev/null | tail -1 | cut -d'=' -f2 | cut -d"'" -f2)
+            next_rule=$((last_rule + 1))
+            echo "RULE='${next_rule}' ACTION='ACCEPT' PROTOCOL='TCP' PORT='${stats_port}' IP='0.0.0.0/0' COMMENT='HAPROXY_STATS' SUSPENDED='no' TIME='' DATE=''" >> "$firewall_conf"
+            echo "  - Added rule to Hestia firewall config"
+        fi
+    fi
+    echo "  ✅ Firewall rule added for port ${stats_port}"
+fi
+
+# Add firewall rules for ports 80 and 443 (HAProxy frontend)
+echo "Adding firewall rules for HAProxy frontend ports..."
+for port in 80 443; do
+    iptables -I INPUT -p tcp --dport $port -j ACCEPT 2>/dev/null || true
+done
+
+# Create haproxy ports tracking file
+touch $HESTIA/data/haproxy_ports.conf
+
+# Setup admin tools routing (phpMyAdmin, Mongo Express, etc.)
+echo ""
+echo "Setting up admin tools routing..."
+if [ -x "$HESTIA/bin/v-setup-haproxy-admin-routes" ]; then
+    $HESTIA/bin/v-setup-haproxy-admin-routes > /dev/null 2>&1
+    echo "  ✅ Admin tools routing configured"
+else
+    echo "  ⚠️  Admin routes script not found - run v-setup-haproxy-admin-routes manually"
+fi
+
+# Log installation
+log_haproxy_event "INFO" "HAProxy installed successfully"
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo "HAProxy has been installed successfully!"
+echo ""
+echo "Stats Dashboard: http://$(hostname -I | awk '{print $1}'):${stats_port}/stats"
+echo "Username: ${stats_user}"
+echo "Password: ${stats_password}"
+echo ""
+
+# Logging
+$HESTIA/bin/v-log-action "system" "Info" "HAProxy" "HAProxy installed (stats: $stats, port: $stats_port)"
+
+exit 0

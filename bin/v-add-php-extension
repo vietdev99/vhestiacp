@@ -1,0 +1,486 @@
+#!/bin/bash
+# info: install PHP extension for specific PHP version
+# options: PHP_VERSION EXTENSION [OPTIONS]
+#
+# example: v-add-php-extension 8.2 phalcon
+# example: v-add-php-extension 8.1 redis
+# example: v-add-php-extension 7.4 phalcon5
+# example: v-add-php-extension all redis         # Install for all PHP versions
+#
+# Supported extensions:
+#   - phalcon (auto-detect version based on PHP)
+#   - phalcon3, phalcon4, phalcon5 (specific version)
+#   - redis, memcached, imagick, mongodb, swoole, xdebug, etc.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+PHP_VERSION="$1"
+EXTENSION="$2"
+OPTIONS="$3"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ -z "$PHP_VERSION" ] || [ -z "$EXTENSION" ]; then
+    echo "Usage: v-add-php-extension <PHP_VERSION|all> <EXTENSION> [OPTIONS]"
+    echo ""
+    echo "PHP Versions: 7.2, 7.3, 7.4, 8.0, 8.1, 8.2, 8.3, 8.4, all"
+    echo ""
+    echo "Available Extensions:"
+    echo "  Framework:"
+    echo "    phalcon      - Auto-detect Phalcon version for PHP"
+    echo "    phalcon3     - Phalcon 3.x (PHP 7.2-7.4)"
+    echo "    phalcon4     - Phalcon 4.x (PHP 7.2-8.0)"
+    echo "    phalcon5     - Phalcon 5.x (PHP 7.4-8.3)"
+    echo ""
+    echo "  Caching:"
+    echo "    redis        - Redis client"
+    echo "    memcached    - Memcached client"
+    echo "    apcu         - APCu user cache"
+    echo ""
+    echo "  Database:"
+    echo "    mongodb      - MongoDB driver"
+    echo "    pdo_sqlsrv   - SQL Server PDO"
+    echo ""
+    echo "  Image:"
+    echo "    imagick      - ImageMagick"
+    echo "    gd           - GD Library"
+    echo ""
+    echo "  Performance:"
+    echo "    swoole       - Swoole async"
+    echo "    opcache      - OPcache"
+    echo ""
+    echo "  Development:"
+    echo "    xdebug       - Xdebug debugger"
+    echo ""
+    echo "  Other:"
+    echo "    ioncube      - ionCube Loader"
+    echo "    sourceguardian - SourceGuardian Loader"
+    exit 1
+fi
+
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                    Functions                             #
+#----------------------------------------------------------#
+
+# Get installed PHP versions
+get_installed_php_versions() {
+    local versions=""
+    for v in 7.2 7.3 7.4 8.0 8.1 8.2 8.3 8.4; do
+        if [ -f "/etc/php/$v/fpm/php.ini" ] || [ -f "/etc/php/$v/cli/php.ini" ]; then
+            versions="$versions $v"
+        fi
+    done
+    echo "$versions"
+}
+
+# Check if PHP version is valid
+validate_php_version() {
+    local version="$1"
+    
+    if [ "$version" = "all" ]; then
+        return 0
+    fi
+    
+    if ! echo "$version" | grep -qE "^[78]\.[0-4]$"; then
+        echo "Error: Invalid PHP version: $version"
+        echo "Valid versions: 7.2, 7.3, 7.4, 8.0, 8.1, 8.2, 8.3, 8.4"
+        return 1
+    fi
+    
+    if [ ! -f "/etc/php/$version/fpm/php.ini" ]; then
+        echo "Error: PHP $version is not installed"
+        return 1
+    fi
+    
+    return 0
+}
+
+# Get Phalcon version compatible with PHP
+get_phalcon_version_for_php() {
+    local php_version="$1"
+    local major="${php_version%%.*}"
+    local minor="${php_version#*.}"
+    
+    # Phalcon compatibility:
+    # Phalcon 3.x: PHP 7.0-7.4
+    # Phalcon 4.x: PHP 7.2-8.0
+    # Phalcon 5.x: PHP 7.4-8.3
+    
+    case "$php_version" in
+        7.2|7.3)
+            echo "4"  # Phalcon 4 for older PHP 7.x
+            ;;
+        7.4)
+            echo "5"  # Prefer Phalcon 5 for PHP 7.4
+            ;;
+        8.0)
+            echo "5"  # Phalcon 5 for PHP 8.0
+            ;;
+        8.1|8.2|8.3)
+            echo "5"  # Phalcon 5 for PHP 8.x
+            ;;
+        8.4)
+            echo "5"  # Phalcon 5 (may need update for 8.4)
+            ;;
+        *)
+            echo "0"
+            ;;
+    esac
+}
+
+# Install Phalcon extension
+install_phalcon() {
+    local php_version="$1"
+    local phalcon_version="$2"
+    
+    echo "Installing Phalcon $phalcon_version for PHP $php_version..."
+    
+    # Add Phalcon repository if not exists
+    if [ ! -f /etc/apt/sources.list.d/phalcon.list ]; then
+        echo "Adding Phalcon repository..."
+        curl -fsSL https://packagecloud.io/install/repositories/phalcon/stable/script.deb.sh | bash
+    fi
+    
+    # Install Phalcon based on version
+    case "$phalcon_version" in
+        3)
+            apt-get install -y php${php_version}-phalcon3
+            ;;
+        4)
+            apt-get install -y php${php_version}-phalcon4
+            ;;
+        5)
+            apt-get install -y php${php_version}-phalcon
+            ;;
+    esac
+    
+    # If package install fails, try PECL
+    if [ $? -ne 0 ]; then
+        echo "Package not found, trying PECL..."
+        install_via_pecl "$php_version" "phalcon"
+    fi
+}
+
+# Install extension via PECL
+install_via_pecl() {
+    local php_version="$1"
+    local extension="$2"
+    
+    # Ensure PECL and dev packages are installed
+    apt-get install -y php${php_version}-dev php-pear build-essential
+    
+    # Use the correct PHP version's PECL
+    update-alternatives --set php /usr/bin/php${php_version}
+    update-alternatives --set pecl /usr/bin/pecl 2>/dev/null || true
+    
+    # Install the extension
+    pecl install "$extension"
+    
+    # Enable the extension
+    local ext_name="${extension%%/*}"  # Remove version suffix if any
+    echo "extension=${ext_name}.so" > /etc/php/${php_version}/mods-available/${ext_name}.ini
+    phpenmod -v $php_version $ext_name
+}
+
+# Install common extensions via apt
+install_apt_extension() {
+    local php_version="$1"
+    local extension="$2"
+    
+    local package_name=""
+    
+    case "$extension" in
+        redis)
+            package_name="php${php_version}-redis"
+            ;;
+        memcached)
+            package_name="php${php_version}-memcached"
+            ;;
+        imagick)
+            package_name="php${php_version}-imagick"
+            ;;
+        mongodb)
+            package_name="php${php_version}-mongodb"
+            ;;
+        apcu)
+            package_name="php${php_version}-apcu"
+            ;;
+        gd)
+            package_name="php${php_version}-gd"
+            ;;
+        opcache)
+            package_name="php${php_version}-opcache"
+            ;;
+        mbstring)
+            package_name="php${php_version}-mbstring"
+            ;;
+        xml)
+            package_name="php${php_version}-xml"
+            ;;
+        curl)
+            package_name="php${php_version}-curl"
+            ;;
+        zip)
+            package_name="php${php_version}-zip"
+            ;;
+        intl)
+            package_name="php${php_version}-intl"
+            ;;
+        bcmath)
+            package_name="php${php_version}-bcmath"
+            ;;
+        soap)
+            package_name="php${php_version}-soap"
+            ;;
+        *)
+            # Try generic package name
+            package_name="php${php_version}-${extension}"
+            ;;
+    esac
+    
+    echo "Installing $package_name..."
+    apt-get install -y "$package_name"
+    
+    return $?
+}
+
+# Install Xdebug
+install_xdebug() {
+    local php_version="$1"
+    
+    echo "Installing Xdebug for PHP $php_version..."
+    
+    # Try apt first
+    if apt-get install -y php${php_version}-xdebug 2>/dev/null; then
+        echo "Xdebug installed via apt"
+    else
+        echo "Installing via PECL..."
+        install_via_pecl "$php_version" "xdebug"
+    fi
+    
+    # Create default Xdebug config
+    local xdebug_ini="/etc/php/${php_version}/mods-available/xdebug.ini"
+    cat > "$xdebug_ini" << 'EOF'
+zend_extension=xdebug.so
+
+[xdebug]
+xdebug.mode=develop,debug
+xdebug.client_host=127.0.0.1
+xdebug.client_port=9003
+xdebug.start_with_request=trigger
+xdebug.log=/var/log/xdebug.log
+EOF
+    
+    # Disable by default (can be enabled per-site)
+    phpdismod -v $php_version xdebug
+    echo "  Note: Xdebug is installed but disabled by default"
+    echo "  Enable with: phpenmod -v $php_version xdebug"
+}
+
+# Install Swoole
+install_swoole() {
+    local php_version="$1"
+    
+    echo "Installing Swoole for PHP $php_version..."
+    
+    # Try apt first
+    if apt-get install -y php${php_version}-swoole 2>/dev/null; then
+        echo "Swoole installed via apt"
+    else
+        echo "Installing via PECL..."
+        apt-get install -y php${php_version}-dev php-pear build-essential
+        install_via_pecl "$php_version" "swoole"
+    fi
+}
+
+# Install ionCube Loader
+install_ioncube() {
+    local php_version="$1"
+    
+    echo "Installing ionCube Loader for PHP $php_version..."
+    
+    local arch=$(uname -m)
+    local ioncube_dir="/usr/local/ioncube"
+    
+    mkdir -p "$ioncube_dir"
+    cd /tmp
+    
+    # Download ionCube
+    if [ "$arch" = "x86_64" ]; then
+        wget -q "https://downloads.ioncube.com/loader_downloads/ioncube_loaders_lin_x86-64.tar.gz" -O ioncube.tar.gz
+    else
+        wget -q "https://downloads.ioncube.com/loader_downloads/ioncube_loaders_lin_x86.tar.gz" -O ioncube.tar.gz
+    fi
+    
+    tar -xzf ioncube.tar.gz
+    
+    # Copy loader for the PHP version
+    local php_short="${php_version//./}"
+    cp ioncube/ioncube_loader_lin_${php_version}.so "$ioncube_dir/"
+    
+    # Create ini file
+    echo "zend_extension=${ioncube_dir}/ioncube_loader_lin_${php_version}.so" > /etc/php/${php_version}/mods-available/ioncube.ini
+    
+    # Enable
+    phpenmod -v $php_version ioncube
+    
+    # Cleanup
+    rm -rf /tmp/ioncube /tmp/ioncube.tar.gz
+    
+    echo "ionCube Loader installed for PHP $php_version"
+}
+
+# Restart PHP-FPM for version
+restart_php_fpm() {
+    local php_version="$1"
+    
+    echo "Restarting PHP ${php_version}-FPM..."
+    systemctl restart php${php_version}-fpm
+    
+    if systemctl is-active --quiet php${php_version}-fpm; then
+        echo "  ✅ PHP ${php_version}-FPM restarted"
+    else
+        echo "  ❌ PHP ${php_version}-FPM failed to restart!"
+        return 1
+    fi
+}
+
+# Check if extension is installed
+is_extension_installed() {
+    local php_version="$1"
+    local extension="$2"
+    
+    php${php_version} -m 2>/dev/null | grep -qi "^${extension}$"
+}
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "  PHP Extension Installer"
+echo "═══════════════════════════════════════════════════════════════"
+echo ""
+
+# Get list of PHP versions to process
+if [ "$PHP_VERSION" = "all" ]; then
+    versions=$(get_installed_php_versions)
+    echo "Installing $EXTENSION for all PHP versions: $versions"
+else
+    validate_php_version "$PHP_VERSION" || exit 1
+    versions="$PHP_VERSION"
+fi
+
+echo ""
+
+# Update apt
+apt-get update -qq
+
+# Process each PHP version
+for version in $versions; do
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Processing PHP $version"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    
+    # Check if already installed
+    ext_name="${EXTENSION%%[0-9]*}"  # Remove version number if any
+    if is_extension_installed "$version" "$ext_name"; then
+        echo "  ⚠️  $ext_name is already installed for PHP $version"
+        continue
+    fi
+    
+    # Install based on extension type
+    case "$EXTENSION" in
+        phalcon)
+            phalcon_ver=$(get_phalcon_version_for_php "$version")
+            if [ "$phalcon_ver" = "0" ]; then
+                echo "  ❌ No compatible Phalcon version for PHP $version"
+            else
+                install_phalcon "$version" "$phalcon_ver"
+            fi
+            ;;
+        phalcon3)
+            if echo "$version" | grep -qE "^7\.[234]$"; then
+                install_phalcon "$version" "3"
+            else
+                echo "  ❌ Phalcon 3.x requires PHP 7.2-7.4"
+            fi
+            ;;
+        phalcon4)
+            if echo "$version" | grep -qE "^(7\.[234]|8\.0)$"; then
+                install_phalcon "$version" "4"
+            else
+                echo "  ❌ Phalcon 4.x requires PHP 7.2-8.0"
+            fi
+            ;;
+        phalcon5)
+            if echo "$version" | grep -qE "^(7\.4|8\.[0-3])$"; then
+                install_phalcon "$version" "5"
+            else
+                echo "  ❌ Phalcon 5.x requires PHP 7.4-8.3"
+            fi
+            ;;
+        xdebug)
+            install_xdebug "$version"
+            ;;
+        swoole)
+            install_swoole "$version"
+            ;;
+        ioncube)
+            install_ioncube "$version"
+            ;;
+        redis|memcached|imagick|mongodb|apcu|gd|opcache|mbstring|xml|curl|zip|intl|bcmath|soap)
+            install_apt_extension "$version" "$EXTENSION"
+            ;;
+        *)
+            echo "  Trying to install php${version}-${EXTENSION}..."
+            if ! install_apt_extension "$version" "$EXTENSION"; then
+                echo "  Trying PECL installation..."
+                install_via_pecl "$version" "$EXTENSION"
+            fi
+            ;;
+    esac
+    
+    # Verify installation
+    if is_extension_installed "$version" "$ext_name"; then
+        echo "  ✅ $EXTENSION installed successfully for PHP $version"
+        restart_php_fpm "$version"
+    else
+        echo "  ❌ Failed to install $EXTENSION for PHP $version"
+    fi
+    
+    echo ""
+done
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "  Installation Complete"
+echo "═══════════════════════════════════════════════════════════════"
+echo ""
+echo "  Extension: $EXTENSION"
+echo "  PHP Versions: $versions"
+echo ""
+echo "  To verify: php<version> -m | grep -i $ext_name"
+echo ""
+
+# Log
+$HESTIA/bin/v-log-action "system" "Info" "PHP" "Installed $EXTENSION for PHP $versions"
+
+exit 0

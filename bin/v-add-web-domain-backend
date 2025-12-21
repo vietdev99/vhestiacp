@@ -1,0 +1,421 @@
+#!/bin/bash
+# info: add haproxy backend for web domain
+# options: USER DOMAIN BACKEND_HOST BACKEND_PORT [BACKEND_TYPE] [SSL_MODE] [HEALTH_CHECK] [STICKY] [STICKY_METHOD] [RATE_LIMIT] [RATE_LIMIT_REQUESTS] [RATE_LIMIT_PERIOD]
+#
+# example: v-add-web-domain-backend admin example.com 127.0.0.1 3000 nodejs termination yes yes cookie no
+#
+# This function adds a HAProxy backend configuration for a web domain.
+# It supports multiple backend types, SSL modes, health checks, sticky sessions,
+# and rate limiting.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+domain=$2
+backend_host=${3:-127.0.0.1}
+backend_port=$4
+backend_type=${5:-nginx}        # nginx, nodejs, python, static, custom
+ssl_mode=${6:-termination}      # termination, passthrough
+health_check=${7:-yes}
+sticky=${8:-no}
+sticky_method=${9:-cookie}      # cookie, sourceip
+rate_limit=${10:-no}
+rate_limit_requests=${11:-100}
+rate_limit_period=${12:-minute} # second, minute, hour
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# shellcheck source=/usr/local/hestia/func/haproxy.sh
+source $HESTIA/func/haproxy.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if HAProxy is installed
+if ! is_haproxy_installed; then
+    echo "Error: HAProxy is not installed. Run v-add-sys-haproxy first."
+    exit 1
+fi
+
+# Argument check
+check_args '4' "$#" 'USER DOMAIN BACKEND_HOST BACKEND_PORT [BACKEND_TYPE] [SSL_MODE] [HEALTH_CHECK] [STICKY] [STICKY_METHOD] [RATE_LIMIT] [RATE_LIMIT_REQUESTS] [RATE_LIMIT_PERIOD]'
+
+# Validate user
+is_object_valid 'user' 'USER' "$user"
+
+# Validate domain format
+is_domain_format_valid "$domain"
+
+# Check if domain exists for user
+is_object_valid 'web' 'DOMAIN' "$domain"
+
+# Validate port
+if ! [[ "$backend_port" =~ ^[0-9]+$ ]] || [ "$backend_port" -lt 1 ] || [ "$backend_port" -gt 65535 ]; then
+    echo "Error: Invalid port number"
+    exit 1
+fi
+
+# Validate backend type
+case "$backend_type" in
+    nginx|nodejs|python|static|custom) ;;
+    *)
+        echo "Error: Invalid backend type. Use: nginx, nodejs, python, static, custom"
+        exit 1
+        ;;
+esac
+
+# Validate SSL mode
+case "$ssl_mode" in
+    termination|passthrough) ;;
+    *)
+        echo "Error: Invalid SSL mode. Use: termination, passthrough"
+        exit 1
+        ;;
+esac
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Sanitize domain name for use in config
+domain_safe="${domain//\./_}"
+domain_safe="${domain_safe//-/_}"
+
+# Create domain config directory if not exists
+mkdir -p /etc/haproxy/conf.d
+
+# Config file path
+conf_file="/etc/haproxy/conf.d/${domain}.cfg"
+
+echo "Adding HAProxy backend for ${domain}..."
+
+# Generate backend configuration
+cat > "$conf_file" << EOF
+#---------------------------------------------------------------------
+# Domain: ${domain}
+# Backend Type: ${backend_type}
+# Generated: $(date)
+#---------------------------------------------------------------------
+
+# Backend definition
+backend backend_${domain_safe}
+    mode http
+    balance roundrobin
+    
+    # Forward headers
+    option forwardfor
+    http-request set-header X-Real-IP %[src]
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    http-request set-header X-Forwarded-Proto http if !{ ssl_fc }
+    http-request set-header X-Forwarded-Port %[dst_port]
+    http-request set-header Host %[req.hdr(host)]
+EOF
+
+# Add health check if enabled
+if [ "$health_check" = "yes" ]; then
+    cat >> "$conf_file" << EOF
+    
+    # Health check
+    option httpchk GET /
+    http-check expect status 200-499
+EOF
+fi
+
+# Add sticky sessions if enabled
+if [ "$sticky" = "yes" ]; then
+    if [ "$sticky_method" = "cookie" ]; then
+        cat >> "$conf_file" << EOF
+    
+    # Sticky sessions (cookie-based)
+    cookie SERVERID insert indirect nocache
+EOF
+    else
+        cat >> "$conf_file" << EOF
+    
+    # Sticky sessions (source IP)
+    stick-table type ip size 200k expire 30m
+    stick on src
+EOF
+    fi
+fi
+
+# Add rate limiting if enabled
+if [ "$rate_limit" = "yes" ]; then
+    case "$rate_limit_period" in
+        second) expire_time="10s"; rate_window="1s" ;;
+        minute) expire_time="1m"; rate_window="60s" ;;
+        hour) expire_time="1h"; rate_window="3600s" ;;
+    esac
+    
+    cat >> "$conf_file" << EOF
+    
+    # Rate limiting: ${rate_limit_requests} requests per ${rate_limit_period}
+    stick-table type ip size 100k expire ${expire_time} store http_req_rate(${rate_window})
+    http-request track-sc0 src
+    http-request deny deny_status 429 if { sc_http_req_rate(0) gt ${rate_limit_requests} }
+EOF
+fi
+
+# Add server definition
+server_opts="check inter 5s fall 3 rise 2"
+if [ "$sticky" = "yes" ] && [ "$sticky_method" = "cookie" ]; then
+    server_opts+=" cookie server1"
+fi
+
+cat >> "$conf_file" << EOF
+    
+    # Backend server
+    server server1 ${backend_host}:${backend_port} ${server_opts}
+    
+    # Error handling
+    errorfile 503 /etc/haproxy/errors/503.http
+
+EOF
+
+# Add ACL rules to frontend configs
+# We need to add these to the main config or a separate ACL file
+acl_file="/etc/haproxy/conf.d/00-acls.cfg"
+
+# Create ACL file if not exists
+if [ ! -f "$acl_file" ]; then
+    cat > "$acl_file" << EOF
+#---------------------------------------------------------------------
+# Domain ACLs - Auto-generated by VHestiaCP
+#---------------------------------------------------------------------
+
+EOF
+fi
+
+# Check if ACL already exists
+if ! grep -q "acl host_${domain_safe}" "$acl_file"; then
+    cat >> "$acl_file" << EOF
+# ${domain}
+acl host_${domain_safe} hdr(host) -i ${domain}
+acl host_${domain_safe} hdr(host) -i www.${domain}
+use_backend backend_${domain_safe} if host_${domain_safe}
+
+EOF
+fi
+
+# Handle SSL certificate for HAProxy (if SSL termination)
+if [ "$ssl_mode" = "termination" ]; then
+    # Check if domain has SSL certificate
+    ssl_cert="$HOMEDIR/$user/conf/web/${domain}/ssl/${domain}.crt"
+    ssl_key="$HOMEDIR/$user/conf/web/${domain}/ssl/${domain}.key"
+    
+    if [ -f "$ssl_cert" ] && [ -f "$ssl_key" ]; then
+        echo "Copying SSL certificate to HAProxy..."
+        add_haproxy_ssl_cert "$domain" "$ssl_cert" "$ssl_key"
+    fi
+fi
+
+# Update main HAProxy config to include ACLs
+main_config="/etc/haproxy/haproxy.cfg"
+
+# Check if include directive exists for ACLs in http_front
+if ! grep -q "# VHestiaCP ACL includes" "$main_config"; then
+    # Add include before default_backend in http_front
+    sed -i '/^frontend http_front/,/^frontend\|^backend\|^listen/ {
+        /default_backend default_backend/i\    # VHestiaCP ACL includes\n    # ACLs are loaded from conf.d\/00-acls.cfg
+    }' "$main_config"
+fi
+
+# Rebuild main config with all domain configs
+rebuild_main_config() {
+    local temp_config="/tmp/haproxy_temp.cfg"
+    local base_config="/etc/haproxy/haproxy.cfg.base"
+    
+    # Start with base config
+    cp "$base_config" "$temp_config"
+    
+    # Read ACLs and insert into frontends
+    if [ -f "$acl_file" ]; then
+        # Get ACL content (skip comments at start)
+        acl_content=$(grep -v "^#" "$acl_file" | grep -v "^$")
+        
+        # Insert ACLs into http_front (before default_backend line)
+        if [ -n "$acl_content" ]; then
+            # Create a marker file with ACLs
+            echo "$acl_content" > /tmp/acl_insert.txt
+            
+            # Use awk to insert ACLs
+            awk -v acl_file="/tmp/acl_insert.txt" '
+                /^frontend http_front/,/default_backend/ {
+                    if (/default_backend default_backend/) {
+                        print "    # Domain ACLs"
+                        while ((getline line < acl_file) > 0) {
+                            print "    " line
+                        }
+                        close(acl_file)
+                        print ""
+                    }
+                }
+                {print}
+            ' "$temp_config" > /tmp/haproxy_with_acls.cfg
+            mv /tmp/haproxy_with_acls.cfg "$temp_config"
+            
+            # Do the same for https_front
+            awk -v acl_file="/tmp/acl_insert.txt" '
+                /^frontend https_front/,/default_backend/ {
+                    if (/default_backend default_backend/) {
+                        print "    # Domain ACLs"
+                        while ((getline line < acl_file) > 0) {
+                            print "    " line
+                        }
+                        close(acl_file)
+                        print ""
+                    }
+                }
+                {print}
+            ' "$temp_config" > /tmp/haproxy_with_acls.cfg
+            mv /tmp/haproxy_with_acls.cfg "$temp_config"
+            
+            rm -f /tmp/acl_insert.txt
+        fi
+    fi
+    
+    # Append backend configs
+    for cfg in /etc/haproxy/conf.d/*.cfg; do
+        if [ -f "$cfg" ] && [ "$(basename $cfg)" != "00-acls.cfg" ]; then
+            echo "" >> "$temp_config"
+            cat "$cfg" >> "$temp_config"
+        fi
+    done
+    
+    mv "$temp_config" "$main_config"
+}
+
+# Simple approach: just append backend to main config
+# and add ACL rules to frontends
+python3 << PYEOF
+import re
+
+config_file = '/etc/haproxy/haproxy.cfg'
+
+with open(config_file, 'r') as f:
+    content = f.read()
+
+domain = '${domain}'
+domain_safe = '${domain_safe}'
+backend_name = f'backend_{domain_safe}'
+
+# Check if backend already exists
+if f'backend {backend_name}' not in content:
+    # Read backend config
+    with open('${conf_file}', 'r') as f:
+        backend_config = f.read()
+    
+    # Append backend to end of file
+    content += '\n' + backend_config
+
+# Add ACL rules to http_front if not exists
+acl_rule = f'acl host_{domain_safe} hdr(host) -i {domain}'
+use_backend_rule = f'use_backend {backend_name} if host_{domain_safe}'
+
+if acl_rule not in content:
+    # Find http_front section and add ACL before default_backend
+    def add_acl_to_frontend(match):
+        frontend_content = match.group(0)
+        if f'host_{domain_safe}' not in frontend_content:
+            # Find position before default_backend
+            lines = frontend_content.split('\n')
+            new_lines = []
+            for line in lines:
+                if 'default_backend' in line and 'host_' not in line:
+                    new_lines.append(f'    acl host_{domain_safe} hdr(host) -i {domain}')
+                    new_lines.append(f'    acl host_{domain_safe} hdr(host) -i www.{domain}')
+                    new_lines.append(f'    use_backend {backend_name} if host_{domain_safe}')
+                    new_lines.append('')
+                new_lines.append(line)
+            return '\n'.join(new_lines)
+        return frontend_content
+    
+    # Apply to http_front
+    content = re.sub(
+        r'(frontend http_front.*?)((?=\nfrontend|\nbackend|\nlisten|$))',
+        add_acl_to_frontend,
+        content,
+        flags=re.DOTALL
+    )
+    
+    # Apply to https_front
+    content = re.sub(
+        r'(frontend https_front.*?)((?=\nfrontend|\nbackend|\nlisten|$))',
+        add_acl_to_frontend,
+        content,
+        flags=re.DOTALL
+    )
+
+with open(config_file, 'w') as f:
+    f.write(content)
+
+PYEOF
+
+# Validate configuration
+echo "Validating HAProxy configuration..."
+if ! validate_haproxy_config > /dev/null 2>&1; then
+    echo "Error: Invalid HAProxy configuration"
+    echo "Rolling back..."
+    rm -f "$conf_file"
+    # Remove ACL from acl file
+    sed -i "/host_${domain_safe}/d" "$acl_file" 2>/dev/null
+    sed -i "/backend_${domain_safe}/d" "$acl_file" 2>/dev/null
+    exit 1
+fi
+
+# Reload HAProxy
+echo "Reloading HAProxy..."
+reload_haproxy
+
+# Register port
+register_haproxy_port "$domain" "$backend_port"
+
+# Update domain config in Hestia
+user_conf="$HESTIA/data/users/$user/web.conf"
+if [ -f "$user_conf" ]; then
+    # Update or add HAPROXY settings
+    if grep -q "^DOMAIN='$domain'" "$user_conf"; then
+        # Add HAPROXY_BACKEND fields to the domain line
+        sed -i "/^DOMAIN='$domain'/ {
+            s/ HAPROXY_BACKEND='[^']*'//g
+            s/ HAPROXY_HOST='[^']*'//g
+            s/ HAPROXY_PORT='[^']*'//g
+            s/ HAPROXY_TYPE='[^']*'//g
+            s/ HAPROXY_SSL='[^']*'//g
+            s/$/ HAPROXY_BACKEND='yes' HAPROXY_HOST='$backend_host' HAPROXY_PORT='$backend_port' HAPROXY_TYPE='$backend_type' HAPROXY_SSL='$ssl_mode'/
+        }" "$user_conf"
+    fi
+fi
+
+# Log event
+log_haproxy_event "INFO" "Backend added for ${domain}: ${backend_host}:${backend_port} (${backend_type})"
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo ""
+echo "HAProxy backend added successfully!"
+echo ""
+echo "Domain:       ${domain}"
+echo "Backend:      ${backend_host}:${backend_port}"
+echo "Type:         ${backend_type}"
+echo "SSL Mode:     ${ssl_mode}"
+echo "Health Check: ${health_check}"
+echo "Sticky:       ${sticky}"
+echo "Rate Limit:   ${rate_limit}"
+echo ""
+
+# Logging
+$HESTIA/bin/v-log-action "$user" "Info" "HAProxy" "Backend added for $domain ($backend_host:$backend_port)"
+
+exit 0

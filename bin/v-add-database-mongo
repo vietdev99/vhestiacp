@@ -1,0 +1,167 @@
+#!/bin/bash
+# info: add mongodb database
+# options: USER DATABASE [DBUSER] [DBPASSWORD] [HOST]
+#
+# example: v-add-database-mongo admin myapp_db myapp_user password123
+#
+# This function creates a new MongoDB database and user.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+database=$2
+dbuser=${3:-${user}_${database}}
+dbpassword=$4
+host=${5:-localhost}
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source $HESTIA/func/mongodb.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Load MongoDB root password
+if [ -f "$HESTIA/conf/mongodb.conf" ]; then
+    source "$HESTIA/conf/mongodb.conf"
+    export MONGODB_ROOT_PASSWORD="$ROOT_PASSWORD"
+fi
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '2' "$#" 'USER DATABASE [DBUSER] [DBPASSWORD] [HOST]'
+
+# Check if MongoDB is installed
+if [ "$MONGODB_SYSTEM" != "yes" ]; then
+    echo "Error: MongoDB is not installed"
+    exit 1
+fi
+
+# Validate user
+is_object_valid 'user' 'USER' "$user"
+
+# Generate password if not provided
+if [ -z "$dbpassword" ]; then
+    dbpassword=$(generate_mongodb_password 16)
+fi
+
+# Sanitize database name (prepend username)
+if [[ ! "$database" =~ ^${user}_ ]]; then
+    database="${user}_${database}"
+fi
+
+# Sanitize dbuser name
+if [[ ! "$dbuser" =~ ^${user}_ ]]; then
+    dbuser="${user}_$(echo $dbuser | sed "s/^${user}_//")"
+fi
+
+# Check if database already exists
+if is_mongodb_database_exists "$database"; then
+    echo "Error: Database '$database' already exists"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Creating MongoDB database: $database..."
+
+# Debug: Check MongoDB status
+if ! systemctl is-active --quiet mongod; then
+    echo "Error: MongoDB service is not running"
+    echo "Try: sudo systemctl start mongod"
+    exit 1
+fi
+
+# Debug: Check if mongosh is available
+if ! command -v mongosh &>/dev/null && ! command -v mongo &>/dev/null; then
+    echo "Error: MongoDB shell (mongosh/mongo) not found"
+    exit 1
+fi
+
+# Create database
+result=$(create_mongodb_database "$database" 2>&1)
+exit_code=$?
+
+if [ $exit_code -ne 0 ]; then
+    echo "Error: Failed to create database"
+    echo "Details: $result"
+    echo ""
+    echo "Debug info:"
+    echo "  - MongoDB status: $(systemctl is-active mongod)"
+    echo "  - Auth enabled: $(grep -q 'authorization: enabled' /etc/mongod.conf && echo 'yes' || echo 'no')"
+    echo "  - Password file: $([ -f "$HESTIA/conf/mongodb.conf" ] && echo 'exists' || echo 'missing')"
+    
+    # Check for auth issues
+    if echo "$result" | grep -qi "auth\|unauthorized\|Authentication"; then
+        echo ""
+        echo ">>> Authentication failed! The password in $HESTIA/conf/mongodb.conf"
+        echo ">>> does not match the MongoDB admin password."
+        echo ""
+        echo "To fix this, run:"
+        echo "  sudo bash /path/to/vhestiacp-full/reset-mongodb-password.sh"
+        echo ""
+        echo "Or manually update $HESTIA/conf/mongodb.conf with the correct password."
+    fi
+    exit 1
+fi
+
+# Create user
+echo "Creating database user: $dbuser..."
+create_mongodb_user "$dbuser" "$dbpassword" "$database" "readWrite"
+if [ $? -ne 0 ]; then
+    echo "Warning: Failed to create user, but database was created"
+fi
+
+# Store database info in user's config
+echo "Storing database info..."
+user_dir="$HESTIA/data/users/$user"
+user_db_conf="$user_dir/mongodb.conf"
+
+# Create directory if not exists
+mkdir -p "$user_dir"
+
+# Create file if not exists
+touch "$user_db_conf"
+
+# Remove existing entry if any
+sed -i "/^DB='$database'/d" "$user_db_conf" 2>/dev/null || true
+
+# Add new entry with date
+echo "DB='$database' USER='$dbuser' PASSWORD='$dbpassword' HOST='$host' DATE='$(date +%Y-%m-%d)' TYPE='mongodb'" >> "$user_db_conf"
+echo "  - Database info stored in $user_db_conf"
+
+# Also call the function if available
+if type store_mongodb_user_db &>/dev/null; then
+    store_mongodb_user_db "$user" "$database" "$dbuser" "$dbpassword" "$host" 2>/dev/null || true
+fi
+
+# Log event
+log_mongodb_event "INFO" "Database created: $database (user: $user)" 2>/dev/null || true
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo ""
+echo "MongoDB database created successfully!"
+echo ""
+echo "  Database:    $database"
+echo "  User:        $dbuser"
+echo "  Password:    $dbpassword"
+echo "  Host:        $host"
+echo "  Port:        27017"
+echo ""
+echo "  Connection String:"
+echo "  $(get_mongodb_connection_string "$dbuser" "$dbpassword" "$database" "$host" "27017")"
+echo ""
+
+# Logging
+$HESTIA/bin/v-log-action "$user" "Info" "MongoDB" "Database $database created"
+
+exit 0

@@ -1,0 +1,53 @@
+#!/bin/bash
+# info: delete mongodb database
+# options: USER DATABASE
+#
+# example: v-delete-database-mongo admin myapp_db
+
+user=$1
+database=$2
+
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source $HESTIA/func/mongodb.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+if [ -f "$HESTIA/conf/mongodb.conf" ]; then
+    source "$HESTIA/conf/mongodb.conf"
+    export MONGODB_ROOT_PASSWORD="$ROOT_PASSWORD"
+fi
+
+check_args '2' "$#" 'USER DATABASE'
+
+if [ "$MONGODB_SYSTEM" != "yes" ]; then
+    echo "Error: MongoDB is not installed"
+    exit 1
+fi
+
+is_object_valid 'user' 'USER' "$user"
+
+echo "Deleting MongoDB database: $database..."
+
+# Get database user from user's config
+user_db_conf="$HESTIA/data/users/$user/mongodb.conf"
+if [ -f "$user_db_conf" ]; then
+    db_user=$(grep "^DB='$database'" "$user_db_conf" | grep -o "USER='[^']*'" | cut -d"'" -f2)
+    
+    # Delete user if exists
+    if [ -n "$db_user" ]; then
+        delete_mongodb_user "$db_user" "$database"
+    fi
+fi
+
+# Delete database
+delete_mongodb_database "$database"
+
+# Remove from user config
+remove_mongodb_user_db "$user" "$database"
+
+echo "MongoDB database deleted successfully!"
+
+log_mongodb_event "INFO" "Database deleted: $database (user: $user)"
+$HESTIA/bin/v-log-action "$user" "Info" "MongoDB" "Database $database deleted"
+
+exit 0

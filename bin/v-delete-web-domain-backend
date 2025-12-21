@@ -1,0 +1,143 @@
+#!/bin/bash
+# info: remove haproxy backend for web domain
+# options: USER DOMAIN
+#
+# example: v-delete-web-domain-backend admin example.com
+#
+# This function removes HAProxy backend configuration for a web domain.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+domain=$2
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# shellcheck source=/usr/local/hestia/func/haproxy.sh
+source $HESTIA/func/haproxy.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if HAProxy is installed
+if ! is_haproxy_installed; then
+    echo "Error: HAProxy is not installed"
+    exit 1
+fi
+
+# Argument check
+check_args '2' "$#" 'USER DOMAIN'
+
+# Validate user
+is_object_valid 'user' 'USER' "$user"
+
+# Validate domain format
+is_domain_format_valid "$domain"
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Sanitize domain name
+domain_safe="${domain//\./_}"
+domain_safe="${domain_safe//-/_}"
+
+echo "Removing HAProxy backend for ${domain}..."
+
+# Remove domain config file
+conf_file="/etc/haproxy/conf.d/${domain}.cfg"
+if [ -f "$conf_file" ]; then
+    rm -f "$conf_file"
+fi
+
+# Remove ACL rules from HAProxy config
+main_config="/etc/haproxy/haproxy.cfg"
+
+if [ -f "$main_config" ]; then
+    # Remove ACL lines and use_backend lines for this domain
+    sed -i "/host_${domain_safe}/d" "$main_config"
+    sed -i "/backend_${domain_safe}/d" "$main_config"
+    
+    # Remove the backend section
+    python3 << PYEOF
+import re
+
+config_file = '${main_config}'
+domain_safe = '${domain_safe}'
+
+with open(config_file, 'r') as f:
+    content = f.read()
+
+# Remove backend section
+backend_pattern = rf'\n*#[-]+\n# Domain: ${domain}\n.*?backend backend_{domain_safe}.*?(?=\n#[-]+|\nfrontend|\nbackend|\nlisten|$)'
+content = re.sub(backend_pattern, '', content, flags=re.DOTALL)
+
+# Also try simpler pattern
+backend_pattern2 = rf'\nbackend backend_{domain_safe}.*?(?=\nbackend|\nfrontend|\nlisten|$)'
+content = re.sub(backend_pattern2, '', content, flags=re.DOTALL)
+
+# Clean up multiple empty lines
+content = re.sub(r'\n{3,}', '\n\n', content)
+
+with open(config_file, 'w') as f:
+    f.write(content)
+
+PYEOF
+fi
+
+# Remove from ACL file
+acl_file="/etc/haproxy/conf.d/00-acls.cfg"
+if [ -f "$acl_file" ]; then
+    sed -i "/host_${domain_safe}/d" "$acl_file"
+    sed -i "/backend_${domain_safe}/d" "$acl_file"
+    sed -i "/# ${domain}/d" "$acl_file"
+fi
+
+# Remove SSL certificate
+remove_haproxy_ssl_cert "$domain"
+
+# Unregister port
+unregister_haproxy_port "$domain"
+
+# Update domain config in Hestia
+user_conf="$HESTIA/data/users/$user/web.conf"
+if [ -f "$user_conf" ]; then
+    sed -i "/^DOMAIN='$domain'/ {
+        s/ HAPROXY_BACKEND='[^']*'//g
+        s/ HAPROXY_HOST='[^']*'//g
+        s/ HAPROXY_PORT='[^']*'//g
+        s/ HAPROXY_TYPE='[^']*'//g
+        s/ HAPROXY_SSL='[^']*'//g
+    }" "$user_conf"
+fi
+
+# Validate configuration
+if ! validate_haproxy_config > /dev/null 2>&1; then
+    echo "Warning: HAProxy configuration may be invalid after removal"
+fi
+
+# Reload HAProxy
+reload_haproxy
+
+# Log event
+log_haproxy_event "INFO" "Backend removed for ${domain}"
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo "HAProxy backend removed successfully for ${domain}"
+
+# Logging
+$HESTIA/bin/v-log-action "$user" "Info" "HAProxy" "Backend removed for $domain"
+
+exit 0

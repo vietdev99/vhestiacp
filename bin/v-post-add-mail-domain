@@ -1,0 +1,131 @@
+#!/bin/bash
+# info: check and fix exim interface after mail domain creation
+# options: USER DOMAIN
+#
+# This script is called as a post-hook after v-add-mail-domain
+# It checks if the server has multiple network interfaces and
+# automatically configures Exim to use the correct public IP.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+USER="$1"
+DOMAIN="$2"
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Load mail functions
+if [ -f "$HESTIA/func/mail.sh" ]; then
+    source "$HESTIA/func/mail.sh"
+fi
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ -z "$USER" ] || [ -z "$DOMAIN" ]; then
+    exit 0  # Silent exit for invalid call
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Check if this is a multi-NIC server
+ip_count=$(hostname -I | wc -w)
+
+if [ "$ip_count" -gt 1 ]; then
+    # Server has multiple IPs - check Exim configuration
+    
+    # Get current interface setting
+    current_if=""
+    if [ -f /etc/exim4/exim4.conf.template ]; then
+        current_if=$(grep "interface = " /etc/exim4/exim4.conf.template | awk -F'= ' '{print $2}' | head -1)
+    fi
+    
+    if [ -z "$current_if" ]; then
+        # No interface configured - auto-fix
+        echo "Multi-NIC server detected, configuring Exim interface..."
+        
+        # Detect public IP
+        public_ip=""
+        for ip in $(hostname -I); do
+            if ! echo "$ip" | grep -qE "^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.|127\.)"; then
+                public_ip="$ip"
+                break
+            fi
+        done
+        
+        if [ -n "$public_ip" ]; then
+            # Call the fix script
+            $HESTIA/bin/v-fix-exim-interface "$public_ip" > /dev/null 2>&1
+            
+            # Log
+            $HESTIA/bin/v-log-action "$USER" "Info" "Mail" "Auto-configured Exim for multi-NIC (IP: $public_ip)"
+        fi
+    else
+        # Check if current interface is private IP
+        if echo "$current_if" | grep -qE "^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.|127\.)"; then
+            echo "Warning: Exim using private IP ($current_if), fixing..."
+            
+            # Get public IP
+            public_ip=""
+            for ip in $(hostname -I); do
+                if ! echo "$ip" | grep -qE "^(10\.|172\.(1[6-9]|2[0-9]|3[0-1])\.|192\.168\.|127\.)"; then
+                    public_ip="$ip"
+                    break
+                fi
+            done
+            
+            if [ -n "$public_ip" ]; then
+                $HESTIA/bin/v-fix-exim-interface "$public_ip" > /dev/null 2>&1
+            fi
+        fi
+    fi
+fi
+
+# Generate recommended DNS records for the new domain
+echo ""
+echo "═══════════════════════════════════════════════════════════════"
+echo "  Recommended DNS Records for $DOMAIN"
+echo "═══════════════════════════════════════════════════════════════"
+echo ""
+
+# Get server IP
+if [ -n "$current_if" ] && ! echo "$current_if" | grep -qE "^(10\.|172\.|192\.168\.|127\.)"; then
+    server_ip="$current_if"
+else
+    server_ip=$(hostname -I | awk '{print $1}')
+fi
+
+echo "MX Record:"
+echo "  $DOMAIN.  IN  MX  10  mail.$DOMAIN."
+echo ""
+
+echo "A Record for mail:"
+echo "  mail.$DOMAIN.  IN  A  $server_ip"
+echo ""
+
+echo "SPF Record:"
+echo "  $DOMAIN.  IN  TXT  \"v=spf1 a mx ip4:$server_ip ~all\""
+echo ""
+
+echo "DMARC Record:"
+echo "  _dmarc.$DOMAIN.  IN  TXT  \"v=DMARC1; p=quarantine; rua=mailto:admin@$DOMAIN\""
+echo ""
+
+# Check for DKIM
+if [ -f "/etc/exim4/dkim/${DOMAIN}.private" ]; then
+    echo "DKIM Record:"
+    dkim_public=$(cat "/etc/exim4/dkim/${DOMAIN}.public" 2>/dev/null | grep -v "^-" | tr -d '\n')
+    echo "  mail._domainkey.$DOMAIN.  IN  TXT  \"v=DKIM1; k=rsa; p=$dkim_public\""
+fi
+
+echo ""
+echo "═══════════════════════════════════════════════════════════════"
+
+exit 0

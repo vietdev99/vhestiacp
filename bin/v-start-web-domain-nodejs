@@ -1,0 +1,83 @@
+#!/bin/bash
+# info: start nodejs application for domain
+# options: USER DOMAIN
+#
+# example: v-start-web-domain-nodejs admin example.com
+#
+# This function starts the Node.js application for a domain using PM2.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+domain=$2
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# shellcheck source=/usr/local/hestia/func/nodejs.sh
+source $HESTIA/func/nodejs.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '2' "$#" 'USER DOMAIN'
+is_object_valid 'user' 'USER' "$user"
+is_object_valid 'web' 'DOMAIN' "$domain"
+
+# Check if Node.js is enabled for domain
+user_conf="$HESTIA/data/users/$user/web.conf"
+nodejs_enabled=$(grep "^DOMAIN='$domain'" "$user_conf" | grep -o "NODEJS='[^']*'" | cut -d"'" -f2)
+
+if [ "$nodejs_enabled" != "yes" ]; then
+    echo "Error: Node.js is not enabled for $domain"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+homedir="$HOMEDIR/$user"
+ecosystem_file="$homedir/web/$domain/conf/pm2.ecosystem.json"
+
+if [ ! -f "$ecosystem_file" ]; then
+    echo "Error: PM2 ecosystem file not found"
+    exit 1
+fi
+
+echo "Starting Node.js application for $domain..."
+
+# Load NVM
+load_nvm
+
+# Start application
+start_nodejs_app "$user" "$domain" "$ecosystem_file"
+
+if [ $? -eq 0 ]; then
+    # Update status in web.conf
+    sed -i "/^DOMAIN='$domain'/ s/NODEJS_STATUS='[^']*'/NODEJS_STATUS='running'/" "$user_conf"
+    
+    echo "Application started successfully!"
+    
+    # Show status
+    sleep 2
+    status=$(get_nodejs_app_status "$user" "$domain")
+    echo "Status: $status"
+else
+    echo "Error: Failed to start application"
+    exit 1
+fi
+
+# Log event
+log_nodejs_event "INFO" "Application started for $domain"
+$HESTIA/bin/v-log-action "$user" "Info" "Node.js" "Application started for $domain"
+
+exit 0

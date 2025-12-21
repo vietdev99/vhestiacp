@@ -1,0 +1,57 @@
+#=======================================================================#
+# VHestiaCP - Flask Template (HTTPS)                                    #
+#=======================================================================#
+
+server {
+    listen      %ip%:%web_ssl_port% ssl;
+    server_name %domain_idn% %alias_idn%;
+    
+    root        %sdocroot%;
+    
+    access_log  /var/log/nginx/domains/%domain%.log combined;
+    error_log   /var/log/nginx/domains/%domain%.error.log error;
+    
+    ssl_certificate     %ssl_pem%;
+    ssl_certificate_key %ssl_key%;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+    
+    include %home%/%user%/conf/web/%domain%/nginx.hsts.conf*;
+    
+    location ~ /\.well-known\/acme-challenge/ {
+        allow all;
+        default_type "text/plain";
+        root %docroot%;
+    }
+    
+    location ~ /\.(?!well-known\/) {
+        deny all;
+        return 404;
+    }
+    
+    location /static/ {
+        alias %home%/%user%/web/%domain%/pythonapp/static/;
+        expires 30d;
+        add_header Cache-Control "public";
+    }
+    
+    location / {
+        proxy_pass http://127.0.0.1:%backend_port%;
+        proxy_http_version 1.1;
+        
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+        
+        proxy_redirect off;
+        proxy_buffering off;
+    }
+    
+    include %home%/%user%/conf/web/%domain%/nginx.ssl.conf_*;
+}

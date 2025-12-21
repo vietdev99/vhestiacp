@@ -1,0 +1,43 @@
+#!/bin/bash
+# info: restart PM2 process for a user
+# options: USER [ID|all]
+#
+# example: v-restart-pm2-app admin 0
+# example: v-restart-pm2-app admin all
+#
+# This function restarts a PM2 process for a specific user.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+user=$1
+pm_id=${2:-all}
+
+HESTIA="${HESTIA:-/usr/local/hestia}"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+[ -z "$user" ] && { echo "Error: User not specified"; exit 1; }
+id "$user" &>/dev/null || { echo "Error: User does not exist"; exit 1; }
+command -v pm2 &>/dev/null || { echo "Error: PM2 not installed"; exit 1; }
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+user_home=$(eval echo ~$user)
+pm2_home="$user_home/.pm2"
+
+[ ! -d "$pm2_home" ] && { echo "Error: No PM2 directory for $user"; exit 1; }
+
+# Run pm2 restart as the target user with correct PM2_HOME
+if [ "$pm_id" = "all" ]; then
+    sudo -u "$user" PM2_HOME="$pm2_home" pm2 restart all 2>&1
+else
+    sudo -u "$user" PM2_HOME="$pm2_home" pm2 restart "$pm_id" 2>&1
+fi
+
+exit $?

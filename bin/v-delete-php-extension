@@ -1,0 +1,119 @@
+#!/bin/bash
+# info: remove PHP extension from specific PHP version
+# options: PHP_VERSION EXTENSION
+#
+# example: v-delete-php-extension 8.2 xdebug
+# example: v-delete-php-extension all redis
+#
+# Removes the specified extension from PHP.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+PHP_VERSION="$1"
+EXTENSION="$2"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ -z "$PHP_VERSION" ] || [ -z "$EXTENSION" ]; then
+    echo "Usage: v-delete-php-extension <PHP_VERSION|all> <EXTENSION>"
+    exit 1
+fi
+
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                    Functions                             #
+#----------------------------------------------------------#
+
+get_installed_php_versions() {
+    local versions=""
+    for v in 7.2 7.3 7.4 8.0 8.1 8.2 8.3 8.4; do
+        if [ -f "/etc/php/$v/fpm/php.ini" ]; then
+            versions="$versions $v"
+        fi
+    done
+    echo "$versions"
+}
+
+is_extension_installed() {
+    local version="$1"
+    local extension="$2"
+    php${version} -m 2>/dev/null | grep -qi "^${extension}$"
+}
+
+remove_extension() {
+    local version="$1"
+    local extension="$2"
+    
+    echo "Removing $extension from PHP $version..."
+    
+    # Try to disable first
+    phpdismod -v $version $extension 2>/dev/null
+    
+    # Try to remove package
+    local package_name="php${version}-${extension}"
+    if dpkg -l | grep -q "$package_name"; then
+        apt-get remove -y "$package_name"
+        echo "  Removed package: $package_name"
+    fi
+    
+    # Remove config files
+    rm -f /etc/php/${version}/mods-available/${extension}.ini 2>/dev/null
+    rm -f /etc/php/${version}/fpm/conf.d/*-${extension}.ini 2>/dev/null
+    rm -f /etc/php/${version}/cli/conf.d/*-${extension}.ini 2>/dev/null
+    
+    # Restart PHP-FPM
+    systemctl restart php${version}-fpm 2>/dev/null
+    
+    # Verify removal
+    if ! is_extension_installed "$version" "$extension"; then
+        echo "  ✅ $extension removed from PHP $version"
+        return 0
+    else
+        echo "  ⚠️  $extension may still be active (manual cleanup needed)"
+        return 1
+    fi
+}
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "═══════════════════════════════════════════════════════════════"
+echo "  PHP Extension Removal"
+echo "═══════════════════════════════════════════════════════════════"
+echo ""
+
+if [ "$PHP_VERSION" = "all" ]; then
+    versions=$(get_installed_php_versions)
+else
+    versions="$PHP_VERSION"
+fi
+
+for version in $versions; do
+    if is_extension_installed "$version" "$EXTENSION"; then
+        remove_extension "$version" "$EXTENSION"
+    else
+        echo "  $EXTENSION is not installed for PHP $version"
+    fi
+done
+
+echo ""
+echo "Removal complete."
+
+# Log
+$HESTIA/bin/v-log-action "system" "Info" "PHP" "Removed $EXTENSION from PHP $versions"
+
+exit 0

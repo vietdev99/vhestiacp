@@ -1,0 +1,68 @@
+#!/bin/bash
+# info: disable nodejs for web domain
+# options: USER DOMAIN
+#
+# example: v-delete-web-domain-nodejs admin example.com
+#
+# This function disables Node.js for a web domain and removes PM2 app.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+user=$1
+domain=$2
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source $HESTIA/func/nodejs.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '2' "$#" 'USER DOMAIN'
+is_object_valid 'user' 'USER' "$user"
+is_object_valid 'web' 'DOMAIN' "$domain"
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+homedir="$HOMEDIR/$user"
+
+echo "Disabling Node.js for $domain..."
+
+# Stop and delete PM2 app
+load_nvm
+delete_nodejs_app "$user" "$domain"
+
+# Unregister port
+unregister_nodejs_port "$domain"
+
+# Update user's web.conf
+user_conf="$HESTIA/data/users/$user/web.conf"
+if [ -f "$user_conf" ]; then
+    sed -i "/^DOMAIN='$domain'/ {
+        s/ NODEJS='[^']*'//g
+        s/ NODEJS_VERSION='[^']*'//g
+        s/ NODEJS_PORT='[^']*'//g
+        s/ NODEJS_ENTRY='[^']*'//g
+        s/ NODEJS_STATUS='[^']*'//g
+    }" "$user_conf"
+fi
+
+# Remove PM2 ecosystem file
+rm -f "$homedir/web/$domain/conf/pm2.ecosystem.json"
+
+# Note: We don't remove nodeapp directory to preserve user's code
+
+echo "Node.js disabled for $domain"
+echo "Note: The nodeapp directory was preserved. Remove it manually if needed."
+
+log_nodejs_event "INFO" "Node.js disabled for $domain"
+$HESTIA/bin/v-log-action "$user" "Info" "Node.js" "Disabled for $domain"
+
+exit 0
