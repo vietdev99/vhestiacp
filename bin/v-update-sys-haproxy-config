@@ -6,10 +6,6 @@
 #
 # This function updates HAProxy configuration and restarts the service
 
-#----------------------------------------------------------#
-#                Variables & Functions                     #
-#----------------------------------------------------------#
-
 config_input=$1
 
 # Includes
@@ -17,15 +13,15 @@ source /etc/hestiacp/hestia.conf
 source $HESTIA/func/main.sh
 source_conf "$HESTIA/conf/hestia.conf"
 
-#----------------------------------------------------------#
-#                    Verifications                         #
-#----------------------------------------------------------#
-
-check_args '1' "$#" 'CONFIG_FILE'
+# Check args
+if [ -z "$config_input" ]; then
+    echo "Error: Config file path required"
+    exit 1
+fi
 
 # Check if input file exists
 if [ ! -f "$config_input" ]; then
-    echo "Error: Input config file not found"
+    echo "Error: Input config file not found: $config_input"
     exit 1
 fi
 
@@ -35,12 +31,8 @@ if [ ! -f "/etc/haproxy/haproxy.cfg" ]; then
     exit 1
 fi
 
-#----------------------------------------------------------#
-#                       Action                             #
-#----------------------------------------------------------#
-
 # Validate the new configuration
-haproxy -c -f "$config_input" > /dev/null 2>&1
+/usr/sbin/haproxy -c -f "$config_input" > /dev/null 2>&1
 if [ $? -ne 0 ]; then
     echo "Error: Invalid HAProxy configuration"
     exit 1
@@ -53,21 +45,28 @@ cp /etc/haproxy/haproxy.cfg /etc/haproxy/haproxy.cfg.bak
 cp "$config_input" /etc/haproxy/haproxy.cfg
 chmod 644 /etc/haproxy/haproxy.cfg
 
-# Reload HAProxy
-systemctl reload-or-restart haproxy
-if [ $? -ne 0 ]; then
-    # Restore backup on failure
-    cp /etc/haproxy/haproxy.cfg.bak /etc/haproxy/haproxy.cfg
-    systemctl restart haproxy
-    echo "Error: HAProxy failed to restart. Previous config restored."
-    exit 1
+# Reload HAProxy - try multiple methods
+if systemctl reload-or-restart haproxy 2>/dev/null; then
+    echo "OK"
+    $HESTIA/bin/v-log-action "system" "Info" "HAProxy" "Configuration updated" 2>/dev/null
+    exit 0
 fi
 
-#----------------------------------------------------------#
-#                       Hestia                             #
-#----------------------------------------------------------#
+# Fallback: try restart
+if systemctl restart haproxy 2>/dev/null; then
+    echo "OK"
+    $HESTIA/bin/v-log-action "system" "Info" "HAProxy" "Configuration updated" 2>/dev/null
+    exit 0
+fi
 
-# Logging
-$HESTIA/bin/v-log-action "system" "Info" "HAProxy" "Configuration updated"
+# Fallback: try service command
+if service haproxy restart 2>/dev/null; then
+    echo "OK"
+    exit 0
+fi
 
-exit 0
+# If all failed, restore backup
+cp /etc/haproxy/haproxy.cfg.bak /etc/haproxy/haproxy.cfg
+systemctl restart haproxy 2>/dev/null
+echo "Error: HAProxy failed to restart. Previous config restored."
+exit 1
