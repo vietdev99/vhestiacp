@@ -101,6 +101,7 @@ help() {
   VHestiaCP Extended Options:
   -H, --haproxy           Install HAProxy       [yes|no]  default: no
   --haproxy-stats         HAProxy Stats UI      [yes|no]  default: yes
+  --haproxy-ssl-mode      SSL Mode              [termination|passthrough] default: termination
   -O, --mongodb           Install MongoDB       [yes|no]  default: no
   --mongodb-version       MongoDB Version       [7.0|8.0] default: 8.0 (Ubuntu 24.04)
   -N, --nodejs            Install Node.js/PM2   [yes|no]  default: no
@@ -285,6 +286,10 @@ while [ $i -lt ${#all_args[@]} ]; do
 			haproxy_stats="$next_arg"
 			i=$((i+2))
 			;;
+		--haproxy-ssl-mode)
+			haproxy_ssl_mode="$next_arg"
+			i=$((i+2))
+			;;
 		--mongodb-version)
 			mongodb_version="$next_arg"
 			i=$((i+2))
@@ -379,6 +384,7 @@ eval set -- "$args"
 # VHestiaCP default values
 haproxy=${haproxy:-no}
 haproxy_stats=${haproxy_stats:-yes}
+haproxy_ssl_mode=${haproxy_ssl_mode:-termination}
 mongodb=${mongodb:-no}
 mongodb_version=${mongodb_version:-7.0}
 
@@ -386,6 +392,13 @@ mongodb_version=${mongodb_version:-7.0}
 if [ "$release" = "24.04" ] && [ "$mongodb_version" = "7.0" ]; then
     mongodb_version="8.0"
 fi
+
+# Validate HAProxy SSL mode
+if [ "$haproxy_ssl_mode" != "termination" ] && [ "$haproxy_ssl_mode" != "passthrough" ]; then
+    echo "Error: --haproxy-ssl-mode must be 'termination' or 'passthrough'"
+    exit 1
+fi
+
 nodejs=${nodejs:-no}
 nodejs_versions=${nodejs_versions:-20}
 python=${python:-no}
@@ -445,6 +458,7 @@ if [ -n "$haproxy" ] || [ -n "$mongodb" ] || [ -n "$nodejs" ] || [ -n "$python" 
 	echo "DEBUG: VHestiaCP options parsed:"
 	echo "  haproxy=$haproxy"
 	echo "  haproxy_stats=$haproxy_stats"
+	echo "  haproxy_ssl_mode=$haproxy_ssl_mode"
 	echo "  mongodb=$mongodb"
 	echo "  mongodb_version=$mongodb_version"
 	echo "  nodejs=$nodejs"
@@ -880,9 +894,15 @@ fi
 
 # Validate Username / Password / Email / Hostname even when interactive = no
 if [ -z "$username" ]; then
-	while validate_username; do
-		read -p 'Please enter administrator username: ' username
-	done
+	# If force mode is enabled, use default username 'admin'
+	if [ "$force" = 'yes' ]; then
+		username="admin"
+		echo "Using default username: admin"
+	else
+		while validate_username; do
+			read -p 'Please enter administrator username: ' username
+		done
+	fi
 else
 	if validate_username; then
 		exit 1
@@ -3362,11 +3382,13 @@ if [ "$haproxy" = 'yes' ]; then
 	# Generate stats password
 	HAPROXY_STATS_PASS=$(head -c 32 /dev/urandom | base64 | tr -dc 'a-zA-Z0-9' | head -c 16)
 	
-	# Create HAProxy config
-	cat > /etc/haproxy/haproxy.cfg << HAPROXY_EOF
+	# Create HAProxy config based on SSL mode
+	if [ "$haproxy_ssl_mode" = "termination" ]; then
+		echo "    - Configuring HAProxy with SSL Termination mode..."
+		cat > /etc/haproxy/haproxy.cfg << 'HAPROXY_EOF'
 #---------------------------------------------------------------------
-# VHestiaCP HAProxy Configuration
-# Generated: $(date)
+# VHestiaCP HAProxy Configuration - SSL Termination Mode
+# HAProxy terminates SSL and forwards HTTP to backend
 #---------------------------------------------------------------------
 
 global
@@ -3378,10 +3400,10 @@ global
     user haproxy
     group haproxy
     daemon
-    
+
     ca-base /etc/ssl/certs
     crt-base /etc/ssl/private
-    
+
     ssl-default-bind-ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384
     ssl-default-bind-ciphersuites TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256
     ssl-default-bind-options ssl-min-ver TLSv1.2 no-tls-tickets
@@ -3407,6 +3429,8 @@ defaults
 #---------------------------------------------------------------------
 # Stats Dashboard
 #---------------------------------------------------------------------
+HAPROXY_EOF
+		cat >> /etc/haproxy/haproxy.cfg << HAPROXY_EOF
 listen stats
     bind *:8404
     mode http
@@ -3418,50 +3442,180 @@ listen stats
     stats refresh 30s
     stats admin if TRUE
 
+HAPROXY_EOF
+		cat >> /etc/haproxy/haproxy.cfg << 'HAPROXY_EOF'
 #---------------------------------------------------------------------
 # HTTP Frontend (Port 80)
 #---------------------------------------------------------------------
 frontend http_front
     bind *:80
     mode http
-    
+
     # ACLs for Let's Encrypt
     acl letsencrypt path_beg /.well-known/acme-challenge/
     use_backend letsencrypt_backend if letsencrypt
-    
+
     # Forward headers
     option forwardfor
     http-request set-header X-Real-IP %[src]
     http-request set-header X-Forwarded-Proto http
     http-request set-header X-Forwarded-Port %[dst_port]
-    
+
     # Default backend
     default_backend web_backend
 
 #---------------------------------------------------------------------
-# HTTPS Frontend (Port 443) - TCP passthrough
+# HTTPS Frontend (Port 443) - SSL Termination
+# HAProxy terminates SSL here and forwards HTTP to backend
 #---------------------------------------------------------------------
 frontend https_front
-    bind *:443
-    mode tcp
-    option tcplog
-    
-    # TCP passthrough to backend for SSL termination
-    default_backend web_ssl_backend
+    bind *:443 ssl crt /etc/haproxy/certs/ alpn h2,http/1.1
+    mode http
+
+    # ACLs for Let's Encrypt
+    acl letsencrypt path_beg /.well-known/acme-challenge/
+    use_backend letsencrypt_backend if letsencrypt
+
+    # Forward headers with SSL info
+    option forwardfor
+    http-request set-header X-Real-IP %[src]
+    http-request set-header X-Forwarded-Proto https
+    http-request set-header X-Forwarded-Port %[dst_port]
+    http-request set-header X-Forwarded-SSL on
+
+    # Default backend (forward as HTTP to backend on 8080)
+    default_backend web_backend
 
 #---------------------------------------------------------------------
-# Web HTTP Backend (port 8080) - nginx or apache
+# Web Backend (port 8080) - HTTP only
+# Receives both HTTP and HTTPS (decrypted) traffic
 #---------------------------------------------------------------------
 backend web_backend
     mode http
     balance roundrobin
     option httpchk GET /
     http-check expect status 200-499
-    
+
+    option forwardfor
+    http-request set-header X-Real-IP %[src]
+
+    server web1 127.0.0.1:8080 check inter 5s fall 3 rise 2
+
+#---------------------------------------------------------------------
+# Let's Encrypt Backend
+#---------------------------------------------------------------------
+backend letsencrypt_backend
+    mode http
+    server letsencrypt 127.0.0.1:8080
+
+HAPROXY_EOF
+	else
+		# Passthrough mode (default/existing)
+		echo "    - Configuring HAProxy with SSL Passthrough mode..."
+		cat > /etc/haproxy/haproxy.cfg << 'HAPROXY_EOF'
+#---------------------------------------------------------------------
+# VHestiaCP HAProxy Configuration - SSL Passthrough Mode
+# HAProxy passes SSL traffic to backend for SSL termination
+#---------------------------------------------------------------------
+
+global
+    log /dev/log local0
+    log /dev/log local1 notice
+    chroot /var/lib/haproxy
+    stats socket /var/run/haproxy/admin.sock mode 660 level admin expose-fd listeners
+    stats timeout 30s
+    user haproxy
+    group haproxy
+    daemon
+
+    ca-base /etc/ssl/certs
+    crt-base /etc/ssl/private
+
+    ssl-default-bind-ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384
+    ssl-default-bind-ciphersuites TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256
+    ssl-default-bind-options ssl-min-ver TLSv1.2 no-tls-tickets
+
+defaults
+    log     global
+    mode    http
+    option  httplog
+    option  dontlognull
+    option  forwardfor
+    option  http-server-close
+    timeout connect 5000
+    timeout client  50000
+    timeout server  50000
+    errorfile 400 /etc/haproxy/errors/400.http
+    errorfile 403 /etc/haproxy/errors/403.http
+    errorfile 408 /etc/haproxy/errors/408.http
+    errorfile 500 /etc/haproxy/errors/500.http
+    errorfile 502 /etc/haproxy/errors/502.http
+    errorfile 503 /etc/haproxy/errors/503.http
+    errorfile 504 /etc/haproxy/errors/504.http
+
+HAPROXY_EOF
+		cat >> /etc/haproxy/haproxy.cfg << HAPROXY_EOF
+#---------------------------------------------------------------------
+# Stats Dashboard
+#---------------------------------------------------------------------
+listen stats
+    bind *:8404
+    mode http
+    stats enable
+    stats hide-version
+    stats realm HAProxy\ Statistics
+    stats uri /stats
+    stats auth admin:${HAPROXY_STATS_PASS}
+    stats refresh 30s
+    stats admin if TRUE
+
+HAPROXY_EOF
+		cat >> /etc/haproxy/haproxy.cfg << 'HAPROXY_EOF'
+#---------------------------------------------------------------------
+# HTTP Frontend (Port 80)
+#---------------------------------------------------------------------
+frontend http_front
+    bind *:80
+    mode http
+
+    # ACLs for Let's Encrypt
+    acl letsencrypt path_beg /.well-known/acme-challenge/
+    use_backend letsencrypt_backend if letsencrypt
+
+    # Forward headers
     option forwardfor
     http-request set-header X-Real-IP %[src]
     http-request set-header X-Forwarded-Proto http
-    
+    http-request set-header X-Forwarded-Port %[dst_port]
+
+    # Default backend
+    default_backend web_backend
+
+#---------------------------------------------------------------------
+# HTTPS Frontend (Port 443) - TCP Passthrough
+# HAProxy passes encrypted traffic to backend
+#---------------------------------------------------------------------
+frontend https_front
+    bind *:443
+    mode tcp
+    option tcplog
+
+    # TCP passthrough to backend for SSL termination
+    default_backend web_ssl_backend
+
+#---------------------------------------------------------------------
+# Web HTTP Backend (port 8080)
+#---------------------------------------------------------------------
+backend web_backend
+    mode http
+    balance roundrobin
+    option httpchk GET /
+    http-check expect status 200-499
+
+    option forwardfor
+    http-request set-header X-Real-IP %[src]
+    http-request set-header X-Forwarded-Proto http
+
     server web1 127.0.0.1:8080 check inter 5s fall 3 rise 2
 
 #---------------------------------------------------------------------
@@ -3471,7 +3625,7 @@ backend web_ssl_backend
     mode tcp
     balance roundrobin
     option ssl-hello-chk
-    
+
     server web1 127.0.0.1:8443 check inter 5s fall 3 rise 2
 
 #---------------------------------------------------------------------
@@ -3482,6 +3636,7 @@ backend letsencrypt_backend
     server letsencrypt 127.0.0.1:8080
 
 HAPROXY_EOF
+	fi
 
 	# Create error pages
 	for code in 400 403 408 500 502 503 504; do
@@ -3533,7 +3688,8 @@ ERROR_EOF
 	write_config_value "HAPROXY_STATS_PORT" "8404"
 	write_config_value "HAPROXY_STATS_USER" "admin"
 	write_config_value "HAPROXY_STATS_PASSWORD" "$HAPROXY_STATS_PASS"
-	
+	write_config_value "HAPROXY_SSL_MODE" "$haproxy_ssl_mode"
+
 	# Add firewall rules
 	iptables -I INPUT -p tcp --dport 80 -j ACCEPT 2>/dev/null || true
 	iptables -I INPUT -p tcp --dport 443 -j ACCEPT 2>/dev/null || true
