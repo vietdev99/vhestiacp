@@ -47,9 +47,12 @@
 					<label for="v_ip" class="form-label"><?= _("IP Address") ?></label>
 					<select class="form-select" name="v_ip" id="v_ip">
 						<?php
+							// Add wildcard option for portability (recommended)
+							$star_selected = (empty($_POST['v_ip']) || $_POST['v_ip'] == "*") ? 'selected' : '';
+							echo "<option value=\"*\" {$star_selected}>* (" . _("All IP Addresses") . ") - " . _("Recommended") . "</option>\n";
 							foreach ($ips as $ip => $value) {
 								$display_ip = htmlentities(empty($value['NAT']) ? $ip : "{$value['NAT']}");
-								$ip_selected = (!empty($v_ip) && $ip == $_POST['v_ip']) ? 'selected' : '';
+								$ip_selected = (!empty($_POST['v_ip']) && $ip == $_POST['v_ip']) ? 'selected' : '';
 								echo "\t\t\t\t<option value=\"{$ip}\" {$ip_selected}>{$display_ip}</option>\n";
 							}
 						?>

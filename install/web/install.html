@@ -986,9 +986,12 @@
                                     </div>
                                 </div>
                                 <select class="select-field" id="web-stack" onchange="updateWebStack()">
-                                    <option value="nginx-apache">Nginx + Apache (Default)</option>
+                                    <option value="haproxy-nginx">HAProxy → Nginx (Recommended)</option>
+                                    <option value="haproxy-apache">HAProxy → Apache</option>
+                                    <option value="nginx-apache">Nginx + Apache</option>
                                     <option value="nginx-only">Nginx Only</option>
                                     <option value="apache-only">Apache Only</option>
+                                    <option value="no-web">No Web Server</option>
                                 </select>
                             </div>
                             <div class="option-item">
@@ -1595,18 +1598,53 @@
                 cmd += ` <span class="cmd-flag">-l</span> <span class="cmd-value">${lang}</span>`;
             }
 
-            // Web server: -a yes = nginx+apache, -a no = nginx only
-            if (webStack === 'nginx-apache') {
-                cmd += ` <span class="cmd-flag">-a</span> <span class="cmd-value">yes</span>`;
-            } else {
-                cmd += ` <span class="cmd-flag">-a</span> <span class="cmd-value">no</span>`;
+            // Web Stack Configuration
+            // haproxy-nginx: HAProxy (80/443) → Nginx (8080/8443)
+            // haproxy-apache: HAProxy (80/443) → Apache (8080/8443)
+            // nginx-apache: Nginx (80/443) → Apache (8080/8443) - classic HestiaCP
+            // nginx-only: Nginx only (80/443)
+            // apache-only: Apache only (80/443)
+            // no-web: No web server
+
+            let needsHaproxy = false;
+            let needsApache = false;
+
+            switch (webStack) {
+                case 'haproxy-nginx':
+                    needsHaproxy = true;
+                    needsApache = false;
+                    break;
+                case 'haproxy-apache':
+                    needsHaproxy = true;
+                    needsApache = true;
+                    break;
+                case 'nginx-apache':
+                    needsHaproxy = false;
+                    needsApache = true;
+                    break;
+                case 'nginx-only':
+                    needsHaproxy = false;
+                    needsApache = false;
+                    break;
+                case 'apache-only':
+                    needsHaproxy = false;
+                    needsApache = true;
+                    // Special flag for apache-only mode (no nginx at all)
+                    break;
+                case 'no-web':
+                    // No web server installation
+                    break;
+            }
+
+            // Apache flag
+            if (webStack !== 'no-web') {
+                cmd += ` <span class="cmd-flag">-a</span> <span class="cmd-value">${needsApache ? 'yes' : 'no'}</span>`;
             }
 
             cmd += ` <span class="cmd-flag">-w</span> <span class="cmd-value">${phpfpm ? 'yes' : 'no'}</span>`;
 
-            // VHestiaCP Extended Options
-            // HAProxy
-            if (haproxy) {
+            // HAProxy (from web stack selection)
+            if (needsHaproxy) {
                 cmd += ` <span class="cmd-flag">--haproxy</span> <span class="cmd-value">yes</span>`;
                 if (haproxyStats) {
                     cmd += ` <span class="cmd-flag">--haproxy-stats</span> <span class="cmd-value">yes</span>`;
@@ -1820,6 +1858,25 @@
         }
 
         function updateWebStack() {
+            const webStack = document.getElementById('web-stack').value;
+            const haproxyCheckbox = document.getElementById('haproxy');
+            const haproxyOptions = document.getElementById('haproxy-options');
+            const haproxyOption = document.getElementById('haproxy-option');
+
+            // Auto-sync HAProxy checkbox based on web stack selection
+            if (webStack === 'haproxy-nginx' || webStack === 'haproxy-apache') {
+                haproxyCheckbox.checked = true;
+                haproxyOptions.classList.remove('hidden');
+                // Optionally hide the standalone HAProxy toggle since it's included in web stack
+                haproxyOption.style.opacity = '0.6';
+                haproxyOption.title = 'HAProxy is enabled via Web Stack selection';
+            } else {
+                haproxyCheckbox.checked = false;
+                haproxyOptions.classList.add('hidden');
+                haproxyOption.style.opacity = '1';
+                haproxyOption.title = '';
+            }
+
             generateCommand();
         }
 
@@ -1889,7 +1946,7 @@
             document.getElementById('haproxy-ssl-mode').value = 'termination';
             document.getElementById('haproxy-options').classList.add('hidden');
             
-            document.getElementById('web-stack').value = 'nginx-apache';
+            document.getElementById('web-stack').value = 'haproxy-nginx';
             document.getElementById('phpfpm').checked = true;
             
             document.getElementById('nodejs').checked = false;
