@@ -1,0 +1,245 @@
+#!/bin/bash
+# info: list available system packages and their status
+# options: [FORMAT]
+#
+# example: v-list-sys-packages json
+#
+# This function returns a list of all available VHestiaCP packages
+# with their installation status, grouped by category.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+
+# Format
+format="${1-shell}"
+
+#----------------------------------------------------------#
+#                    Package Definitions                   #
+#----------------------------------------------------------#
+
+# Function to check if a package/service is installed
+is_installed() {
+    local check_type="$1"
+    local check_value="$2"
+
+    case "$check_type" in
+        "dpkg")
+            dpkg -l "$check_value" 2>/dev/null | grep -q "^ii" && return 0
+            ;;
+        "systemd")
+            systemctl list-unit-files "$check_value.service" 2>/dev/null | grep -q "$check_value" && return 0
+            ;;
+        "config")
+            [ -n "${!check_value}" ] && [ "${!check_value}" = "yes" ] && return 0
+            ;;
+        "command")
+            command -v "$check_value" &>/dev/null && return 0
+            ;;
+        "file")
+            [ -f "$check_value" ] && return 0
+            ;;
+    esac
+    return 1
+}
+
+# Function to get service status (running/stopped)
+get_status() {
+    local service="$1"
+    if systemctl is-active --quiet "$service" 2>/dev/null; then
+        echo "running"
+    else
+        echo "stopped"
+    fi
+}
+
+#----------------------------------------------------------#
+#                       Build Data                         #
+#----------------------------------------------------------#
+
+# Source hestia.conf to get current settings
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Build package data
+declare -A packages
+
+# Web Stack
+packages["haproxy"]="category:web|name:HAProxy|desc:Load Balancer & Reverse Proxy|icon:network-wired|check:config:HAPROXY_SYSTEM|service:haproxy"
+packages["nginx"]="category:web|name:Nginx|desc:High Performance Web Server|icon:server|check:config:WEB_SYSTEM:nginx|service:nginx"
+packages["apache2"]="category:web|name:Apache|desc:Classic Web Server|icon:server|check:config:WEB_BACKEND:httpd|service:apache2"
+
+# Databases
+packages["mysql"]="category:database|name:MariaDB/MySQL|desc:Relational Database|icon:database|check:config:DB_SYSTEM|service:mariadb"
+packages["postgresql"]="category:database|name:PostgreSQL|desc:Advanced SQL Database|icon:database|check:config:DB_PG_SYSTEM|service:postgresql"
+packages["mongodb"]="category:database|name:MongoDB|desc:NoSQL Document Database|icon:leaf|check:config:MONGODB_SYSTEM|service:mongod"
+packages["redis"]="category:database|name:Redis|desc:In-Memory Cache & Database|icon:bolt|check:config:REDIS_SYSTEM|service:redis-server"
+
+# Message Queue
+packages["rabbitmq"]="category:queue|name:RabbitMQ|desc:Message Broker (AMQP)|icon:envelope|check:config:RABBITMQ_SYSTEM|service:rabbitmq-server"
+packages["kafka"]="category:queue|name:Apache Kafka|desc:Distributed Streaming Platform|icon:stream|check:config:KAFKA_SYSTEM|service:kafka"
+
+# Mail Stack
+packages["exim"]="category:mail|name:Exim|desc:Mail Transfer Agent (MTA)|icon:envelope|check:config:MAIL_SYSTEM|service:exim4"
+packages["dovecot"]="category:mail|name:Dovecot|desc:IMAP/POP3 Server|icon:inbox|check:config:IMAP_SYSTEM|service:dovecot"
+packages["clamav"]="category:mail|name:ClamAV|desc:Antivirus Scanner|icon:shield-virus|check:config:ANTIVIRUS_SYSTEM|service:clamav-daemon"
+packages["spamd"]="category:mail|name:SpamAssassin|desc:Spam Filter|icon:filter|check:config:ANTISPAM_SYSTEM|service:spamassassin"
+
+# DNS
+packages["bind"]="category:dns|name:BIND DNS|desc:DNS Server|icon:globe|check:config:DNS_SYSTEM|service:named"
+
+# FTP
+packages["vsftpd"]="category:ftp|name:vsftpd|desc:FTP Server|icon:folder-open|check:config:FTP_SYSTEM:vsftpd|service:vsftpd"
+packages["proftpd"]="category:ftp|name:ProFTPD|desc:FTP Server|icon:folder-open|check:config:FTP_SYSTEM:proftpd|service:proftpd"
+
+# Runtime
+packages["nodejs"]="category:runtime|name:Node.js|desc:JavaScript Runtime|icon:node-js|check:config:NODEJS_SYSTEM|service:pm2-root"
+packages["python"]="category:runtime|name:Python/Pyenv|desc:Python Runtime Manager|icon:python|check:config:PYTHON_SYSTEM|service:"
+
+# Security & Tools
+packages["fail2ban"]="category:security|name:Fail2Ban|desc:Intrusion Prevention|icon:ban|check:config:FIREWALL_EXTENSION|service:fail2ban"
+packages["firewall"]="category:security|name:Firewall|desc:iptables Firewall|icon:shield-halved|check:config:FIREWALL_SYSTEM|service:hestia-iptables"
+packages["filemanager"]="category:tools|name:File Manager|desc:Web File Manager|icon:folder|check:config:FILE_MANAGER|service:"
+packages["webterminal"]="category:tools|name:Web Terminal|desc:SSH in Browser|icon:terminal|check:config:WEB_TERMINAL|service:"
+
+#----------------------------------------------------------#
+#                       Output                             #
+#----------------------------------------------------------#
+
+# JSON output
+if [ "$format" = "json" ]; then
+    echo "{"
+
+    # Categories
+    categories=("web" "database" "queue" "mail" "dns" "ftp" "runtime" "security" "tools")
+    category_names=("Web Stack" "Databases" "Message Queue" "Mail Stack" "DNS" "FTP" "Runtime" "Security" "Tools")
+
+    first_cat=true
+    for i in "${!categories[@]}"; do
+        cat="${categories[$i]}"
+        cat_name="${category_names[$i]}"
+
+        # Find packages in this category
+        cat_packages=""
+        first_pkg=true
+
+        for pkg_id in "${!packages[@]}"; do
+            pkg_data="${packages[$pkg_id]}"
+            pkg_category=$(echo "$pkg_data" | grep -oP 'category:\K[^|]+')
+
+            if [ "$pkg_category" = "$cat" ]; then
+                # Parse package data
+                pkg_name=$(echo "$pkg_data" | grep -oP 'name:\K[^|]+')
+                pkg_desc=$(echo "$pkg_data" | grep -oP 'desc:\K[^|]+')
+                pkg_icon=$(echo "$pkg_data" | grep -oP 'icon:\K[^|]+')
+                pkg_check=$(echo "$pkg_data" | grep -oP 'check:\K[^|]+')
+                pkg_service=$(echo "$pkg_data" | grep -oP 'service:\K[^|]*')
+
+                # Parse check type and value
+                check_type=$(echo "$pkg_check" | cut -d: -f1)
+                check_value=$(echo "$pkg_check" | cut -d: -f2)
+                check_expected=$(echo "$pkg_check" | cut -d: -f3)
+
+                # Determine if installed
+                installed="false"
+                case "$check_type" in
+                    "config")
+                        if [ -n "$check_expected" ]; then
+                            [ "${!check_value}" = "$check_expected" ] && installed="true"
+                        else
+                            [ "${!check_value}" = "yes" ] && installed="true"
+                        fi
+                        ;;
+                    "dpkg")
+                        dpkg -l "$check_value" 2>/dev/null | grep -q "^ii" && installed="true"
+                        ;;
+                    "command")
+                        command -v "$check_value" &>/dev/null && installed="true"
+                        ;;
+                esac
+
+                # Get status if installed and has service
+                status="stopped"
+                if [ "$installed" = "true" ] && [ -n "$pkg_service" ]; then
+                    systemctl is-active --quiet "$pkg_service" 2>/dev/null && status="running"
+                fi
+
+                # Build JSON
+                if [ "$first_pkg" = "false" ]; then
+                    cat_packages+=","
+                fi
+                first_pkg=false
+
+                cat_packages+="\"$pkg_id\":{\"name\":\"$pkg_name\",\"description\":\"$pkg_desc\",\"icon\":\"$pkg_icon\",\"installed\":$installed,\"status\":\"$status\",\"service\":\"$pkg_service\"}"
+            fi
+        done
+
+        # Only add category if it has packages
+        if [ -n "$cat_packages" ]; then
+            if [ "$first_cat" = "false" ]; then
+                echo ","
+            fi
+            first_cat=false
+
+            echo "  \"$cat\": {"
+            echo "    \"name\": \"$cat_name\","
+            echo "    \"packages\": {$cat_packages}"
+            echo -n "  }"
+        fi
+    done
+
+    echo ""
+    echo "}"
+
+else
+    # Shell/plain output
+    echo "PACKAGE MANAGER - Available Packages"
+    echo "====================================="
+    echo ""
+
+    categories=("web" "database" "queue" "mail" "dns" "ftp" "runtime" "security" "tools")
+    category_names=("Web Stack" "Databases" "Message Queue" "Mail Stack" "DNS" "FTP" "Runtime" "Security" "Tools")
+
+    for i in "${!categories[@]}"; do
+        cat="${categories[$i]}"
+        cat_name="${category_names[$i]}"
+
+        echo "$cat_name:"
+        echo "$(echo "$cat_name" | sed 's/./-/g')"
+
+        for pkg_id in "${!packages[@]}"; do
+            pkg_data="${packages[$pkg_id]}"
+            pkg_category=$(echo "$pkg_data" | grep -oP 'category:\K[^|]+')
+
+            if [ "$pkg_category" = "$cat" ]; then
+                pkg_name=$(echo "$pkg_data" | grep -oP 'name:\K[^|]+')
+                pkg_desc=$(echo "$pkg_data" | grep -oP 'desc:\K[^|]+')
+                pkg_check=$(echo "$pkg_data" | grep -oP 'check:\K[^|]+')
+
+                check_type=$(echo "$pkg_check" | cut -d: -f1)
+                check_value=$(echo "$pkg_check" | cut -d: -f2)
+                check_expected=$(echo "$pkg_check" | cut -d: -f3)
+
+                installed="[ ]"
+                case "$check_type" in
+                    "config")
+                        if [ -n "$check_expected" ]; then
+                            [ "${!check_value}" = "$check_expected" ] && installed="[x]"
+                        else
+                            [ "${!check_value}" = "yes" ] && installed="[x]"
+                        fi
+                        ;;
+                esac
+
+                printf "  %s %-20s - %s\n" "$installed" "$pkg_name" "$pkg_desc"
+            fi
+        done
+        echo ""
+    done
+fi
+
+exit 0

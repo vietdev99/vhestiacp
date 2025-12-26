@@ -21,6 +21,9 @@
 					<i class="fas fa-network-wired icon-purple"></i><?= _("HAProxy") ?>
 				</a>
 			<?php } ?>
+			<a href="/list/packages/" class="button button-secondary">
+				<i class="fas fa-puzzle-piece icon-purple"></i><?= _("Packages") ?>
+			</a>
 			<a href="/list/log/?user=system&token=<?= $_SESSION["token"] ?>" class="button button-secondary">
 				<i class="fas fa-binoculars icon-orange"></i><?= _("Logs") ?>
 			</a>
