@@ -1,0 +1,135 @@
+#!/bin/bash
+# info: install Exim mail server
+# options: NONE
+#
+# example: v-add-sys-exim
+#
+# This function installs and configures Exim mail server.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+HESTIA_INSTALL_DIR="$HESTIA/install/deb"
+HESTIA_COMMON_DIR="$HESTIA/install/common"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if already installed
+if [ "$MAIL_SYSTEM" = "exim4" ]; then
+    echo "Exim is already installed"
+    exit 0
+fi
+
+# Checking root permissions
+if [ "$(id -u)" != '0' ]; then
+    echo "Error: Script can be run executed only by root"
+    exit 10
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "[ * ] Installing Exim mail server..."
+
+# Install packages
+apt-get update > /dev/null 2>&1
+apt-get install -y exim4 exim4-daemon-heavy > /dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to install Exim packages"
+    exit 1
+fi
+
+echo "[ * ] Configuring Exim..."
+
+# Add exim user to mail group
+gpasswd -a Debian-exim mail > /dev/null 2>&1
+
+# Get exim version
+exim_version=$(exim4 --version 2>/dev/null | head -1 | awk '{print $3}' | cut -f -2 -d .)
+
+# Copy config template based on version
+if [ -f "$HESTIA_INSTALL_DIR/exim/exim4.conf.4.95.template" ]; then
+    cp -f $HESTIA_INSTALL_DIR/exim/exim4.conf.4.95.template /etc/exim4/exim4.conf.template
+elif [ -f "$HESTIA_INSTALL_DIR/exim/exim4.conf.template" ]; then
+    cp -f $HESTIA_INSTALL_DIR/exim/exim4.conf.template /etc/exim4/
+fi
+
+# Copy additional config files
+[ -f "$HESTIA_INSTALL_DIR/exim/dnsbl.conf" ] && cp -f $HESTIA_INSTALL_DIR/exim/dnsbl.conf /etc/exim4/
+[ -f "$HESTIA_INSTALL_DIR/exim/spam-blocks.conf" ] && cp -f $HESTIA_INSTALL_DIR/exim/spam-blocks.conf /etc/exim4/
+[ -f "$HESTIA_INSTALL_DIR/exim/limit.conf" ] && cp -f $HESTIA_INSTALL_DIR/exim/limit.conf /etc/exim4/
+[ -f "$HESTIA_INSTALL_DIR/exim/system.filter" ] && cp -f $HESTIA_INSTALL_DIR/exim/system.filter /etc/exim4/
+touch /etc/exim4/white-blocks.conf
+
+# Enable SpamAssassin if installed
+if [ "$ANTISPAM_SYSTEM" = "spamassassin" ]; then
+    sed -i "s/#SPAM/SPAM/g" /etc/exim4/exim4.conf.template
+fi
+
+# Enable ClamAV if installed
+if [ "$ANTIVIRUS_SYSTEM" = "clamav-daemon" ]; then
+    sed -i "s/#CLAMD/CLAMD/g" /etc/exim4/exim4.conf.template
+fi
+
+# Generate SRS key
+srs=$(gen_pass)
+echo $srs > /etc/exim4/srs.conf
+chmod 640 /etc/exim4/srs.conf
+chmod 640 /etc/exim4/exim4.conf.template
+chown root:Debian-exim /etc/exim4/srs.conf
+
+# Create domains directory
+rm -rf /etc/exim4/domains
+mkdir -p /etc/exim4/domains
+
+# Set exim as default MTA
+rm -f /etc/alternatives/mta
+ln -s /usr/sbin/exim4 /etc/alternatives/mta
+
+# Disable other MTAs
+update-rc.d -f sendmail remove > /dev/null 2>&1
+systemctl stop sendmail > /dev/null 2>&1
+update-rc.d -f postfix remove > /dev/null 2>&1
+systemctl stop postfix > /dev/null 2>&1
+
+# Start exim
+update-rc.d exim4 defaults > /dev/null 2>&1
+systemctl enable exim4 > /dev/null 2>&1
+systemctl restart exim4
+
+if ! systemctl is-active --quiet exim4; then
+    echo "Error: Exim failed to start"
+    exit 1
+fi
+
+# Update hestia.conf
+if ! grep -q "^MAIL_SYSTEM" $HESTIA/conf/hestia.conf; then
+    echo "MAIL_SYSTEM='exim4'" >> $HESTIA/conf/hestia.conf
+else
+    sed -i "s/^MAIL_SYSTEM=.*/MAIL_SYSTEM='exim4'/" $HESTIA/conf/hestia.conf
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo "    ✓ Exim mail server installed successfully"
+echo ""
+echo "    Service: exim4"
+echo "    Config:  /etc/exim4/exim4.conf.template"
+echo ""
+
+# Logging
+$HESTIA/bin/v-log-action "system" "Info" "Plugins" "Exim mail server installed"
+
+exit 0

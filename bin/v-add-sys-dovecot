@@ -1,0 +1,117 @@
+#!/bin/bash
+# info: install Dovecot IMAP/POP3 server
+# options: NONE
+#
+# example: v-add-sys-dovecot
+#
+# This function installs and configures Dovecot mail server.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+HESTIA_INSTALL_DIR="$HESTIA/install/deb"
+HESTIA_COMMON_DIR="$HESTIA/install/common"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if already installed
+if [ "$IMAP_SYSTEM" = "dovecot" ]; then
+    echo "Dovecot is already installed"
+    exit 0
+fi
+
+# Checking root permissions
+if [ "$(id -u)" != '0' ]; then
+    echo "Error: Script can be run executed only by root"
+    exit 10
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "[ * ] Installing Dovecot IMAP/POP3 server..."
+
+# Install packages
+apt-get update > /dev/null 2>&1
+apt-get install -y dovecot-imapd dovecot-pop3d > /dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to install Dovecot packages"
+    exit 1
+fi
+
+echo "[ * ] Configuring Dovecot..."
+
+# Add dovecot user to mail group
+gpasswd -a dovecot mail > /dev/null 2>&1
+
+# Copy configuration
+if [ -d "$HESTIA_COMMON_DIR/dovecot" ]; then
+    cp -rf $HESTIA_COMMON_DIR/dovecot /etc/
+fi
+
+# Copy logrotate config
+if [ -f "$HESTIA_INSTALL_DIR/logrotate/dovecot" ]; then
+    cp -f $HESTIA_INSTALL_DIR/logrotate/dovecot /etc/logrotate.d/
+fi
+
+# Remove default mailboxes config
+rm -f /etc/dovecot/conf.d/15-mailboxes.conf
+
+# Set permissions
+chown -R root:root /etc/dovecot*
+
+# Create log file
+touch /var/log/dovecot.log
+chown -R dovecot:mail /var/log/dovecot.log
+chmod 660 /var/log/dovecot.log
+
+# Check dovecot version and adjust config
+version=$(dovecot --version 2>/dev/null | cut -f -2 -d .)
+if [ "$version" = "2.2" ]; then
+    echo "[ * ] Adjusting config for Dovecot 2.2..."
+    sed -i 's|#ssl_dh_parameters_length = 4096|ssl_dh_parameters_length = 4096|g' /etc/dovecot/conf.d/10-ssl.conf 2>/dev/null
+    sed -i 's|ssl_dh = </etc/ssl/dhparam.pem|#ssl_dh = </etc/ssl/dhparam.pem|g' /etc/dovecot/conf.d/10-ssl.conf 2>/dev/null
+    sed -i 's|ssl_min_protocol = TLSv1.2|ssl_protocols = !SSLv3 !TLSv1 !TLSv1.1|g' /etc/dovecot/conf.d/10-ssl.conf 2>/dev/null
+fi
+
+# Start dovecot
+update-rc.d dovecot defaults > /dev/null 2>&1
+systemctl enable dovecot > /dev/null 2>&1
+systemctl restart dovecot
+
+if ! systemctl is-active --quiet dovecot; then
+    echo "Error: Dovecot failed to start"
+    exit 1
+fi
+
+# Update hestia.conf
+if ! grep -q "^IMAP_SYSTEM" $HESTIA/conf/hestia.conf; then
+    echo "IMAP_SYSTEM='dovecot'" >> $HESTIA/conf/hestia.conf
+else
+    sed -i "s/^IMAP_SYSTEM=.*/IMAP_SYSTEM='dovecot'/" $HESTIA/conf/hestia.conf
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo "    ✓ Dovecot IMAP/POP3 server installed successfully"
+echo ""
+echo "    Service: dovecot"
+echo "    Config:  /etc/dovecot/"
+echo ""
+
+# Logging
+$HESTIA/bin/v-log-action "system" "Info" "Plugins" "Dovecot IMAP/POP3 server installed"
+
+exit 0

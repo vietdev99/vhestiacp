@@ -1,0 +1,111 @@
+#!/bin/bash
+# info: install BIND DNS server
+# options: NONE
+#
+# example: v-add-sys-bind
+#
+# This function installs and configures BIND DNS server.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+HESTIA_INSTALL_DIR="$HESTIA/install/deb"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if already installed
+if [ "$DNS_SYSTEM" = "bind9" ]; then
+    echo "BIND DNS is already installed"
+    exit 0
+fi
+
+# Checking root permissions
+if [ "$(id -u)" != '0' ]; then
+    echo "Error: Script can be run executed only by root"
+    exit 10
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "[ * ] Installing BIND DNS server..."
+
+# Install packages
+apt-get update > /dev/null 2>&1
+apt-get install -y bind9 > /dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to install BIND packages"
+    exit 1
+fi
+
+echo "[ * ] Configuring BIND..."
+
+# Copy configuration files
+if [ -f "$HESTIA_INSTALL_DIR/bind/named.conf" ]; then
+    cp -f $HESTIA_INSTALL_DIR/bind/named.conf /etc/bind/
+    chown root:bind /etc/bind/named.conf
+    chmod 640 /etc/bind/named.conf
+fi
+
+if [ -f "$HESTIA_INSTALL_DIR/bind/named.conf.options" ]; then
+    cp -f $HESTIA_INSTALL_DIR/bind/named.conf.options /etc/bind/
+    chown root:bind /etc/bind/named.conf.options
+    chmod 640 /etc/bind/named.conf.options
+fi
+
+# Set permissions
+chown bind:bind /var/cache/bind
+
+# Configure AppArmor
+aa-complain /usr/sbin/named > /dev/null 2>&1
+echo "/home/** rwm," >> /etc/apparmor.d/local/usr.sbin.named 2>/dev/null
+
+# Restart AppArmor if not in container
+if ! grep --quiet lxc /proc/1/environ 2>/dev/null; then
+    systemctl status apparmor > /dev/null 2>&1
+    if [ $? -eq 0 ]; then
+        systemctl restart apparmor > /dev/null 2>&1
+    fi
+fi
+
+# Start BIND
+update-rc.d bind9 defaults > /dev/null 2>&1
+systemctl enable bind9 > /dev/null 2>&1
+systemctl start bind9
+
+if ! systemctl is-active --quiet bind9; then
+    # Try named service name
+    systemctl start named > /dev/null 2>&1
+fi
+
+# Update hestia.conf
+if ! grep -q "^DNS_SYSTEM" $HESTIA/conf/hestia.conf; then
+    echo "DNS_SYSTEM='bind9'" >> $HESTIA/conf/hestia.conf
+else
+    sed -i "s/^DNS_SYSTEM=.*/DNS_SYSTEM='bind9'/" $HESTIA/conf/hestia.conf
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo "    ✓ BIND DNS server installed successfully"
+echo ""
+echo "    Service: bind9"
+echo "    Config:  /etc/bind/"
+echo ""
+
+# Logging
+$HESTIA/bin/v-log-action "system" "Info" "Plugins" "BIND DNS server installed"
+
+exit 0

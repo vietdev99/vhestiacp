@@ -1,0 +1,108 @@
+#!/bin/bash
+# info: install vsftpd FTP server
+# options: NONE
+#
+# example: v-add-sys-vsftpd
+#
+# This function installs and configures vsftpd FTP server.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+HESTIA_INSTALL_DIR="$HESTIA/install/deb"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if already installed
+if [ "$FTP_SYSTEM" = "vsftpd" ]; then
+    echo "vsftpd is already installed"
+    exit 0
+fi
+
+# Check if proftpd is installed
+if [ "$FTP_SYSTEM" = "proftpd" ]; then
+    echo "Error: ProFTPD is already installed. Please remove it first."
+    exit 1
+fi
+
+# Checking root permissions
+if [ "$(id -u)" != '0' ]; then
+    echo "Error: Script can be run executed only by root"
+    exit 10
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "[ * ] Installing vsftpd FTP server..."
+
+# Install packages
+apt-get update > /dev/null 2>&1
+apt-get install -y vsftpd > /dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to install vsftpd"
+    exit 1
+fi
+
+echo "[ * ] Configuring vsftpd..."
+
+# Copy configuration
+if [ -f "$HESTIA_INSTALL_DIR/vsftpd/vsftpd.conf" ]; then
+    cp -f $HESTIA_INSTALL_DIR/vsftpd/vsftpd.conf /etc/
+fi
+
+# Create log files
+touch /var/log/vsftpd.log
+chown root:adm /var/log/vsftpd.log
+chmod 640 /var/log/vsftpd.log
+
+touch /var/log/xferlog
+chown root:adm /var/log/xferlog
+chmod 640 /var/log/xferlog
+
+# Configure logrotate
+if [ -f /etc/logrotate.d/vsftpd ] && ! grep -Fq "/var/log/xferlog" /etc/logrotate.d/vsftpd; then
+    sed -i 's|/var/log/vsftpd.log|/var/log/vsftpd.log /var/log/xferlog|g' /etc/logrotate.d/vsftpd
+fi
+
+# Start vsftpd
+update-rc.d vsftpd defaults > /dev/null 2>&1
+systemctl enable vsftpd > /dev/null 2>&1
+systemctl restart vsftpd
+
+if ! systemctl is-active --quiet vsftpd; then
+    echo "Error: vsftpd failed to start"
+    exit 1
+fi
+
+# Update hestia.conf
+if ! grep -q "^FTP_SYSTEM" $HESTIA/conf/hestia.conf; then
+    echo "FTP_SYSTEM='vsftpd'" >> $HESTIA/conf/hestia.conf
+else
+    sed -i "s/^FTP_SYSTEM=.*/FTP_SYSTEM='vsftpd'/" $HESTIA/conf/hestia.conf
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo "    ✓ vsftpd FTP server installed successfully"
+echo ""
+echo "    Service: vsftpd"
+echo "    Config:  /etc/vsftpd.conf"
+echo ""
+
+# Logging
+$HESTIA/bin/v-log-action "system" "Info" "Plugins" "vsftpd FTP server installed"
+
+exit 0

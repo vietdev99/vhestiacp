@@ -1,0 +1,123 @@
+#!/bin/bash
+# info: install MariaDB database server
+# options: NONE
+#
+# example: v-add-sys-mysql
+#
+# This function installs and configures MariaDB database server.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+HESTIA_INSTALL_DIR="$HESTIA/install/deb"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if already installed
+if [ "$DB_SYSTEM" = "mysql" ]; then
+    echo "MariaDB/MySQL is already installed"
+    exit 0
+fi
+
+# Checking root permissions
+if [ "$(id -u)" != '0' ]; then
+    echo "Error: Script can be run executed only by root"
+    exit 10
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "[ * ] Installing MariaDB database server..."
+
+# Install packages
+apt-get update > /dev/null 2>&1
+apt-get install -y mariadb-server mariadb-client > /dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to install MariaDB packages"
+    exit 1
+fi
+
+echo "[ * ] Configuring MariaDB..."
+
+# Get system memory to choose config
+memory=$(grep 'MemTotal' /proc/meminfo | tr ' ' '\n' | grep [0-9])
+mycnf="my-small.cnf"
+if [ $memory -gt 1200000 ]; then
+    mycnf="my-medium.cnf"
+fi
+if [ $memory -gt 3900000 ]; then
+    mycnf="my-large.cnf"
+fi
+
+# Run mariadb-install-db
+mariadb-install-db > /dev/null 2>&1
+
+# Remove symbolic link and copy config
+rm -f /etc/mysql/my.cnf
+if [ -f "$HESTIA_INSTALL_DIR/mysql/$mycnf" ]; then
+    cp -f $HESTIA_INSTALL_DIR/mysql/$mycnf /etc/mysql/my.cnf
+    sed -i 's|/usr/share/mysql|/usr/share/mariadb|g' /etc/mysql/my.cnf
+fi
+
+# Start MariaDB
+update-rc.d mariadb defaults > /dev/null 2>&1
+systemctl enable mariadb > /dev/null 2>&1
+systemctl start mariadb
+
+if ! systemctl is-active --quiet mariadb; then
+    echo "Error: MariaDB failed to start"
+    exit 1
+fi
+
+# Secure installation
+echo "[ * ] Securing MariaDB installation..."
+mpass=$(gen_pass)
+echo -e "[client]\npassword='$mpass'\n" > /root/.my.cnf
+chmod 600 /root/.my.cnf
+
+# Alter root password and secure
+mariadb -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$mpass'; FLUSH PRIVILEGES;"
+mariadb -e "UPDATE mysql.global_priv SET priv=json_set(priv, '$.password_last_changed', UNIX_TIMESTAMP(), '$.plugin', 'mysql_native_password', '$.authentication_string', 'invalid', '$.auth_or', json_array(json_object(), json_object('plugin', 'unix_socket'))) WHERE User='root';" 2>/dev/null
+mariadb -e "DELETE FROM mysql.global_priv WHERE User='';" 2>/dev/null
+mariadb -e "DROP DATABASE IF EXISTS test"
+mariadb -e "DELETE FROM mysql.db WHERE Db='test' OR Db='test\\_%'"
+mariadb -e "FLUSH PRIVILEGES;"
+
+# Add database host to Hestia
+$HESTIA/bin/v-add-database-host mysql localhost root $mpass > /dev/null 2>&1
+
+# Update hestia.conf
+if ! grep -q "^DB_SYSTEM" $HESTIA/conf/hestia.conf; then
+    echo "DB_SYSTEM='mysql'" >> $HESTIA/conf/hestia.conf
+else
+    sed -i "s/^DB_SYSTEM=.*/DB_SYSTEM='mysql'/" $HESTIA/conf/hestia.conf
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo "    ✓ MariaDB database server installed successfully"
+echo ""
+echo "    Service:  mariadb"
+echo "    Root Pass: $mpass"
+echo "    Config:   /etc/mysql/my.cnf"
+echo ""
+echo "    Root credentials saved to /root/.my.cnf"
+echo ""
+
+# Logging
+$HESTIA/bin/v-log-action "system" "Info" "Plugins" "MariaDB database server installed"
+
+exit 0

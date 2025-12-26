@@ -6,6 +6,19 @@
 #                                                                           #
 #===========================================================================#
 
+# Password generation function
+gen_pass() {
+	local matrix=$1
+	local length=$2
+	if [ -z "$matrix" ]; then
+		matrix="A-Za-z0-9"
+	fi
+	if [ -z "$length" ]; then
+		length=16
+	fi
+	head /dev/urandom | tr -dc $matrix | head -c$length
+}
+
 # Source conf function for correct variable initialisation
 source_conf() {
 	while IFS='= ' read -r lhs rhs; do

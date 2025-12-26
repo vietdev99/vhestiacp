@@ -1,0 +1,108 @@
+#!/bin/bash
+# info: install ProFTPD server
+# options: NONE
+#
+# example: v-add-sys-proftpd
+#
+# This function installs and configures ProFTPD server.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+HESTIA_INSTALL_DIR="$HESTIA/install/deb"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if already installed
+if [ "$FTP_SYSTEM" = "proftpd" ]; then
+    echo "ProFTPD is already installed"
+    exit 0
+fi
+
+# Check if vsftpd is installed
+if [ "$FTP_SYSTEM" = "vsftpd" ]; then
+    echo "Error: vsftpd is already installed. Please remove it first."
+    exit 1
+fi
+
+# Checking root permissions
+if [ "$(id -u)" != '0' ]; then
+    echo "Error: Script can be run executed only by root"
+    exit 10
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "[ * ] Installing ProFTPD server..."
+
+# Install packages
+apt-get update > /dev/null 2>&1
+apt-get install -y proftpd-basic > /dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to install ProFTPD"
+    exit 1
+fi
+
+echo "[ * ] Configuring ProFTPD..."
+
+# Get server hostname
+servername=$(hostname -f 2>/dev/null || hostname)
+echo "127.0.0.1 $servername" >> /etc/hosts
+
+# Copy configuration
+if [ -f "$HESTIA_INSTALL_DIR/proftpd/proftpd.conf" ]; then
+    cp -f $HESTIA_INSTALL_DIR/proftpd/proftpd.conf /etc/proftpd/
+fi
+
+if [ -f "$HESTIA_INSTALL_DIR/proftpd/tls.conf" ]; then
+    cp -f $HESTIA_INSTALL_DIR/proftpd/tls.conf /etc/proftpd/
+fi
+
+# Disable TLS 1.3 for older ProFTPD versions
+release=$(lsb_release -rs 2>/dev/null)
+if [ "$release" = "20.04" ]; then
+    sed -i 's/TLSProtocol                             TLSv1.2 TLSv1.3/TLSProtocol                             TLSv1.2/' /etc/proftpd/tls.conf 2>/dev/null
+fi
+
+# Start ProFTPD
+update-rc.d proftpd defaults > /dev/null 2>&1
+systemctl enable proftpd > /dev/null 2>&1
+systemctl restart proftpd
+
+if ! systemctl is-active --quiet proftpd; then
+    echo "Error: ProFTPD failed to start"
+    exit 1
+fi
+
+# Update hestia.conf
+if ! grep -q "^FTP_SYSTEM" $HESTIA/conf/hestia.conf; then
+    echo "FTP_SYSTEM='proftpd'" >> $HESTIA/conf/hestia.conf
+else
+    sed -i "s/^FTP_SYSTEM=.*/FTP_SYSTEM='proftpd'/" $HESTIA/conf/hestia.conf
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo "    ✓ ProFTPD server installed successfully"
+echo ""
+echo "    Service: proftpd"
+echo "    Config:  /etc/proftpd/"
+echo ""
+
+# Logging
+$HESTIA/bin/v-log-action "system" "Info" "Plugins" "ProFTPD server installed"
+
+exit 0

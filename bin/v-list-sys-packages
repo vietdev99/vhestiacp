@@ -74,8 +74,8 @@ packages["nginx"]="category:web|name:Nginx|desc:High Performance Web Server|icon
 packages["apache2"]="category:web|name:Apache|desc:Classic Web Server|icon:server|check:config:WEB_BACKEND:httpd|service:apache2"
 
 # Databases
-packages["mysql"]="category:database|name:MariaDB/MySQL|desc:Relational Database|icon:database|check:config:DB_SYSTEM|service:mariadb"
-packages["postgresql"]="category:database|name:PostgreSQL|desc:Advanced SQL Database|icon:database|check:config:DB_PG_SYSTEM|service:postgresql"
+packages["mysql"]="category:database|name:MariaDB/MySQL|desc:Relational Database|icon:database|check:config:DB_SYSTEM:mysql|service:mariadb"
+packages["postgresql"]="category:database|name:PostgreSQL|desc:Advanced SQL Database|icon:database|check:config:DB_PG_SYSTEM:pgsql|service:postgresql"
 packages["mongodb"]="category:database|name:MongoDB|desc:NoSQL Document Database|icon:leaf|check:config:MONGODB_SYSTEM|service:mongod"
 packages["redis"]="category:database|name:Redis|desc:In-Memory Cache & Database|icon:bolt|check:config:REDIS_SYSTEM|service:redis-server"
 
@@ -84,13 +84,13 @@ packages["rabbitmq"]="category:queue|name:RabbitMQ|desc:Message Broker (AMQP)|ic
 packages["kafka"]="category:queue|name:Apache Kafka|desc:Distributed Streaming Platform|icon:stream|check:config:KAFKA_SYSTEM|service:kafka"
 
 # Mail Stack
-packages["exim"]="category:mail|name:Exim|desc:Mail Transfer Agent (MTA)|icon:envelope|check:config:MAIL_SYSTEM|service:exim4"
-packages["dovecot"]="category:mail|name:Dovecot|desc:IMAP/POP3 Server|icon:inbox|check:config:IMAP_SYSTEM|service:dovecot"
-packages["clamav"]="category:mail|name:ClamAV|desc:Antivirus Scanner|icon:shield-virus|check:config:ANTIVIRUS_SYSTEM|service:clamav-daemon"
-packages["spamd"]="category:mail|name:SpamAssassin|desc:Spam Filter|icon:filter|check:config:ANTISPAM_SYSTEM|service:spamassassin"
+packages["exim"]="category:mail|name:Exim|desc:Mail Transfer Agent (MTA)|icon:envelope|check:config:MAIL_SYSTEM:exim4|service:exim4"
+packages["dovecot"]="category:mail|name:Dovecot|desc:IMAP/POP3 Server|icon:inbox|check:config:IMAP_SYSTEM:dovecot|service:dovecot"
+packages["clamav"]="category:mail|name:ClamAV|desc:Antivirus Scanner|icon:shield-virus|check:config:ANTIVIRUS_SYSTEM:clamav-daemon|service:clamav-daemon"
+packages["spamd"]="category:mail|name:SpamAssassin|desc:Spam Filter|icon:filter|check:config:ANTISPAM_SYSTEM:spamassassin|service:spamd"
 
 # DNS
-packages["bind"]="category:dns|name:BIND DNS|desc:DNS Server|icon:globe|check:config:DNS_SYSTEM|service:named"
+packages["bind"]="category:dns|name:BIND DNS|desc:DNS Server|icon:globe|check:config:DNS_SYSTEM:bind9|service:bind9"
 
 # FTP
 packages["vsftpd"]="category:ftp|name:vsftpd|desc:FTP Server|icon:folder-open|check:config:FTP_SYSTEM:vsftpd|service:vsftpd"
@@ -101,10 +101,10 @@ packages["nodejs"]="category:runtime|name:Node.js|desc:JavaScript Runtime|icon:n
 packages["python"]="category:runtime|name:Python/Pyenv|desc:Python Runtime Manager|icon:python|check:config:PYTHON_SYSTEM|service:"
 
 # Security & Tools
-packages["fail2ban"]="category:security|name:Fail2Ban|desc:Intrusion Prevention|icon:ban|check:config:FIREWALL_EXTENSION|service:fail2ban"
-packages["firewall"]="category:security|name:Firewall|desc:iptables Firewall|icon:shield-halved|check:config:FIREWALL_SYSTEM|service:hestia-iptables"
-packages["filemanager"]="category:tools|name:File Manager|desc:Web File Manager|icon:folder|check:config:FILE_MANAGER|service:"
-packages["webterminal"]="category:tools|name:Web Terminal|desc:SSH in Browser|icon:terminal|check:config:WEB_TERMINAL|service:"
+packages["fail2ban"]="category:security|name:Fail2Ban|desc:Intrusion Prevention|icon:ban|check:config:FIREWALL_EXTENSION:fail2ban|service:fail2ban"
+packages["firewall"]="category:security|name:Firewall|desc:iptables Firewall|icon:shield-halved|check:config:FIREWALL_SYSTEM:iptables|service:hestia-iptables"
+packages["filemanager"]="category:tools|name:File Manager|desc:Web File Manager|icon:folder|check:config:FILE_MANAGER:true|service:"
+packages["webterminal"]="category:tools|name:Web Terminal|desc:SSH in Browser|icon:terminal|check:config:WEB_TERMINAL:true|service:hestia-web-terminal"
 
 #----------------------------------------------------------#
 #                       Output                             #

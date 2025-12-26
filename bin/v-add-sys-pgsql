@@ -1,0 +1,89 @@
+#!/bin/bash
+# info: install PostgreSQL database server
+# options: NONE
+#
+# example: v-add-sys-pgsql
+#
+# This function installs and configures PostgreSQL database server.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+HESTIA_INSTALL_DIR="$HESTIA/install/deb"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if already installed
+if [ "$DB_PG_SYSTEM" = "pgsql" ]; then
+    echo "PostgreSQL is already installed"
+    exit 0
+fi
+
+# Checking root permissions
+if [ "$(id -u)" != '0' ]; then
+    echo "Error: Script can be run executed only by root"
+    exit 10
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "[ * ] Installing PostgreSQL database server..."
+
+# Install packages
+apt-get update > /dev/null 2>&1
+apt-get install -y postgresql postgresql-contrib > /dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to install PostgreSQL packages"
+    exit 1
+fi
+
+echo "[ * ] Configuring PostgreSQL..."
+
+# Copy pg_hba.conf
+if [ -f "$HESTIA_INSTALL_DIR/postgresql/pg_hba.conf" ]; then
+    cp -f $HESTIA_INSTALL_DIR/postgresql/pg_hba.conf /etc/postgresql/*/main/
+fi
+
+# Restart PostgreSQL
+systemctl restart postgresql
+
+# Generate password and set for postgres user
+ppass=$(gen_pass)
+sudo -iu postgres psql -c "ALTER USER postgres WITH PASSWORD '$ppass'" > /dev/null 2>&1
+
+# Add database host to Hestia
+$HESTIA/bin/v-add-database-host pgsql localhost postgres $ppass > /dev/null 2>&1
+
+# Update hestia.conf
+if ! grep -q "^DB_PG_SYSTEM" $HESTIA/conf/hestia.conf; then
+    echo "DB_PG_SYSTEM='pgsql'" >> $HESTIA/conf/hestia.conf
+else
+    sed -i "s/^DB_PG_SYSTEM=.*/DB_PG_SYSTEM='pgsql'/" $HESTIA/conf/hestia.conf
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo "    ✓ PostgreSQL database server installed successfully"
+echo ""
+echo "    Service:  postgresql"
+echo "    User:     postgres"
+echo "    Password: $ppass"
+echo ""
+
+# Logging
+$HESTIA/bin/v-log-action "system" "Info" "Plugins" "PostgreSQL database server installed"
+
+exit 0

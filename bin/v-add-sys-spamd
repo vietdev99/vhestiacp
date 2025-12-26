@@ -1,0 +1,100 @@
+#!/bin/bash
+# info: install SpamAssassin
+# options: NONE
+#
+# example: v-add-sys-spamd
+#
+# This function installs and configures SpamAssassin spam filter.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if already installed
+if [ "$ANTISPAM_SYSTEM" = "spamassassin" ]; then
+    echo "SpamAssassin is already installed"
+    exit 0
+fi
+
+# Checking root permissions
+if [ "$(id -u)" != '0' ]; then
+    echo "Error: Script can be run executed only by root"
+    exit 10
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "[ * ] Installing SpamAssassin..."
+
+# Install packages
+apt-get update > /dev/null 2>&1
+apt-get install -y spamassassin spamc > /dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to install SpamAssassin packages"
+    exit 1
+fi
+
+echo "[ * ] Configuring SpamAssassin..."
+
+# Detect Ubuntu version for service name
+release=$(lsb_release -rs 2>/dev/null)
+if [ "$release" = "24.04" ]; then
+    spamd_srvname="spamd"
+else
+    spamd_srvname="spamassassin"
+fi
+
+# Enable SpamAssassin
+if [ -f "/etc/default/$spamd_srvname" ]; then
+    sed -i "s/ENABLED=0/ENABLED=1/" /etc/default/$spamd_srvname
+    sed -i "s/#CRON=1/CRON=1/" /etc/default/$spamd_srvname
+fi
+
+# Enable SpamAssassin in Exim config if Exim is installed
+if [ "$MAIL_SYSTEM" = "exim4" ] && [ -f "/etc/exim4/exim4.conf.template" ]; then
+    sed -i "s/#SPAM/SPAM/g" /etc/exim4/exim4.conf.template
+    systemctl restart exim4 > /dev/null 2>&1
+fi
+
+# Start SpamAssassin
+update-rc.d $spamd_srvname defaults > /dev/null 2>&1
+systemctl enable $spamd_srvname > /dev/null 2>&1
+systemctl start $spamd_srvname
+
+if ! systemctl is-active --quiet $spamd_srvname; then
+    echo "Error: SpamAssassin failed to start"
+    exit 1
+fi
+
+# Update hestia.conf
+if ! grep -q "^ANTISPAM_SYSTEM" $HESTIA/conf/hestia.conf; then
+    echo "ANTISPAM_SYSTEM='spamassassin'" >> $HESTIA/conf/hestia.conf
+else
+    sed -i "s/^ANTISPAM_SYSTEM=.*/ANTISPAM_SYSTEM='spamassassin'/" $HESTIA/conf/hestia.conf
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo "    ✓ SpamAssassin installed successfully"
+echo ""
+echo "    Service: $spamd_srvname"
+echo ""
+
+# Logging
+$HESTIA/bin/v-log-action "system" "Info" "Plugins" "SpamAssassin spam filter installed"
+
+exit 0

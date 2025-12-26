@@ -1,0 +1,107 @@
+#!/bin/bash
+# info: install ClamAV antivirus
+# options: NONE
+#
+# example: v-add-sys-clamav
+#
+# This function installs and configures ClamAV antivirus scanner.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+HESTIA_INSTALL_DIR="$HESTIA/install/deb"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if already installed
+if [ "$ANTIVIRUS_SYSTEM" = "clamav-daemon" ]; then
+    echo "ClamAV is already installed"
+    exit 0
+fi
+
+# Checking root permissions
+if [ "$(id -u)" != '0' ]; then
+    echo "Error: Script can be run executed only by root"
+    exit 10
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "[ * ] Installing ClamAV antivirus..."
+
+# Install packages
+apt-get update > /dev/null 2>&1
+apt-get install -y clamav clamav-daemon > /dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to install ClamAV packages"
+    exit 1
+fi
+
+echo "[ * ] Configuring ClamAV..."
+
+# Add clamav user to groups
+gpasswd -a clamav mail > /dev/null 2>&1
+gpasswd -a clamav Debian-exim > /dev/null 2>&1
+
+# Copy configuration
+if [ -f "$HESTIA_INSTALL_DIR/clamav/clamd.conf" ]; then
+    cp -f $HESTIA_INSTALL_DIR/clamav/clamd.conf /etc/clamav/
+fi
+
+# Update virus definitions
+echo "[ * ] Updating ClamAV virus definitions (this may take a while)..."
+systemctl stop clamav-freshclam > /dev/null 2>&1
+/usr/bin/freshclam > /dev/null 2>&1
+
+# Enable ClamAV in Exim config if Exim is installed
+if [ "$MAIL_SYSTEM" = "exim4" ] && [ -f "/etc/exim4/exim4.conf.template" ]; then
+    sed -i "s/#CLAMD/CLAMD/g" /etc/exim4/exim4.conf.template
+    systemctl restart exim4 > /dev/null 2>&1
+fi
+
+# Start services
+update-rc.d clamav-daemon defaults > /dev/null 2>&1
+systemctl enable clamav-daemon > /dev/null 2>&1
+systemctl enable clamav-freshclam > /dev/null 2>&1
+systemctl start clamav-freshclam > /dev/null 2>&1
+systemctl start clamav-daemon
+
+# Wait for ClamAV to start (it can take a while to load definitions)
+sleep 5
+
+if ! systemctl is-active --quiet clamav-daemon; then
+    echo "Warning: ClamAV daemon may still be loading virus definitions"
+fi
+
+# Update hestia.conf
+if ! grep -q "^ANTIVIRUS_SYSTEM" $HESTIA/conf/hestia.conf; then
+    echo "ANTIVIRUS_SYSTEM='clamav-daemon'" >> $HESTIA/conf/hestia.conf
+else
+    sed -i "s/^ANTIVIRUS_SYSTEM=.*/ANTIVIRUS_SYSTEM='clamav-daemon'/" $HESTIA/conf/hestia.conf
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo "    ✓ ClamAV antivirus installed successfully"
+echo ""
+echo "    Service: clamav-daemon"
+echo "    Config:  /etc/clamav/"
+echo ""
+
+# Logging
+$HESTIA/bin/v-log-action "system" "Info" "Plugins" "ClamAV antivirus installed"
+
+exit 0

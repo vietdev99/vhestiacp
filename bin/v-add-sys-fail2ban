@@ -1,0 +1,135 @@
+#!/bin/bash
+# info: install Fail2Ban intrusion prevention system
+# options: NONE
+#
+# example: v-add-sys-fail2ban
+#
+# This function installs and configures Fail2Ban for brute-force protection.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+HESTIA_INSTALL_DIR="$HESTIA/install/deb"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if already installed
+if [ "$FIREWALL_EXTENSION" = "fail2ban" ]; then
+    echo "Fail2Ban is already installed"
+    exit 0
+fi
+
+# Check if firewall is enabled (fail2ban requires iptables)
+if [ "$FIREWALL_SYSTEM" != "iptables" ]; then
+    echo "Error: Fail2Ban requires iptables firewall to be enabled"
+    exit 1
+fi
+
+# Checking root permissions
+if [ "$(id -u)" != '0' ]; then
+    echo "Error: Script can be run executed only by root"
+    exit 10
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "[ * ] Installing Fail2Ban..."
+
+# Install packages
+apt-get update > /dev/null 2>&1
+apt-get install -y fail2ban > /dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to install Fail2Ban packages"
+    exit 1
+fi
+
+echo "[ * ] Configuring Fail2Ban..."
+
+# Copy configuration files
+if [ -d "$HESTIA_INSTALL_DIR/fail2ban" ]; then
+    cp -rf $HESTIA_INSTALL_DIR/fail2ban /etc/
+fi
+
+# Adjust jail.local based on installed services
+# Disable dovecot jail if not installed
+if [ "$IMAP_SYSTEM" != "dovecot" ]; then
+    fline=$(cat /etc/fail2ban/jail.local | grep -n dovecot-iptables -A 2)
+    fline=$(echo "$fline" | grep enabled | tail -n1 | cut -f 1 -d -)
+    if [ -n "$fline" ]; then
+        sed -i "${fline}s/true/false/" /etc/fail2ban/jail.local
+    fi
+fi
+
+# Disable exim jail if not installed
+if [ "$MAIL_SYSTEM" != "exim4" ]; then
+    fline=$(cat /etc/fail2ban/jail.local | grep -n exim-iptables -A 2)
+    fline=$(echo "$fline" | grep enabled | tail -n1 | cut -f 1 -d -)
+    if [ -n "$fline" ]; then
+        sed -i "${fline}s/true/false/" /etc/fail2ban/jail.local
+    fi
+fi
+
+# Enable vsftpd jail if vsftpd is installed
+if [ "$FTP_SYSTEM" = "vsftpd" ]; then
+    # Create vsftpd Log File
+    if [ ! -f "/var/log/vsftpd.log" ]; then
+        touch /var/log/vsftpd.log
+    fi
+    fline=$(cat /etc/fail2ban/jail.local | grep -n vsftpd-iptables -A 2)
+    fline=$(echo "$fline" | grep enabled | tail -n1 | cut -f 1 -d -)
+    if [ -n "$fline" ]; then
+        sed -i "${fline}s/false/true/" /etc/fail2ban/jail.local
+    fi
+fi
+
+# Remove defaults-debian.conf if exists (can cause conflicts)
+if [ -f /etc/fail2ban/jail.d/defaults-debian.conf ]; then
+    rm -f /etc/fail2ban/jail.d/defaults-debian.conf
+fi
+
+# Enable and start Fail2Ban
+update-rc.d fail2ban defaults > /dev/null 2>&1
+update-rc.d fail2ban enable > /dev/null 2>&1
+systemctl enable fail2ban > /dev/null 2>&1
+systemctl restart fail2ban
+
+if ! systemctl is-active --quiet fail2ban; then
+    echo "Error: Fail2Ban failed to start"
+    exit 1
+fi
+
+# Update hestia.conf
+if ! grep -q "^FIREWALL_EXTENSION" $HESTIA/conf/hestia.conf; then
+    echo "FIREWALL_EXTENSION='fail2ban'" >> $HESTIA/conf/hestia.conf
+else
+    sed -i "s/^FIREWALL_EXTENSION=.*/FIREWALL_EXTENSION='fail2ban'/" $HESTIA/conf/hestia.conf
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo "    ✓ Fail2Ban installed successfully"
+echo ""
+echo "    Service: fail2ban"
+echo "    Config:  /etc/fail2ban/jail.local"
+echo ""
+echo "    Active jails:"
+fail2ban-client status 2>/dev/null | grep "Jail list" || echo "    (starting up...)"
+echo ""
+
+# Logging
+$HESTIA/bin/v-log-action "system" "Info" "Plugins" "Fail2Ban intrusion prevention installed"
+
+exit 0
