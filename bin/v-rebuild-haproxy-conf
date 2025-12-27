@@ -59,39 +59,66 @@ if [ ! -f "$HAPROXY_BASE" ]; then
     fi
 fi
 
-# Start with base config
+# Start with base config (global, defaults sections)
 cp "$HAPROXY_BASE" "$HAPROXY_TMP"
 
-# Add separator
+# Include admin global config if exists (additional global settings)
+# This file can contain extra defaults, resolvers, peers, etc.
+HAPROXY_GLOBAL="/etc/haproxy/haproxy.global.cfg"
+if [ -f "$HAPROXY_GLOBAL" ] && [ -s "$HAPROXY_GLOBAL" ]; then
+    cat >> "$HAPROXY_TMP" << 'EOF'
+
+#=====================================================================
+#                     ADMIN GLOBAL CONFIGURATIONS
+#=====================================================================
+EOF
+    cat "$HAPROXY_GLOBAL" >> "$HAPROXY_TMP"
+fi
+
+# Add separator for user configs
 cat >> "$HAPROXY_TMP" << 'EOF'
 
 #=====================================================================
-#                     USER BACKENDS (Auto-generated)
+#                     USER CONFIGURATIONS (Auto-generated)
 #=====================================================================
 # DO NOT EDIT THIS SECTION MANUALLY
-# Use v-add-user-haproxy-backend / v-delete-user-haproxy-backend
+# Use v-add-user-haproxy-frontend / v-add-user-haproxy-backend
+# Use v-delete-user-haproxy-frontend / v-delete-user-haproxy-backend
 #=====================================================================
 EOF
 
-# Find and include all user backend configs
-user_configs_found=0
+# Find and include all user frontend and backend configs
+user_frontends_found=0
+user_backends_found=0
 
 for user_dir in $HESTIA/data/users/*/; do
-    user=$(basename "$user_dir")
+    u=$(basename "$user_dir")
 
     # Skip if not a valid user
     [ ! -f "$user_dir/user.conf" ] && continue
 
     # Check if user has haproxy config
     if [ -f "$user_dir/haproxy.conf" ] && [ -s "$user_dir/haproxy.conf" ]; then
-        user_backend_dir="$HOMEDIR/$user/conf/haproxy/backends"
+        # Include user frontends
+        user_frontend_dir="$HOMEDIR/$u/conf/haproxy/frontends"
+        if [ -d "$user_frontend_dir" ]; then
+            for cfg in "$user_frontend_dir"/*.cfg; do
+                if [ -f "$cfg" ]; then
+                    echo "" >> "$HAPROXY_TMP"
+                    cat "$cfg" >> "$HAPROXY_TMP"
+                    ((user_frontends_found++))
+                fi
+            done
+        fi
 
+        # Include user backends
+        user_backend_dir="$HOMEDIR/$u/conf/haproxy/backends"
         if [ -d "$user_backend_dir" ]; then
             for cfg in "$user_backend_dir"/*.cfg; do
                 if [ -f "$cfg" ]; then
                     echo "" >> "$HAPROXY_TMP"
                     cat "$cfg" >> "$HAPROXY_TMP"
-                    ((user_configs_found++))
+                    ((user_backends_found++))
                 fi
             done
         fi
@@ -102,8 +129,8 @@ done
 cat >> "$HAPROXY_TMP" << EOF
 
 #=====================================================================
-#                     END USER BACKENDS
-#                     Total: $user_configs_found backend(s)
+#                     END USER CONFIGURATIONS
+#                     Total: $user_frontends_found frontend(s), $user_backends_found backend(s)
 #=====================================================================
 EOF
 

@@ -17,6 +17,9 @@
 				>
 					<i class="fas fa-arrow-rotate-left icon-blue"></i><?= _("Restart") ?>
 				</a>
+				<a href="/list/haproxy/visualize/" class="button button-secondary">
+					<i class="fas fa-diagram-project icon-purple"></i><?= _("Visualize") ?>
+				</a>
 			<?php } ?>
 		</div>
 		<div class="toolbar-buttons">

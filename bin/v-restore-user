@@ -198,6 +198,52 @@ if [ -d "$tmpdir/haproxy" ]; then
 	fi
 fi
 
+# Restoring MongoDB databases
+if tar -tf "$BACKUP/$backup" ./mongodb > /dev/null 2>&1; then
+	echo -e "\n-- MONGODB --" | tee -a $tmpdir/restore.log
+	tar xf "$BACKUP/$backup" -C "$tmpdir" ./mongodb 2>/dev/null
+
+	if [ -d "$tmpdir/mongodb" ]; then
+		# Restore mongodb.conf
+		if [ -f "$tmpdir/mongodb/mongodb.conf" ]; then
+			cp "$tmpdir/mongodb/mongodb.conf" "$USER_DATA/" 2>/dev/null
+		fi
+
+		# Get MongoDB credentials
+		mongo_user=$(grep "^$user:" /etc/hestiacp/mongodb.conf 2>/dev/null | cut -d: -f2)
+		mongo_pass=$(grep "^$user:" /etc/hestiacp/mongodb.conf 2>/dev/null | cut -d: -f3)
+
+		# Restore each database
+		for db_dir in "$tmpdir/mongodb"/*/; do
+			[ ! -d "$db_dir" ] && continue
+			db_name=$(basename "$db_dir")
+			[ "$db_name" = "mongodb.conf" ] && continue
+
+			echo -e "$(date "+%F %T") $db_name (mongodb)" | tee -a $tmpdir/restore.log
+
+			# Decompress dump
+			cd "$db_dir"
+			if [ -f "$db_name.tar.zst" ]; then
+				pzstd -d "$db_name.tar.zst" -o "$db_name.tar"
+				tar xf "$db_name.tar"
+				rm -f "$db_name.tar" "$db_name.tar.zst"
+			elif [ -f "$db_name.tar.gz" ]; then
+				tar xzf "$db_name.tar.gz"
+				rm -f "$db_name.tar.gz"
+			fi
+
+			# Restore MongoDB database
+			if [ -d "$db_dir/$db_name" ]; then
+				if [ -n "$mongo_user" ] && [ -n "$mongo_pass" ]; then
+					mongorestore --host=127.0.0.1 --db="$db_name" --username="$mongo_user" --password="$mongo_pass" --authenticationDatabase="$db_name" --drop "$db_dir/$db_name" --quiet 2>/dev/null
+				else
+					mongorestore --host=127.0.0.1 --db="$db_name" --drop "$db_dir/$db_name" --quiet 2>/dev/null
+				fi
+			fi
+		done
+	fi
+fi
+
 # Unpacking pam container
 chown "$user" "$tmpdir"
 tar xf $BACKUP/$backup -C $tmpdir ./pam

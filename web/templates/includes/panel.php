@@ -449,14 +449,70 @@
 					</li>
 				<?php } ?>
 
-				<!-- HAProxy tab (VHestiaCP - Admin only) -->
-				<?php if (isset($_SESSION["HAPROXY_SYSTEM"]) && $_SESSION["HAPROXY_SYSTEM"] === "yes" && $_SESSION["userContext"] === "admin") { ?>
+				<!-- HAProxy tab (VHestiaCP - User backends) -->
+				<?php if (isset($_SESSION["HAPROXY_SYSTEM"]) && $_SESSION["HAPROXY_SYSTEM"] === "yes") { ?>
+					<?php
+					// Show HAProxy frontends + backends for all users (including admin)
+					// Admin system HAProxy config is in Server Settings -> HAProxy
+					// Note: $user is already quoted by quoteshellarg() in main.php
+					$user_frontends = 0;
+					$user_backends = 0;
+					$haproxy_output = [];
+					exec(HESTIA_CMD . "v-list-user-haproxy " . $user . " json 2>/dev/null", $haproxy_output, $haproxy_return);
+					if ($haproxy_return === 0 && !empty($haproxy_output)) {
+						$haproxy_data = json_decode(implode("", $haproxy_output), true);
+						if (is_array($haproxy_data)) {
+							$user_frontends = count($haproxy_data['frontends'] ?? []);
+							$user_backends = count($haproxy_data['backends'] ?? []);
+						}
+					}
+					?>
 					<li class="main-menu-item">
-						<a class="main-menu-item-link <?php if ($TAB == "HAPROXY") { echo "active"; } ?>" href="/list/haproxy/" title="<?= _("HAProxy Load Balancer") ?>">
+						<a class="main-menu-item-link <?php if ($TAB == "HAPROXY_USER") { echo "active"; } ?>" href="/list/user-haproxy/" title="<?= _("HAProxy Configuration") ?>">
 							<p class="main-menu-item-label"><?= _("HAPROXY") ?><i class="fas fa-network-wired"></i></p>
 							<ul class="main-menu-stats">
 								<li>
-									<?= _("Load Balancer") ?>
+									<?= _("Frontends") ?>: <?= $user_frontends ?>, <?= _("Backends") ?>: <?= $user_backends ?>
+								</li>
+							</ul>
+						</a>
+					</li>
+				<?php } ?>
+
+				<!-- PM2 tab (VHestiaCP) -->
+				<?php
+				// Check if PM2 is installed
+				$pm2_installed = false;
+				exec("which pm2 2>/dev/null", $pm2_which_output, $pm2_which_return);
+				if ($pm2_which_return === 0 && !empty($pm2_which_output)) {
+					$pm2_installed = true;
+				}
+				?>
+				<?php if ($pm2_installed) { ?>
+					<?php
+					// Count PM2 processes for current user
+					$pm2_count = 0;
+					$pm2_online = 0;
+					$pm2_output = [];
+					exec(HESTIA_CMD . "v-list-user-pm2 " . escapeshellarg(trim($user, "\"'")) . " json 2>/dev/null", $pm2_output, $pm2_return);
+					if ($pm2_return === 0 && !empty($pm2_output)) {
+						$pm2_data = json_decode(implode("", $pm2_output), true);
+						if (is_array($pm2_data) && isset($pm2_data['processes'])) {
+							$pm2_count = count($pm2_data['processes']);
+							foreach ($pm2_data['processes'] as $proc) {
+								if (isset($proc['pm2_env']['status']) && $proc['pm2_env']['status'] === 'online') {
+									$pm2_online++;
+								}
+							}
+						}
+					}
+					?>
+					<li class="main-menu-item">
+						<a class="main-menu-item-link <?php if ($TAB == "PM2") { echo "active"; } ?>" href="/list/pm2/" title="<?= _("PM2 Process Manager") ?>">
+							<p class="main-menu-item-label"><?= _("PM2") ?><i class="fas fa-cubes"></i></p>
+							<ul class="main-menu-stats">
+								<li>
+									<?= _("Processes") ?>: <?= $pm2_count ?> (<?= $pm2_online ?> <?= _("online") ?>)
 								</li>
 							</ul>
 						</a>

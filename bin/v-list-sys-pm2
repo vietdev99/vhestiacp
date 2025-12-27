@@ -1,0 +1,194 @@
+#!/bin/bash
+# info: list all PM2 processes across all users
+# options: [FORMAT]
+#
+# example: v-list-sys-pm2
+# example: v-list-sys-pm2 json
+#
+# This function lists all PM2 processes running on the system for all users.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+format=${1:-shell}
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if PM2 is installed
+if ! command -v pm2 &> /dev/null; then
+    if [ "$format" = "json" ]; then
+        echo '{"error":"PM2 not installed","processes":[]}'
+    else
+        echo "PM2 is not installed on this system"
+    fi
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Get all users and their PM2 processes
+declare -A user_processes
+
+# Loop through all hestia users
+for user_dir in $HESTIA/data/users/*/; do
+    user=$(basename "$user_dir")
+
+    # Skip if not a valid user
+    [ "$user" = "*" ] && continue
+    [ ! -f "$HESTIA/data/users/$user/user.conf" ] && continue
+
+    # Get user's home directory
+    user_home=$(grep "^HOME=" "$HESTIA/data/users/$user/user.conf" 2>/dev/null | cut -d= -f2 | tr -d "'\"")
+    [ -z "$user_home" ] && user_home="/home/$user"
+
+    # Check if user has PM2 processes by looking for .pm2 directory
+    pm2_dir="$user_home/.pm2"
+    if [ -d "$pm2_dir" ]; then
+        # Try to get PM2 list for this user
+        pm2_output=$(sudo -u "$user" PM2_HOME="$pm2_dir" pm2 jlist 2>/dev/null)
+        if [ -n "$pm2_output" ] && [ "$pm2_output" != "[]" ]; then
+            user_processes["$user"]="$pm2_output"
+        fi
+    fi
+done
+
+# Also check root PM2 processes
+root_pm2=$(pm2 jlist 2>/dev/null)
+if [ -n "$root_pm2" ] && [ "$root_pm2" != "[]" ]; then
+    user_processes["root"]="$root_pm2"
+fi
+
+#----------------------------------------------------------#
+#                       Output                             #
+#----------------------------------------------------------#
+
+case "$format" in
+    json)
+        echo "{"
+        echo "  \"pm2_installed\": true,"
+        echo "  \"users\": {"
+        first_user=true
+        for user in "${!user_processes[@]}"; do
+            if [ "$first_user" = true ]; then
+                first_user=false
+            else
+                echo ","
+            fi
+            echo -n "    \"$user\": ${user_processes[$user]}"
+        done
+        echo ""
+        echo "  }"
+        echo "}"
+        ;;
+
+    plain)
+        for user in "${!user_processes[@]}"; do
+            echo "USER:$user"
+            # Parse JSON and output basic info
+            echo "${user_processes[$user]}" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    for proc in data:
+        name = proc.get('name', 'unknown')
+        pm_id = proc.get('pm_id', 0)
+        status = proc.get('pm2_env', {}).get('status', 'unknown')
+        memory = proc.get('monit', {}).get('memory', 0)
+        cpu = proc.get('monit', {}).get('cpu', 0)
+        print(f'  ID:{pm_id} NAME:{name} STATUS:{status} MEM:{memory} CPU:{cpu}')
+except:
+    pass
+" 2>/dev/null
+        done
+        ;;
+
+    *)
+        echo "═══════════════════════════════════════════════════════════════════"
+        echo "                    PM2 Processes - System Overview"
+        echo "═══════════════════════════════════════════════════════════════════"
+        echo ""
+
+        total_processes=0
+        for user in "${!user_processes[@]}"; do
+            echo "  ─────────────────────────────────────────────────────────────────"
+            echo "  User: $user"
+            echo "  ─────────────────────────────────────────────────────────────────"
+            printf "  %-4s %-20s %-10s %-12s %-8s %s\n" "ID" "NAME" "STATUS" "MEMORY" "CPU" "UPTIME"
+            echo "  ─────────────────────────────────────────────────────────────────"
+
+            # Parse and display processes
+            echo "${user_processes[$user]}" | python3 -c "
+import sys, json
+from datetime import datetime
+try:
+    data = json.load(sys.stdin)
+    for proc in data:
+        name = proc.get('name', 'unknown')[:20]
+        pm_id = proc.get('pm_id', 0)
+        status = proc.get('pm2_env', {}).get('status', 'unknown')
+        memory = proc.get('monit', {}).get('memory', 0)
+        cpu = proc.get('monit', {}).get('cpu', 0)
+        uptime = proc.get('pm2_env', {}).get('pm_uptime', 0)
+
+        # Format memory
+        if memory > 1024*1024*1024:
+            mem_str = f'{memory/(1024*1024*1024):.1f}GB'
+        elif memory > 1024*1024:
+            mem_str = f'{memory/(1024*1024):.1f}MB'
+        elif memory > 1024:
+            mem_str = f'{memory/1024:.1f}KB'
+        else:
+            mem_str = f'{memory}B'
+
+        # Format uptime
+        if uptime > 0:
+            now = datetime.now().timestamp() * 1000
+            diff = (now - uptime) / 1000  # seconds
+            if diff > 86400:
+                uptime_str = f'{int(diff/86400)}d'
+            elif diff > 3600:
+                uptime_str = f'{int(diff/3600)}h'
+            elif diff > 60:
+                uptime_str = f'{int(diff/60)}m'
+            else:
+                uptime_str = f'{int(diff)}s'
+        else:
+            uptime_str = '-'
+
+        print(f'  {pm_id:<4} {name:<20} {status:<10} {mem_str:<12} {cpu:<8.1f} {uptime_str}')
+except Exception as e:
+    print(f'  Error parsing: {e}')
+" 2>/dev/null
+
+            # Count processes
+            count=$(echo "${user_processes[$user]}" | python3 -c "import sys,json; print(len(json.load(sys.stdin)))" 2>/dev/null || echo 0)
+            total_processes=$((total_processes + count))
+            echo ""
+        done
+
+        if [ ${#user_processes[@]} -eq 0 ]; then
+            echo "  No PM2 processes found on this system."
+            echo ""
+        else
+            echo "  Total: $total_processes processes across ${#user_processes[@]} users"
+        fi
+
+        echo "═══════════════════════════════════════════════════════════════════"
+        ;;
+esac
+
+exit 0

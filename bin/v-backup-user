@@ -624,6 +624,57 @@ if [ -n "$DB_SYSTEM" ] && [ "$DB" != '*' ]; then
 	fi
 fi
 
+# MongoDB databases
+if [ "$MONGODB_SYSTEM" = "yes" ] && [ -f "$USER_DATA/mongodb.conf" ]; then
+	echo -e "\n-- MONGODB --" | tee -a $BACKUP/$user.log
+	mkdir -p $tmpdir/mongodb/
+
+	# Backup mongodb.conf
+	cp $USER_DATA/mongodb.conf $tmpdir/mongodb/
+
+	# Get MongoDB credentials
+	mongo_user=$(grep "^$user:" /etc/hestiacp/mongodb.conf 2>/dev/null | cut -d: -f2)
+	mongo_pass=$(grep "^$user:" /etc/hestiacp/mongodb.conf 2>/dev/null | cut -d: -f3)
+
+	i=0
+	while IFS= read -r line; do
+		[ -z "$line" ] && continue
+		eval "$line"
+		[ -z "$DB" ] && continue
+
+		((i++))
+		echo -e "$(date "+%F %T") $DB (mongodb)" | tee -a $BACKUP/$user.log
+		mkdir -p "$tmpdir/mongodb/$DB"
+
+		# Dump MongoDB database
+		if [ -n "$mongo_user" ] && [ -n "$mongo_pass" ]; then
+			mongodump --host=127.0.0.1 --db="$DB" --username="$mongo_user" --password="$mongo_pass" --authenticationDatabase="$DB" --out="$tmpdir/mongodb/$DB" --quiet 2>/dev/null
+		else
+			mongodump --host=127.0.0.1 --db="$DB" --out="$tmpdir/mongodb/$DB" --quiet 2>/dev/null
+		fi
+
+		# Compress dump
+		if [ -d "$tmpdir/mongodb/$DB/$DB" ]; then
+			cd "$tmpdir/mongodb/$DB"
+			if [ "$BACKUP_MODE" = 'zstd' ]; then
+				tar -cpf- "$DB" | pzstd -"$BACKUP_GZIP" - > "$DB.tar.zst"
+			else
+				tar -cpf- "$DB" | gzip -"$BACKUP_GZIP" - > "$DB.tar.gz"
+			fi
+			rm -rf "$DB"
+		fi
+
+		unset DB DBUSER
+	done < "$USER_DATA/mongodb.conf"
+
+	# Print total
+	if [ "$i" -eq 1 ]; then
+		echo -e "$(date "+%F %T") *** $i mongodb database ***" | tee -a $BACKUP/$user.log
+	else
+		echo -e "$(date "+%F %T") *** $i mongodb databases ***" | tee -a $BACKUP/$user.log
+	fi
+fi
+
 # Cron jobs
 if [ -n "$CRON_SYSTEM" ] && [ "$CRON" != '*' ]; then
 	echo -e "\n-- CRON --" | tee -a $BACKUP/$user.log

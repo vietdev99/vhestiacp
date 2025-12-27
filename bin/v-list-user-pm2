@@ -1,0 +1,161 @@
+#!/bin/bash
+# info: list PM2 processes for a specific user
+# options: USER [FORMAT]
+#
+# example: v-list-user-pm2 admin
+# example: v-list-user-pm2 admin json
+#
+# This function lists all PM2 processes for a specific user.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+format=${2:-shell}
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '1' "$#" 'USER [FORMAT]'
+is_format_valid 'user'
+is_object_valid 'user' 'USER' "$user"
+
+# Check if PM2 is installed
+if ! command -v pm2 &> /dev/null; then
+    if [ "$format" = "json" ]; then
+        echo '{"error":"PM2 not installed","processes":[]}'
+    else
+        echo "PM2 is not installed on this system"
+    fi
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Get user's home directory
+user_home=$(grep "^HOME=" "$HESTIA/data/users/$user/user.conf" 2>/dev/null | cut -d= -f2 | tr -d "'\"")
+[ -z "$user_home" ] && user_home="/home/$user"
+
+pm2_dir="$user_home/.pm2"
+pm2_output=""
+
+# Get PM2 processes for this user
+if [ -d "$pm2_dir" ]; then
+    pm2_output=$(sudo -u "$user" PM2_HOME="$pm2_dir" pm2 jlist 2>/dev/null)
+fi
+
+# If empty or just [], set to empty array
+if [ -z "$pm2_output" ] || [ "$pm2_output" = "[]" ]; then
+    pm2_output="[]"
+fi
+
+#----------------------------------------------------------#
+#                       Output                             #
+#----------------------------------------------------------#
+
+case "$format" in
+    json)
+        echo "{\"pm2_installed\":true,\"user\":\"$user\",\"processes\":$pm2_output}"
+        ;;
+
+    plain)
+        if [ "$pm2_output" = "[]" ]; then
+            echo "No PM2 processes for user $user"
+            exit 0
+        fi
+
+        echo "USER:$user"
+        echo "$pm2_output" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    for proc in data:
+        name = proc.get('name', 'unknown')
+        pm_id = proc.get('pm_id', 0)
+        status = proc.get('pm2_env', {}).get('status', 'unknown')
+        memory = proc.get('monit', {}).get('memory', 0)
+        cpu = proc.get('monit', {}).get('cpu', 0)
+        print(f'ID:{pm_id} NAME:{name} STATUS:{status} MEM:{memory} CPU:{cpu}')
+except:
+    pass
+" 2>/dev/null
+        ;;
+
+    *)
+        echo "═══════════════════════════════════════════════════════════════════"
+        echo "                    PM2 Processes for $user"
+        echo "═══════════════════════════════════════════════════════════════════"
+        echo ""
+
+        if [ "$pm2_output" = "[]" ]; then
+            echo "  No PM2 processes found for this user."
+            echo ""
+            echo "═══════════════════════════════════════════════════════════════════"
+            exit 0
+        fi
+
+        printf "  %-4s %-20s %-10s %-12s %-8s %s\n" "ID" "NAME" "STATUS" "MEMORY" "CPU" "UPTIME"
+        echo "  ─────────────────────────────────────────────────────────────────"
+
+        echo "$pm2_output" | python3 -c "
+import sys, json
+from datetime import datetime
+try:
+    data = json.load(sys.stdin)
+    for proc in data:
+        name = proc.get('name', 'unknown')[:20]
+        pm_id = proc.get('pm_id', 0)
+        status = proc.get('pm2_env', {}).get('status', 'unknown')
+        memory = proc.get('monit', {}).get('memory', 0)
+        cpu = proc.get('monit', {}).get('cpu', 0)
+        uptime = proc.get('pm2_env', {}).get('pm_uptime', 0)
+
+        # Format memory
+        if memory > 1024*1024*1024:
+            mem_str = f'{memory/(1024*1024*1024):.1f}GB'
+        elif memory > 1024*1024:
+            mem_str = f'{memory/(1024*1024):.1f}MB'
+        elif memory > 1024:
+            mem_str = f'{memory/1024:.1f}KB'
+        else:
+            mem_str = f'{memory}B'
+
+        # Format uptime
+        if uptime > 0:
+            now = datetime.now().timestamp() * 1000
+            diff = (now - uptime) / 1000
+            if diff > 86400:
+                uptime_str = f'{int(diff/86400)}d'
+            elif diff > 3600:
+                uptime_str = f'{int(diff/3600)}h'
+            elif diff > 60:
+                uptime_str = f'{int(diff/60)}m'
+            else:
+                uptime_str = f'{int(diff)}s'
+        else:
+            uptime_str = '-'
+
+        print(f'  {pm_id:<4} {name:<20} {status:<10} {mem_str:<12} {cpu:<8.1f} {uptime_str}')
+except Exception as e:
+    print(f'  Error: {e}')
+" 2>/dev/null
+
+        echo ""
+        echo "═══════════════════════════════════════════════════════════════════"
+        ;;
+esac
+
+exit 0
