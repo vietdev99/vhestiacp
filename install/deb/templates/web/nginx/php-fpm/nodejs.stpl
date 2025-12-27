@@ -1,0 +1,87 @@
+#=======================================================================#
+# VHestiaCP - Node.js Template (HTTPS)                                  #
+# DO NOT MODIFY - Changes will be lost when rebuilding domains          #
+#=======================================================================#
+
+server {
+    listen      %ip%:%web_ssl_port% ssl;
+    server_name %domain_idn% %alias_idn%;
+    
+    root        %sdocroot%;
+    index       index.html index.htm;
+    
+    access_log  /var/log/nginx/domains/%domain%.log combined;
+    access_log  /var/log/nginx/domains/%domain%.bytes bytes;
+    error_log   /var/log/nginx/domains/%domain%.error.log error;
+    
+    # SSL Configuration
+    ssl_certificate     %ssl_pem%;
+    ssl_certificate_key %ssl_key%;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_ciphers         ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384;
+    ssl_prefer_server_ciphers off;
+    ssl_session_cache   shared:SSL:10m;
+    ssl_session_timeout 1d;
+    ssl_session_tickets off;
+    
+    # HSTS
+    include %home%/%user%/conf/web/%domain%/nginx.hsts.conf*;
+    
+    # Let's Encrypt challenge
+    location ~ /\.well-known\/acme-challenge/ {
+        allow all;
+        default_type "text/plain";
+        root %docroot%;
+    }
+    
+    # Hidden files
+    location ~ /\.(?!well-known\/) {
+        deny all;
+        return 404;
+    }
+    
+    # Static files
+    location /static/ {
+        alias %sdocroot%/static/;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+    
+    location /public/ {
+        alias %sdocroot%/public/;
+        expires 30d;
+        add_header Cache-Control "public, immutable";
+    }
+    
+    # Proxy to Node.js application
+    location / {
+        proxy_pass http://127.0.0.1:%backend_port%;
+        proxy_http_version 1.1;
+        
+        # WebSocket support
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+        
+        # Headers
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header X-Forwarded-Host $host;
+        proxy_set_header X-Forwarded-Port $server_port;
+        
+        # Timeouts
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
+        
+        # Buffering
+        proxy_buffering off;
+        proxy_buffer_size 4k;
+        proxy_buffers 4 32k;
+        proxy_busy_buffers_size 64k;
+    }
+    
+    # Custom configuration
+    include %home%/%user%/conf/web/%domain%/nginx.ssl.conf_*;
+}
