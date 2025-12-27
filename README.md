@@ -10,13 +10,14 @@ VHestiaCP is an extended fork of [HestiaCP](https://hestiacp.com) with modern in
 
 | Feature | Description |
 |---------|-------------|
-| **HAProxy** | Load balancer with SSL termination, stats dashboard, frontend/backend management |
-| **MongoDB** | NoSQL database (v7.0/8.0) with web panel management |
+| **HAProxy** | Load balancer with SSL termination, stats dashboard, traffic flow visualization, frontend/backend management |
+| **MongoDB** | NoSQL database (v5.0-8.0) with web panel management |
 | **Node.js** | Multi-version support (NVM) with PM2 process manager |
 | **Python** | Multi-version support (Pyenv) with Gunicorn WSGI server |
 | **RabbitMQ** | Message broker with Management UI |
 | **Apache Kafka** | Streaming platform with Kafka UI |
 | **Redis** | In-memory cache with config editor |
+| **PM2 Admin Panel** | System-wide PM2 process management for administrators |
 
 ## 📋 Requirements
 
@@ -87,7 +88,8 @@ bash hst-install-ubuntu.sh \
 | **MONGO** | Create databases, manage users, view connection strings |
 | **NODE** | PM2 apps, multi-version Node.js, process management |
 | **PYTHON** | Gunicorn apps, virtual environments, multi-version Python |
-| **HAProxy** | Frontends, backends, listen blocks, config editor |
+| **HAProxy** | Frontends, backends, listen blocks, traffic visualization |
+| **PM2** | Admin panel for system-wide PM2 process management |
 
 ### Server → Services
 
