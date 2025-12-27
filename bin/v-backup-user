@@ -226,6 +226,19 @@ if [ -e "$USER_DATA/backup-excludes.conf" ]; then
 	cp -r $USER_DATA/backup-excludes.conf $tmpdir/hestia/
 fi
 
+# Backup HAProxy config (user-level)
+if [ -e "$USER_DATA/haproxy.conf" ]; then
+	echo -e "$(date "+%F %T") haproxy.conf" | tee -a "$BACKUP/$user.log"
+	cp -r "$USER_DATA/haproxy.conf" "$tmpdir/hestia/"
+fi
+
+# Backup HAProxy backends directory
+if [ -d "$HOMEDIR/$user/conf/haproxy" ]; then
+	echo -e "$(date "+%F %T") haproxy backends" | tee -a "$BACKUP/$user.log"
+	mkdir -p "$tmpdir/haproxy"
+	cp -r "$HOMEDIR/$user/conf/haproxy/"* "$tmpdir/haproxy/" 2>/dev/null
+fi
+
 # Backup PAM
 mkdir $tmpdir/pam
 echo -e "$(date "+%F %T") pam" | tee -a $BACKUP/$user.log

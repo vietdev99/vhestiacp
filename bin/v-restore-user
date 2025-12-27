@@ -180,9 +180,22 @@ if [ "$create_user" = 'yes' ]; then
 	cp $tmpdir/$backup_system/user.conf $USER_DATA/
 	cp -r $tmpdir/$backup_system/ssl $USER_DATA/ > /dev/null 2>&1
 	cp $tmpdir/$backup_system/backup-excludes.conf $USER_DATA/ > /dev/null 2>&1
+	cp $tmpdir/$backup_system/haproxy.conf $USER_DATA/ > /dev/null 2>&1
 
 	# Rebuilding user
 	rebuild_user_conf
+fi
+
+# Restoring HAProxy backends
+if [ -d "$tmpdir/haproxy" ]; then
+	echo -e "$(date "+%F %T") Restoring HAProxy backends" | tee -a $tmpdir/restore.log
+	mkdir -p "$HOMEDIR/$user/conf/haproxy"
+	cp -r "$tmpdir/haproxy/"* "$HOMEDIR/$user/conf/haproxy/" > /dev/null 2>&1
+	chown -R "$user:$user" "$HOMEDIR/$user/conf/haproxy"
+	# Rebuild HAProxy config if HAProxy is installed
+	if [ "$HAPROXY_SYSTEM" = "yes" ]; then
+		$BIN/v-rebuild-haproxy-conf > /dev/null 2>&1
+	fi
 fi
 
 # Unpacking pam container
