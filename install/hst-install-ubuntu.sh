@@ -2810,18 +2810,74 @@ else
 	echo "[ ! ] No VHestiaCP function files found"
 fi
 
-# Copy VHestiaCP bin scripts
+# Copy VHestiaCP bin scripts (only VHestiaCP-specific scripts, not HestiaCP overrides)
 if [ -n "$VHESTIA_SRC" ] && [ -d "$VHESTIA_SRC/bin" ]; then
 	echo "[ * ] Installing VHestiaCP CLI scripts..."
+
+	# Whitelist of VHestiaCP-specific scripts that should be copied
+	# These are NEW scripts added by VHestiaCP, not modifications to existing HestiaCP scripts
+	VHESTIA_SCRIPTS=(
+		# HAProxy
+		"v-add-sys-haproxy"
+		"v-delete-sys-haproxy"
+		"v-list-sys-haproxy"
+		"v-add-haproxy-backend"
+		"v-add-user-haproxy-backend"
+		"v-add-user-haproxy-frontend"
+		"v-delete-user-haproxy-backend"
+		"v-delete-user-haproxy-frontend"
+		"v-list-user-haproxy"
+		"v-rebuild-haproxy-conf"
+		"v-setup-haproxy-admin-routes"
+		"v-update-sys-haproxy-config"
+		# MongoDB
+		"v-add-sys-mongodb"
+		"v-add-sys-mongo-express"
+		"v-delete-sys-mongo-express"
+		"v-add-database-mongo"
+		"v-delete-database-mongo"
+		"v-list-database-mongo"
+		"v-add-database-mongo-user"
+		"v-delete-database-mongo-user"
+		"v-list-database-mongo-users"
+		"v-change-database-mongo-user-password"
+		# Node.js / PM2
+		"v-add-sys-nodejs"
+		"v-add-web-domain-nodejs"
+		"v-delete-web-domain-nodejs"
+		"v-start-web-domain-nodejs"
+		"v-stop-web-domain-nodejs"
+		"v-restart-web-domain-nodejs"
+		"v-list-pm2-apps"
+		"v-list-user-pm2"
+		"v-list-sys-pm2"
+		"v-start-pm2-app"
+		"v-stop-pm2-app"
+		"v-restart-pm2-app"
+		"v-delete-pm2-app"
+		# Python / Gunicorn
+		"v-add-web-domain-python"
+		"v-start-web-domain-python"
+		"v-stop-web-domain-python"
+		# Kafka
+		"v-add-sys-kafka"
+		# RabbitMQ
+		"v-add-sys-rabbitmq"
+		# Redis
+		"v-add-sys-redis"
+		# Package manager
+		"v-list-sys-packages"
+	)
+
 	count=0
-	for f in $VHESTIA_SRC/bin/v-*; do
-		if [ -f "$f" ]; then
-			cp -f "$f" $HESTIA/bin/
-			chmod +x "$HESTIA/bin/$(basename $f)"
+	for script in "${VHESTIA_SCRIPTS[@]}"; do
+		if [ -f "$VHESTIA_SRC/bin/$script" ]; then
+			cp -f "$VHESTIA_SRC/bin/$script" "$HESTIA/bin/"
+			chmod +x "$HESTIA/bin/$script"
 			count=$((count+1))
 		fi
 	done
-	echo "    - Copied $count scripts"
+	echo "    - Copied $count VHestiaCP-specific scripts"
 else
 	echo "[ ! ] No VHestiaCP bin scripts found"
 fi
