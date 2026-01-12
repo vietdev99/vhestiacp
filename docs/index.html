@@ -940,12 +940,14 @@
                                 <div class="sub-label">MongoDB Options</div>
                                 <div class="option-item">
                                     <span class="option-name">Version</span>
-                                    <select class="select-field" id="mongodb-version" onchange="generateCommand()">
+                                    <select class="select-field" id="mongodb-version" onchange="updateMongodbWarning(); generateCommand()">
                                         <option value="8.0">8.0</option>
-                                        <option value="7.0">7.0</option>
-                                        <option value="6.0">6.0</option>
-                                        <option value="5.0">5.0</option>
+                                        <option value="7.0">7.0 (Ubuntu ≤22.04)</option>
+                                        <option value="6.0">6.0 (Ubuntu ≤22.04)</option>
                                     </select>
+                                </div>
+                                <div class="info-note" id="mongodb-warning" style="display:none;">
+                                    <strong>Warning:</strong> MongoDB &lt; 7.0 is not compatible with Ubuntu 24.04. Version 7.0+ will be used instead.
                                 </div>
                                 <div class="option-item">
                                     <span class="option-name">Mongo Express</span>
@@ -1288,7 +1290,19 @@
 
         function toggleMongodb() {
             document.getElementById('mongodb-options').classList.toggle('hidden', !document.getElementById('mongodb').checked);
+            updateMongodbWarning();
             generateCommand();
+        }
+
+        function updateMongodbWarning() {
+            const version = document.getElementById('mongodb-version').value;
+            const warning = document.getElementById('mongodb-warning');
+            // Show warning for versions < 7.0 (not compatible with Ubuntu 24.04)
+            if (parseFloat(version) < 7.0) {
+                warning.style.display = 'block';
+            } else {
+                warning.style.display = 'none';
+            }
         }
 
         function toggleRabbitmq() {
