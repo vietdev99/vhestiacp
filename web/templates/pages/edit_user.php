@@ -31,6 +31,9 @@
 					<i class="fas fa-key icon-purple"></i><?= _("Access Keys") ?>
 				</a>
 			<?php } ?>
+			<a href="/list/rclone/" class="button button-secondary js-button-create" title="<?= _("Cloud Backup") ?>">
+				<i class="fas fa-cloud icon-green"></i><?= _("Cloud Backup") ?>
+			</a>
 		</div>
 		<div class="toolbar-buttons">
 			<button type="submit" class="button" form="main-form">

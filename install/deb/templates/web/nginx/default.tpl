@@ -17,7 +17,7 @@ server {
 	}
 
 	location / {
-		proxy_pass http://%ip%:%web_port%;
+		proxy_pass http://%proxy_ip%:%web_port%;
 
 		location ~* ^.+\.(%proxy_extensions%)$ {
 			try_files  $uri @fallback;
@@ -31,7 +31,7 @@ server {
 	}
 
 	location @fallback {
-		proxy_pass http://%ip%:%web_port%;
+		proxy_pass http://%proxy_ip%:%web_port%;
 	}
 
 	location /error/ {

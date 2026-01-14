@@ -924,7 +924,7 @@
 									Backblaze
 								</option>
 								<option value="rclone">
-									Rclone
+									Rclone (Google Drive, OneDrive, S3, etc.)
 								</option>
 							</select>
 						</div>
@@ -1030,10 +1030,83 @@
 								>
 							</div>
 						</div>
-						<div x-cloak x-show="backupType == 'rclone'">
+						<div x-cloak x-show="backupType == 'rclone'" x-data="rcloneGdrive()">
+							<!-- Google Drive Quick Connect -->
+							<div class="u-mb15">
+								<label class="form-label">
+									<i class="fab fa-google-drive u-mr5"></i><?= _("Google Drive Quick Connect") ?>
+								</label>
+
+								<template x-if="gdriveConnected">
+									<div class="u-mb10">
+										<div class="u-flex u-flex-align-center">
+											<span class="badge badge-success u-mr10">
+												<i class="fas fa-check-circle u-mr5"></i><?= _("Connected") ?>
+											</span>
+											<button type="button"
+													class="button button-secondary button-small"
+													@click="disconnectGdrive()">
+												<i class="fas fa-unlink u-mr5"></i><?= _("Disconnect") ?>
+											</button>
+										</div>
+									</div>
+								</template>
+
+								<template x-if="!gdriveConnected">
+									<div>
+										<div class="alert alert-info u-mb10">
+											<i class="fas fa-info-circle u-mr5"></i>
+											<div>
+												<p class="u-mb10"><?= _("To connect Google Drive, run this command on a computer with a web browser:") ?></p>
+												<code class="u-mb10" style="display: block; background: #f5f5f5; padding: 10px; border-radius: 4px; user-select: all;">rclone authorize drive</code>
+												<p class="u-mb5"><?= _("After authorization, copy the token JSON (starts with") ?> <code>{"access_token":...</code>) <?= _("and paste it below:") ?></p>
+											</div>
+										</div>
+										<div class="u-mb10">
+											<textarea
+												class="form-control"
+												x-model="tokenJson"
+												placeholder='{"access_token":"...","token_type":"Bearer","refresh_token":"...","expiry":"..."}'
+												rows="3"
+												style="font-family: monospace; font-size: 12px;"></textarea>
+										</div>
+										<div class="u-flex u-flex-gap-10 u-mb10">
+											<button type="button"
+													class="button"
+													@click="saveToken()"
+													:disabled="!tokenJson || submitting">
+												<i class="fas fa-plug u-mr5"></i>
+												<span x-text="submitting ? '<?= _("Connecting...") ?>' : '<?= _("Connect Google Drive") ?>'"></span>
+											</button>
+										</div>
+										<small class="text-muted" x-show="authError" x-text="authError" style="color: #dc3545; display: block;"></small>
+									</div>
+								</template>
+							</div>
+
+							<hr class="u-mb15">
+
+							<!-- Manual Configuration -->
+							<details class="u-mb10">
+								<summary class="form-label" style="cursor: pointer;">
+									<i class="fas fa-cog u-mr5"></i><?= _("Other Cloud Providers") ?>
+								</summary>
+								<div class="u-mt10">
+									<div class="alert alert-info u-mb10">
+										<i class="fas fa-info-circle"></i>
+										<p>
+											<?= _("For OneDrive, Dropbox, S3, and other providers, configure via SSH:") ?>
+											<br><code class="u-ml5">rclone config</code>
+											<br><br>
+											<a href="https://rclone.org/docs/" target="_blank" rel="noopener"><?= _("Rclone Documentation") ?> &rarr;</a>
+										</p>
+									</div>
+								</div>
+							</details>
+
 							<div class="u-mb10">
 								<label for="v_rclone_host" class="form-label">
-									<?= _("Host") ?>
+									<?= _("Remote Name") ?>
 								</label>
 								<input
 									type="text"
@@ -1041,6 +1114,8 @@
 									name="v_rclone_host"
 									id="v_rclone_host"
 									value="<?= htmlentities(trim($v_rclone_host, "'")) ?>"
+									placeholder="gdrive"
+									x-model="rcloneHost"
 								>
 							</div>
 							<div class="u-mb10">
@@ -1053,6 +1128,7 @@
 									name="v_rclone_path"
 									id="v_rclone_path"
 									value="<?= htmlentities(trim($v_rclone_path, "'")) ?>"
+									placeholder="/hestia-backups"
 								>
 							</div>
 						</div>
@@ -1693,3 +1769,89 @@
 	</form>
 </div>
 <!-- End form -->
+
+<script>
+// Rclone Google Drive Alpine.js component
+function rcloneGdrive() {
+	return {
+		gdriveConnected: false,
+		rcloneHost: '<?= htmlentities(trim($v_rclone_host ?? "", "'\"")); ?>',
+		checking: true,
+		tokenJson: '',
+		authError: '',
+		submitting: false,
+
+		init() {
+			this.checkStatus();
+		},
+
+		async checkStatus() {
+			this.checking = true;
+			try {
+				const response = await fetch('/api/rclone/authorize.php?action=status&token=<?= $_SESSION["token"] ?>');
+				const data = await response.json();
+				this.gdriveConnected = data.connected;
+				if (data.connected && !this.rcloneHost) {
+					this.rcloneHost = 'gdrive';
+				}
+			} catch (e) {
+				console.error('Failed to check rclone status:', e);
+			}
+			this.checking = false;
+		},
+
+		async saveToken() {
+			if (!this.tokenJson) return;
+
+			this.submitting = true;
+			this.authError = '';
+			try {
+				const formData = new FormData();
+				formData.append('token', this.tokenJson.trim());
+
+				const response = await fetch('/api/rclone/authorize.php?action=save_token&token=<?= $_SESSION["token"] ?>', {
+					method: 'POST',
+					body: formData
+				});
+				const data = await response.json();
+
+				if (data.success) {
+					this.gdriveConnected = data.connected;
+					this.tokenJson = '';
+					if (data.connected) {
+						this.rcloneHost = 'gdrive';
+						alert('<?= _("Google Drive connected successfully!") ?>');
+					} else {
+						alert(data.message || '<?= _("Token saved but connection test failed") ?>');
+					}
+				} else {
+					this.authError = data.error || '<?= _("Failed to save token") ?>';
+				}
+			} catch (e) {
+				console.error('Failed to save token:', e);
+				this.authError = '<?= _("Failed to save token") ?>';
+			}
+			this.submitting = false;
+		},
+
+		async disconnectGdrive() {
+			if (!confirm('<?= _("Are you sure you want to disconnect Google Drive?") ?>')) {
+				return;
+			}
+			try {
+				const response = await fetch('/api/rclone/authorize.php?action=disconnect&token=<?= $_SESSION["token"] ?>');
+				const data = await response.json();
+				if (data.success) {
+					this.gdriveConnected = false;
+					this.rcloneHost = '';
+				} else {
+					alert(data.message || '<?= _("Failed to disconnect") ?>');
+				}
+			} catch (e) {
+				console.error('Failed to disconnect:', e);
+				alert('<?= _("Failed to disconnect") ?>');
+			}
+		}
+	};
+}
+</script>

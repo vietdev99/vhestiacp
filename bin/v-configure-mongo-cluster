@@ -1,0 +1,147 @@
+#!/bin/bash
+# info: configure mongodb cluster mode and settings
+# options: [ACTION] [SETTINGS...]
+#
+# example: v-configure-mongo-cluster replicaset rs0 primary
+#
+# This function configures MongoDB cluster modes (ReplicaSet, Sharding)
+# and manages data directory changes.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+action=${1}
+arg1=${2}
+arg2=${3}
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source $HESTIA/func/mongodb.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+if [ -z "$action" ]; then
+    echo "Error: Action required [replicaset, sharding, datadir, pbm]"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+case "$action" in
+    replicaset)
+        # arg1 = replSetName (default rs0)
+        # arg2 = role (primary, secondary, arbiter)
+        rs_name=${arg1:-rs0}
+        role=${arg2:-primary}
+
+        echo "Configuring MongoDB ReplicaSet: $rs_name (Role: $role)..."
+
+        # Update mongod.conf
+        conf_file="/etc/mongod.conf"
+        if ! grep -q "replSetName" "$conf_file"; then
+            echo "Adding replication config to $conf_file..."
+            # Append replication block if not exists
+            cat >> $conf_file <<EOF
+
+replication:
+  replSetName: "$rs_name"
+EOF
+        else
+            # Update existing replSetName (simple sed, implies standard yaml formatting)
+            sed -i "s/replSetName:.*/replSetName: \"$rs_name\"/" "$conf_file"
+        fi
+
+        # Restart Service
+        systemctl restart mongod
+        sleep 5
+
+        # Initialize if Primary and not initialized
+        if [ "$role" = "primary" ]; then
+            echo "Initializing ReplicaSet..."
+             mongosh --eval "
+                try {
+                    rs.status();
+                } catch (e) {
+                    rs.initiate({_id: '$rs_name', members: [{_id: 0, host: 'localhost:27017'}]});
+                }
+            " >/dev/null 2>&1
+            echo "ReplicaSet Initialized."
+        fi
+        ;;
+
+    sharding)
+        # arg1 = clusterRole (configsvr, shardsvr)
+        role=${arg1}
+        
+        echo "Configuring Sharding Role: $role..."
+        
+        conf_file="/etc/mongod.conf"
+        if ! grep -q "sharding:" "$conf_file"; then
+             cat >> $conf_file <<EOF
+
+sharding:
+  clusterRole: $role
+EOF
+        else
+            sed -i "s/clusterRole:.*/clusterRole: $role/" "$conf_file"
+        fi
+        
+        systemctl restart mongod
+        ;;
+
+    datadir)
+        # arg1 = new path (e.g., /home/mongo)
+        new_path=${arg1}
+        old_path=$(grep 'dbPath:' /etc/mongod.conf | awk '{print $2}')
+
+        if [ -z "$new_path" ]; then
+            echo "Error: New path required"
+            exit 1
+        fi
+        
+        if [ "$new_path" == "$old_path" ]; then
+            echo "Path is already set to $new_path"
+            exit 0
+        fi
+
+        echo "Moving Data Directory from $old_path to $new_path..."
+        
+        # Stop service
+        systemctl stop mongod
+
+        # Create new dir and sync
+        mkdir -p "$new_path"
+        rsync -av "$old_path/" "$new_path/"
+        chown -R mongodb:mongodb "$new_path"
+
+        # Update conf
+        sed -i "s|dbPath:.*|dbPath: $new_path|" /etc/mongod.conf
+        
+        # Restart
+        systemctl start mongod
+        echo "Data directory moved."
+        ;;
+    
+    *)
+        echo "Error: Unknown action $action"
+        exit 1
+        ;;
+esac
+
+# Log
+$BIN/v-log-action "system" "Info" "MongoDB" "Configured MongoDB Cluster: $action"
+
+exit 0

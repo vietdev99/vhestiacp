@@ -252,6 +252,11 @@ get_user_ip() {
 # Validate ip address
 is_ip_valid() {
 	local_ip="$1"
+	# VHestiaCP: Allow "*" as wildcard IP (bind to all interfaces)
+	if [ "$1" = "*" ]; then
+		local_ip="*"
+		return 0
+	fi
 	if [ ! -e "$HESTIA/data/ips/$1" ]; then
 		nat=$(grep -H "^NAT='$1'" $HESTIA/data/ips/*)
 		if [ -z "$nat" ]; then

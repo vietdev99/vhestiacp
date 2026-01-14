@@ -259,8 +259,16 @@ add_web_config() {
 	#   -If possible custom templates should be automatically upgraded to use the new format
 	#   -Alternatively a depreciation period with proper notifications should be considered
 
+	# VHestiaCP: When IP is "*", proxy_pass should use 127.0.0.1 (can't proxy to *)
+	if [ "$local_ip" = "*" ]; then
+		proxy_ip="127.0.0.1"
+	else
+		proxy_ip="$local_ip"
+	fi
+
 	cat "${WEBTPL_LOCATION}/$2" \
 		| sed -e "s|%ip%|$local_ip|g" \
+			-e "s|%proxy_ip%|$proxy_ip|g" \
 			-e "s|%domain%|$domain|g" \
 			-e "s|%domain_idn%|$domain_idn|g" \
 			-e "s|%alias%|${aliases//,/ }|g" \

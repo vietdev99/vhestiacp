@@ -28,7 +28,7 @@ server {
 	location / {
 		proxy_ssl_server_name on;
 		proxy_ssl_name $host;
-		proxy_pass https://%ip%:%web_ssl_port%;
+		proxy_pass https://%proxy_ip%:%web_ssl_port%;
 
 		location ~* ^.+\.(%proxy_extensions%)$ {
 			try_files  $uri @fallback;
@@ -44,7 +44,7 @@ server {
 	location @fallback {
 		proxy_ssl_server_name on;
 		proxy_ssl_name $host;
-		proxy_pass https://%ip%:%web_ssl_port%;
+		proxy_pass https://%proxy_ip%:%web_ssl_port%;
 	}
 
 	location /error/ {

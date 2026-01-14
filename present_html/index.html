@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VHestiaCP - Modern Full Stack Hosting</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500&family=Inter:wght@300;400;600;800&family=Roboto:wght@300;400;500;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <canvas id="bg-canvas"></canvas>
+
+    <!-- Slide 1: Hero -->
+    <section id="hero">
+        <div class="glass-card animate visible" style="text-align: center; padding: 4rem;">
+            <h3 style="color: var(--primary-color);">MODERN HOSTING CONTROL PANEL</h3>
+            <h1>VHestiaCP</h1>
+            <p style="font-size: 1.5rem; margin: 1.5rem 0;">
+                The Extended Fork of HestiaCP for <br>
+                <span style="color: var(--secondary-color); font-weight: bold;">Full Stack Applications</span>
+            </p>
+            <div style="display: flex; gap: 1rem; justify-content: center; margin-top: 2rem;">
+                <div style="border: 1px solid rgba(255,255,255,0.2); padding: 0.5rem 1rem; border-radius: 8px;">Node.js</div>
+                <div style="border: 1px solid rgba(255,255,255,0.2); padding: 0.5rem 1rem; border-radius: 8px;">MongoDB</div>
+                <div style="border: 1px solid rgba(255,255,255,0.2); padding: 0.5rem 1rem; border-radius: 8px;">Python</div>
+                <div style="border: 1px solid rgba(255,255,255,0.2); padding: 0.5rem 1rem; border-radius: 8px;">Docker</div>
+            </div>
+            <a href="#comparison" class="btn">Explore Features</a>
+        </div>
+    </section>
+
+    <!-- Slide 2: Comparison -->
+    <section id="comparison">
+        <div class="container">
+            <h2 class="animate">Why VHestiaCP?</h2>
+            <div class="grid-2">
+                <div class="glass-card animate stagger-1">
+                    <h3>Classic HestiaCP</h3>
+                    <ul>
+                        <li><span style="color:#aaa;">✔</span> Nginx / Apache Web Server</li>
+                        <li><span style="color:#aaa;">✔</span> PHP-FPM (Multi versions)</li>
+                        <li><span style="color:#aaa;">✔</span> MySQL / MariaDB</li>
+                        <li><span style="color:#aaa;">✔</span> Email / DNS</li>
+                        <li style="opacity: 0.5; margin-top: 1rem;">❌ No Native Node.js UI</li>
+                        <li style="opacity: 0.5;">❌ No Native MongoDB</li>
+                        <li style="opacity: 0.5;">❌ No Load Balancer</li>
+                    </ul>
+                </div>
+                <div class="glass-card animate stagger-2" style="border-color: var(--primary-color);">
+                    <h3 style="color: var(--primary-color);">VHestiaCP</h3>
+                    <ul>
+                        <li><span style="color:#0f9;">✔</span> <strong>Everything in HestiaCP</strong></li>
+                        <li><span style="color:#0f9;">✔</span> <strong>Node.js (PM2) Manager</strong></li>
+                        <li><span style="color:#0f9;">✔</span> <strong>Python (Gunicorn)</strong></li>
+                        <li><span style="color:#0f9;">✔</span> <strong>MongoDB + Mongo Express</strong></li>
+                        <li><span style="color:#0f9;">✔</span> <strong>HAProxy Load Balancer</strong></li>
+                        <li><span style="color:#0f9;">✔</span> Redis, RabbitMQ, Kafka...</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 3: Features Grid -->
+    <section id="features">
+        <div class="container">
+            <h2 class="animate" style="text-align: center;">Extended Capabilities</h2>
+            <div class="features-grid">
+                <div class="glass-card feature-item animate stagger-1">
+                    <h3>HAProxy</h3>
+                    <p>High Performance Load Balancer with stats dashboard. Perfect for distributing traffic.</p>
+                </div>
+                <div class="glass-card feature-item animate stagger-2">
+                    <h3>MongoDB</h3>
+                    <p>Production-ready NoSQL database (v5.0-8.0) managed directly from the panel.</p>
+                </div>
+                <div class="glass-card feature-item animate stagger-3">
+                    <h3>PM2 Admin</h3>
+                    <p>System-level process management for Node.js apps. Zero downtime reloads.</p>
+                </div>
+                <div class="glass-card feature-item animate stagger-4">
+                    <h3>Python</h3>
+                    <p>Deploy Django/Flask apps with Gunicorn and Virtualenv support automatically.</p>
+                </div>
+                <div class="glass-card feature-item animate stagger-1">
+                    <h3>Message Queues</h3>
+                    <p>RabbitMQ & Kafka pre-configured with management UIs.</p>
+                </div>
+                <div class="glass-card feature-item animate stagger-2">
+                    <h3>Redis</h3>
+                    <p>In-memory cache for high speed performance optimization.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 4: Installation -->
+    <section id="install">
+        <div class="container">
+            <h2 class="animate">Installation Guide</h2>
+            <div class="glass-card animate stagger-1" style="max-width: 800px; margin: 0 auto;">
+                <p><strong>Step 1:</strong> Prepare a fresh Ubuntu 24.04 LTS server.</p>
+                <br>
+                <p><strong>Step 2:</strong> Run the auto-installer:</p>
+                <div class="code-block" style="margin: 1rem 0;">
+<span class="comment"># Download & Install</span>
+<span class="command">wget</span> <span class="string">https://github.com/vietdev99/vhestiacp/raw/main/install/hst-install-ubuntu.sh</span>
+<span class="command">bash</span> hst-install-ubuntu.sh <span class="flag">--interactive</span> <span class="string">yes</span> --email <span class="string">admin@you.com</span>
+                </div>
+                <p style="font-size: 0.9rem; margin-top: 1rem;"><span style="color:var(--accent-color)">Note:</span> Installation takes about 15-30 minutes depending on your server speed.</p>
+                
+                <div style="margin-top: 2rem; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 1rem;">
+                    <p><strong>Alternative:</strong> Use the Config Generator at <a href="https://vietdev99.github.io/vhestiacp/" target="_blank" style="color:var(--secondary-color)">vietdev99.github.io/vhestiacp</a></p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 5: Usage - Web Panel -->
+    <section id="usage-web">
+        <div class="container">
+            <h2 class="animate">New Admin Interface</h2>
+            <div class="grid-2">
+                <div class="animate stagger-1">
+                    <h3>Dedicated Tabs</h3>
+                    <p>VHestiaCP adds new top-level navigation items for easy access:</p>
+                    <table class="glass-card">
+                        <tr>
+                            <th>NODE</th>
+                            <td>Manage Node.js versions, verify npm packages, and restart PM2 processes.</td>
+                        </tr>
+                        <tr>
+                            <th>PYTHON</th>
+                            <td>Manage Python versions, requirements.txt, and WSGI settings.</td>
+                        </tr>
+                        <tr>
+                            <th>MONGO</th>
+                            <td>Create/Delete databases and manage collections via Mongo Express.</td>
+                        </tr>
+                    </table>
+                </div>
+                <div class="glass-card animate stagger-2" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 300px; background: rgba(0,0,0,0.3); overflow: hidden; padding: 0;">
+                    <!-- Real Screenshot -->
+                    <img src="assets/dashboard.png" alt="Dashboard" style="width: 100%; height: auto; border-radius: 8px; margin-bottom: 0.5rem; border: 1px solid #333;">
+                    <p style="font-size: 0.8rem; color: #888;">VHestiaCP Dashboard</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 6: Backend Services -->
+    <section id="usage-services">
+        <div class="container">
+            <h2 class="animate">Service Management</h2>
+            <div class="grid-3">
+                <div class="glass-card animate stagger-1">
+                    <h3 style="color: var(--accent-color)">HAProxy</h3>
+                    <p style="margin-bottom: 0.5rem;">Accessed via <strong>Server > Configure > HAProxy</strong>.</p>
+                    <ul style="font-size: 0.85rem; padding-left: 1.2rem; color: #ccc;">
+                        <li><strong>Dashboard:</strong> Real-time traffic stats, backend health status.</li>
+                        <li><strong>Configuration:</strong> Edit global/defaults/frontend/backend sections visually.</li>
+                        <li><strong>Visualize:</strong> View traffic flow graphs.</li>
+                    </ul>
+                    <div style="margin-top: 1rem; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1);">
+                        <img src="assets/haproxy_visualize.png" onerror="this.src='assets/tab_haproxy.png'" alt="HAProxy Visualize" style="width: 100%; display: block;">
+                    </div>
+                </div>
+                <div class="glass-card animate stagger-2">
+                    <h3 style="color: var(--secondary-color)">Databases</h3>
+                    <p style="margin-bottom: 0.5rem;"><strong>Server > Configure > Databases</strong>.</p>
+                     <ul style="font-size: 0.85rem; padding-left: 1.2rem; color: #ccc;">
+                        <li><strong>Management:</strong> Create/Delete databases and users.</li>
+                        <li><strong>Connection:</strong> View connection strings for your apps.</li>
+                        <li><strong>Security:</strong> Manage access lists and binder addresses.</li>
+                    </ul>
+                    <div style="margin-top: 1rem; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1);">
+                        <img src="assets/tab_mongo.png" onerror="this.src='assets/edit_server.png'" alt="Database Config" style="width: 100%; display: block;">
+                    </div>
+                </div>
+                <div class="glass-card animate stagger-3">
+                    <h3 style="color: var(--primary-color)">Node.js</h3>
+                    <p style="margin-bottom: 0.5rem;">Manage PM2 processes globally.</p>
+                    <ul style="font-size: 0.85rem; padding-left: 1.2rem; color: #ccc;">
+                        <li><strong>Versions:</strong> Install/Switch Node.js versions (18, 20, 22).</li>
+                        <li><strong>Processes:</strong> Start/Stop/Restart PM2 applications.</li>
+                        <li><strong>Logs:</strong> View stdout/stderr logs directly in the browser.</li>
+                    </ul>
+                    <div style="margin-top: 1rem; border-radius: 8px; overflow: hidden; border: 1px solid rgba(255,255,255,0.1);">
+                         <img src="assets/tab_node.png" onerror="this.src='assets/edit_server.png'" alt="Node.js Config" style="width: 100%; display: block;">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 7: CLI Commands -->
+    <section id="cli">
+        <div class="container">
+            <h2 class="animate">Power User CLI</h2>
+            <div class="glass-card animate stagger-1">
+                <p style="margin-bottom: 1rem;">Automate everything with `v-` commands:</p>
+                <div class="code-block">
+<span class="comment"># Add a Node.js Application</span>
+<span class="command">v-add-web-domain-nodejs</span> admin myapp.com
+
+<span class="comment"># Add a MongoDB Database</span>
+<span class="command">v-add-database-mongo</span> admin my_app_db
+
+<span class="comment"># Check Service Status</span>
+<span class="command">v-list-sys-services</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 7.5: Architecture -->
+    <section id="architecture">
+        <div class="container">
+            <h2 class="animate">Under the Hood</h2>
+            
+            <div class="glass-card animate stagger-1" style="margin-bottom: 2rem;">
+                <h3 style="color: var(--accent-color); text-align: center; margin-bottom: 2rem;">Request Lifecycle</h3>
+                
+                <div class="flow-diagram vertical">
+                    <!-- Level 1: User -->
+                    <div class="flow-step user">
+                        <svg class="logo-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                        <span class="label">User Request</span>
+                    </div>
+                    
+                    <div class="arrow-down">⬇️ Port 80/443</div>
+
+                    <!-- Level 2: HAProxy -->
+                    <div class="flow-step haproxy">
+                        <!-- HAProxy SVG Logo -->
+                        <svg class="logo-svg" viewBox="0 0 100 100" fill="currentColor"><path d="M10 20h80v20H10zM10 60h80v20H10z" fill="#024b8d"/><text x="50" y="55" font-size="20" text-anchor="middle" fill="#fff" font-weight="bold">HAProxy</text></svg>
+                        <span class="detail">Load Balancer</span>
+                    </div>
+
+                    <!-- Split Arrows -->
+                    <div class="branch-arrows">
+                         <div class="b-arrow">↙️ /domain.com</div>
+                         <div class="b-arrow">↘️ /api (Node)</div>
+                    </div>
+
+                    <!-- Level 3: Siblings (Nginx & Node) -->
+                    <div class="backends-row">
+                        <!-- Left Branch: Nginx -->
+                        <div class="branch-col">
+                            <div class="flow-step nginx">
+                                <!-- Nginx SVG -->
+                                <svg class="logo-svg" viewBox="0 0 500 500"><path fill="#009639" d="M129 380h242V120H129v260zm65-188h36l106 136V192h36v188h-36L230 244v136h-36V192z"/></svg>
+                                <span class="label">Nginx</span>
+                                <span class="detail">Static & PHP Proxy</span>
+                            </div>
+                            <div class="arrow-down">⬇️</div>
+                            <div class="flow-step backend php">
+                                <!-- PHP SVG -->
+                                <svg class="logo-svg" viewBox="0 0 128 128"><path d="M64 12c-28.7 0-52 23.3-52 52s23.3 52 52 52 52-23.3 52-52-23.3-52-52-52zm-12 78c-10 0-16-6-16-16s6-16 16-16c4.3 0 8.2 1.3 11.3 3.5l-5.7 7.6c-1.5-1.2-3.4-1.8-5.6-1.8-4.4 0-6.6 2.6-6.6 6.7 0 4.2 2.2 6.7 6.6 6.7 2.2 0 4.1-.6 5.6-1.8l5.7 7.6c-3.1 2.2-7 3.5-11.3 3.5zm26 0h-9v-30h15c7.8 0 12 3.6 12 10.3 0 5.4-3.1 8.8-7.7 9.8l8.7 9.9h-11l-7.3-9h-0.7v9zm0-18h5.3c2.5 0 3.7-1.1 3.7-3.4 0-2.3-1.2-3.4-3.7-3.4h-5.3v6.8zm41 18h-9.5v-30h16.2c6.6 0 10.6 3.6 10.6 9.8 0 6.1-4 9.8-10.6 9.8h-6.7v10.4z" fill="#777bb3"/></svg>
+                                <span class="label">PHP-FPM</span>
+                            </div>
+                        </div>
+
+                        <!-- Right Branch: Node.js (Direct) -->
+                        <div class="branch-col">
+                            <div class="flow-step backend node">
+                                <!-- Node JS SVG -->
+                                <svg class="logo-svg" viewBox="0 0 128 128"><path d="M64 12C35.3 12 12 35.3 12 64s23.3 52 52 52 52-23.3 52-52S92.7 12 64 12zm29 76.5l-17.5 10c-2.3 1.3-5.2 1.3-7.5 0l-17.5-10c-2.3-1.3-3.8-3.8-3.8-6.5v-20c0-2.7 1.4-5.2 3.8-6.5l17.5-10c2.3-1.3 5.2-1.3 7.5 0l17.5 10c2.3 1.3 3.8 3.8 3.8 6.5v20c0 2.7-1.4 5.2-3.8 6.5z" fill="#339933"/></svg>
+                                <span class="label">Node.js</span>
+                                <span class="detail">Direct Traffic (PM2)</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="glass-card animate stagger-2">
+                    <h3 style="color: var(--primary-color)">PM2 User Isolation</h3>
+                    <ul>
+                        <li><strong>Mechanism:</strong> PM2 instances are spawned specifically under the Linux user (e.g., `admin`).</li>
+                        <li><strong>Benefits:</strong> No `root` execution. Apps cannot access other users' files.</li>
+                    </ul>
+                </div>
+                <!-- ... existing Mongo card ... -->
+                <div class="glass-card animate stagger-3">
+                    <h3 style="color: var(--secondary-color)">MongoDB Security</h3>
+                    <ul>
+                        <li><strong>Authentication:</strong> Enforced per-database. No public access without auth.</li>
+                        <li><strong>Isolation:</strong> Users are restricted to their own logical databases.</li>
+                        <li><strong>Network:</strong> Binds to localhost by default for security.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Slide 8: Summary -->
+    <section id="summary">
+        <div class="glass-card animate" style="text-align: center; padding: 4rem;">
+            <h1 style="font-size: 3rem;">Ready to Deploy?</h1>
+            <p style="margin: 2rem 0;">Get the best of both worlds: HestiaCP reliability + Modern Stack features.</p>
+            
+            <a href="https://github.com/vietdev99/vhestiacp" target="_blank" class="btn">View on GitHub</a>
+            <br><br>
+            <p style="font-size: 0.8rem; color: #666; margin-top: 2rem;">
+                Based on Hestia Control Panel • Built by vietdev99<br>
+                &copy; 2024 VHestiaCP
+            </p>
+        </div>
+    </section>
+
+    <script src="script.js"></script>
+</body>
+</html>

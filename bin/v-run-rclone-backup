@@ -1,0 +1,152 @@
+#!/bin/bash
+# info: run rclone backup for a specific remote
+# options: USER REMOTE
+#
+# example: v-run-rclone-backup admin mydrive
+#
+# This function runs rclone sync for all configured folders of a remote
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+user=$1
+remote=$2
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '2' "$#" 'USER REMOTE'
+is_format_valid 'user'
+is_object_valid 'user' 'USER' "$user"
+
+# Checking user homedir
+homedir=$(grep "^$user:" /etc/passwd | cut -f 6 -d :)
+if [ -z "$homedir" ]; then
+    check_result "$E_NOTEXIST" "Error: user home directory doesn't exist"
+fi
+
+# Config paths
+rclone_config="$homedir/.config/rclone/rclone.conf"
+backup_config="$homedir/.config/vhestia/rclone-backup.json"
+
+# Check if rclone is installed
+if [ -z "$(which rclone)" ]; then
+    check_result "$E_NOTEXIST" "Error: rclone is not installed"
+fi
+
+# Check if config exists
+if [ ! -f "$rclone_config" ]; then
+    check_result "$E_NOTEXIST" "Error: rclone config not found"
+fi
+
+# Check if backup config exists
+if [ ! -f "$backup_config" ]; then
+    check_result "$E_NOTEXIST" "Error: backup config not found"
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Log file
+timestamp=$(date +%s)
+log_file="/tmp/rclone-backup-$user-$remote-$timestamp.log"
+
+echo "Starting rclone backup for $user:$remote at $(date)" >> "$log_file"
+
+# Parse backup config with jq
+if [ -z "$(which jq)" ]; then
+    # Fallback to php if jq not available
+    remote_config=$(php -r "
+        \$config = json_decode(file_get_contents('$backup_config'), true);
+        if (isset(\$config['$remote'])) {
+            echo json_encode(\$config['$remote']);
+        }
+    ")
+else
+    remote_config=$(jq -c ".[\"$remote\"]" "$backup_config" 2>/dev/null)
+fi
+
+if [ -z "$remote_config" ] || [ "$remote_config" = "null" ]; then
+    echo "Error: Remote '$remote' not configured" >> "$log_file"
+    check_result "$E_NOTEXIST" "Error: Remote not configured"
+fi
+
+# Get settings
+delete_extra=$(echo "$remote_config" | jq -r '.delete_extra // false')
+bandwidth=$(echo "$remote_config" | jq -r '.bandwidth // 0')
+
+# Process each folder
+folder_count=$(echo "$remote_config" | jq -r '.folders | length')
+success_count=0
+error_count=0
+
+for ((i=0; i<folder_count; i++)); do
+    local_path=$(echo "$remote_config" | jq -r ".folders[$i].local")
+    remote_path=$(echo "$remote_config" | jq -r ".folders[$i].remote")
+
+    if [ -z "$local_path" ] || [ -z "$remote_path" ]; then
+        continue
+    fi
+
+    echo "" >> "$log_file"
+    echo "Syncing: $local_path -> $remote:$remote_path" >> "$log_file"
+    echo "Started at: $(date)" >> "$log_file"
+
+    # Build rclone command
+    rclone_cmd="rclone sync"
+    rclone_cmd="$rclone_cmd \"$local_path\""
+    rclone_cmd="$rclone_cmd \"$remote:$remote_path\""
+    rclone_cmd="$rclone_cmd --config=\"$rclone_config\""
+    rclone_cmd="$rclone_cmd --log-level INFO"
+
+    if [ "$delete_extra" = "true" ]; then
+        rclone_cmd="$rclone_cmd --delete-during"
+    fi
+
+    if [ "$bandwidth" != "0" ] && [ "$bandwidth" != "null" ]; then
+        rclone_cmd="$rclone_cmd --bwlimit=${bandwidth}M"
+    fi
+
+    # Run as user
+    runuser -u "$user" -- bash -c "$rclone_cmd" >> "$log_file" 2>&1
+    exit_code=$?
+
+    if [ $exit_code -eq 0 ]; then
+        echo "Completed successfully at: $(date)" >> "$log_file"
+        ((success_count++))
+    else
+        echo "Failed with exit code: $exit_code at: $(date)" >> "$log_file"
+        ((error_count++))
+    fi
+done
+
+echo "" >> "$log_file"
+echo "========================================" >> "$log_file"
+echo "Backup completed at: $(date)" >> "$log_file"
+echo "Success: $success_count, Errors: $error_count" >> "$log_file"
+
+# Set log file ownership
+chown "$user:$user" "$log_file" 2>/dev/null
+
+# Cleanup old logs (keep last 20)
+ls -t /tmp/rclone-backup-$user-$remote-*.log 2>/dev/null | tail -n +21 | xargs rm -f 2>/dev/null
+
+# Logging
+log_event "$OK" "$ARGUMENTS"
+
+if [ $error_count -gt 0 ]; then
+    exit 1
+fi
+
+exit 0

@@ -1,0 +1,90 @@
+#!/bin/bash
+# info: install VHestiaCP Web Panel v2
+# options: NONE
+#
+# example: v-add-sys-web-panel-v2
+#
+# This function installs the modern React-based web panel v2
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+WEB_V2_DIR="$HESTIA/web_v2"
+WEB_V2_PORT=9093
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if Node.js is installed
+if ! command -v node &> /dev/null; then
+    echo "Node.js is not installed. Installing..."
+    curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+    apt-get install -y nodejs
+fi
+
+# Check if PM2 is installed
+if ! command -v pm2 &> /dev/null; then
+    echo "PM2 is not installed. Installing..."
+    npm install -g pm2
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Installing VHestiaCP Web Panel v2..."
+
+# Check if web_v2 directory exists
+if [ ! -d "$WEB_V2_DIR" ]; then
+    check_result "$E_NOTEXIST" "web_v2 directory not found at $WEB_V2_DIR"
+fi
+
+# Install server dependencies
+echo "Installing server dependencies..."
+cd "$WEB_V2_DIR/server" && npm install --production
+
+# Install client dependencies and build
+echo "Installing client dependencies..."
+cd "$WEB_V2_DIR/client" && npm install
+
+echo "Building client..."
+cd "$WEB_V2_DIR/client" && npm run build
+
+# Start with PM2
+echo "Starting web panel with PM2..."
+cd "$WEB_V2_DIR"
+pm2 delete vhestia-panel 2>/dev/null || true
+pm2 start ecosystem.config.cjs
+pm2 save
+
+# Setup PM2 to start on boot
+pm2 startup systemd -u root --hp /root 2>/dev/null || true
+
+# Add firewall rule
+echo "Adding firewall rule for port $WEB_V2_PORT..."
+$HESTIA/bin/v-add-firewall-rule ACCEPT 0.0.0.0/0 $WEB_V2_PORT TCP VHestiaCP-Panel-v2 2>/dev/null || true
+
+echo ""
+echo "=========================================="
+echo "VHestiaCP Web Panel v2 installed!"
+echo "=========================================="
+echo ""
+echo "Access: https://$(hostname -I | awk '{print $1}'):$WEB_V2_PORT"
+echo ""
+echo "Login with your HestiaCP credentials."
+echo ""
+
+# Logging
+log_event "$OK" "$ARGUMENTS"
+
+exit 0

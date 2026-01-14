@@ -20,6 +20,9 @@ if (
 ) {
 	$check_csrf = false;
 } // Own check
+if (strpos($_SERVER["SCRIPT_FILENAME"], "/usr/local/hestia/web/api/") === 0) {
+	$check_csrf = false;
+} // VHestiaCP API endpoints have their own CSRF check
 if (substr($_SERVER["SCRIPT_FILENAME"], 0, 22) == "/usr/local/hestia/bin/") {
 	$check_csrf = false;
 }

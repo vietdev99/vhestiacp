@@ -15,6 +15,7 @@ export default function Databases() {
   const [search, setSearch] = useState('');
   const [searchParams] = useSearchParams();
   const [openMenu, setOpenMenu] = useState(null);
+  const [menuPosition, setMenuPosition] = useState({ top: 0, left: 0 });
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [passwordModal, setPasswordModal] = useState(null);
   const [newPassword, setNewPassword] = useState('');
@@ -206,51 +207,20 @@ export default function Databases() {
                     )}
                   </td>
                   <td className="px-4 py-4 text-right">
-                    <div className="relative" ref={openMenu === item.database ? menuRef : null}>
-                      <button
-                        onClick={() => setOpenMenu(openMenu === item.database ? null : item.database)}
-                        className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-border"
-                      >
-                        <MoreVertical className="w-5 h-5" />
-                      </button>
-                      {openMenu === item.database && (
-                        <div className="absolute right-0 mt-1 w-48 bg-white dark:bg-dark-card border border-gray-200 dark:border-dark-border rounded-lg shadow-lg z-10">
-                          <button
-                            onClick={() => {
-                              setPasswordModal(item.database);
-                              setOpenMenu(null);
-                            }}
-                            className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-dark-border"
-                          >
-                            <Key className="w-4 h-4" />
-                            Change Password
-                          </button>
-                          {!isMongoDB && (
-                            <button
-                              onClick={() => {
-                                // TODO: Add user modal
-                                setOpenMenu(null);
-                              }}
-                              className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-dark-border"
-                            >
-                              <UserPlus className="w-4 h-4" />
-                              Add User
-                            </button>
-                          )}
-                          <hr className="border-gray-200 dark:border-dark-border" />
-                          <button
-                            onClick={() => {
-                              setDeleteConfirm(item.database);
-                              setOpenMenu(null);
-                            }}
-                            className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                            Delete
-                          </button>
-                        </div>
-                      )}
-                    </div>
+                    <button
+                      onClick={(e) => {
+                        if (openMenu === item.database) {
+                          setOpenMenu(null);
+                        } else {
+                          const rect = e.currentTarget.getBoundingClientRect();
+                          setMenuPosition({ top: rect.bottom + 4, left: rect.right - 192 });
+                          setOpenMenu(item.database);
+                        }
+                      }}
+                      className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-border"
+                    >
+                      <MoreVertical className="w-5 h-5" />
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -269,6 +239,49 @@ export default function Databases() {
       <div className="mt-4 text-sm text-gray-500 dark:text-dark-muted">
         {filteredDatabases.length} {filteredDatabases.length === 1 ? 'database' : 'databases'}
       </div>
+
+      {/* Dropdown Menu (Fixed Position) */}
+      {openMenu && (
+        <div
+          ref={menuRef}
+          className="fixed w-48 bg-white dark:bg-dark-card border border-gray-200 dark:border-dark-border rounded-lg shadow-lg z-50"
+          style={{ top: menuPosition.top, left: menuPosition.left }}
+        >
+          <button
+            onClick={() => {
+              setPasswordModal(openMenu);
+              setOpenMenu(null);
+            }}
+            className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-dark-border rounded-t-lg"
+          >
+            <Key className="w-4 h-4" />
+            Change Password
+          </button>
+          {!isMongoDB && (
+            <button
+              onClick={() => {
+                // TODO: Add user modal
+                setOpenMenu(null);
+              }}
+              className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left hover:bg-gray-50 dark:hover:bg-dark-border"
+            >
+              <UserPlus className="w-4 h-4" />
+              Add User
+            </button>
+          )}
+          <hr className="border-gray-200 dark:border-dark-border" />
+          <button
+            onClick={() => {
+              setDeleteConfirm(openMenu);
+              setOpenMenu(null);
+            }}
+            className="w-full flex items-center gap-2 px-4 py-2 text-sm text-left text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-b-lg"
+          >
+            <Trash2 className="w-4 h-4" />
+            Delete
+          </button>
+        </div>
+      )}
 
       {/* Delete Confirmation Modal */}
       {deleteConfirm && (

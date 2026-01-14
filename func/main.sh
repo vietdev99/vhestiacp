@@ -805,6 +805,10 @@ is_alias_format_valid() {
 # IP format validator
 is_ip_format_valid() {
 	object_name=${2-ip}
+	# VHestiaCP: Allow "*" as a valid IP (means bind to all interfaces)
+	if [ "$1" = "*" ]; then
+		return 0
+	fi
 	valid=$($HESTIA_PHP -r '$ip="$argv[1]"; echo (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_IPV4) ? 0 : 1);' $1)
 	if [ "$valid" -ne 0 ]; then
 		check_result "$E_INVALID" "invalid $object_name :: $1"

@@ -17,7 +17,7 @@ server {
 	}
 
 	location / {
-		proxy_pass http://%ip%:%web_port%;
+		proxy_pass http://%proxy_ip%:%web_port%;
 
 		proxy_cache %domain%;
 		proxy_cache_valid 200 5m;
@@ -54,7 +54,7 @@ server {
 	}
 
 	location @fallback {
-		proxy_pass http://%ip%:%web_port%;
+		proxy_pass http://%proxy_ip%:%web_port%;
 	}
 
 	location /error/ {

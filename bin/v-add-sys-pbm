@@ -1,0 +1,78 @@
+#!/bin/bash
+# info: install percona backup for mongodb (pbm)
+# options: [STORAGE_TYPE] [CONFIG_STRING]
+#
+# example: v-add-sys-pbm s3 "region=us-east-1,bucket=my-backup"
+#
+# This function installs the PBM agent and CLI tool.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+storage_type=${1-s3} # s3 or filesystem
+config_str=${2}
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Installing Percona Backup for MongoDB..."
+
+# Check Repo
+if [ ! -f /etc/apt/sources.list.d/percona-release.list ]; then
+    echo "Adding Percona Repository..."
+    wget https://repo.percona.com/apt/percona-release_latest.generic_all.deb
+    dpkg -i percona-release_latest.generic_all.deb
+    percona-release enable pbm release
+    apt-get update
+fi
+
+# Install PBM
+apt-get install -y percona-backup-mongodb
+
+echo "PBM Installed."
+
+# Create PBM User in Mongo if needed
+echo "Creating PBM User in MongoDB..."
+mongosh --eval "
+    try {
+        db.getSiblingDB('admin').createUser({
+            user: 'pbm',
+            pwd: 'password_change_me', 
+            roles: [ 'backup', 'restore' ]
+        });
+    } catch(e) { print('User exists or error: ' + e); }
+" >/dev/null 2>&1
+
+# Setup Config File
+pbm_conf="/etc/pbm_config.yaml"
+cat > $pbm_conf <<EOF
+storage:
+  type: $storage_type
+  $storage_type:
+    # Placeholder - Configuration via CLI required for sensitive tokens
+    # Use: pbm config --file $pbm_conf
+EOF
+
+echo "PBM Agent installed. Configure storage via: pbm config --set storage.s3.bucket=..."
+
+# Log
+$BIN/v-log-action "system" "Info" "MongoDB" "Installed Percona Backup (PBM)"
+
+exit 0

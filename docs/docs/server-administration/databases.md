@@ -135,3 +135,69 @@ $cfg["Servers"][$i]["bookmarktable"] = "pma__bookmark";
 Please make sure to create aswell the phpmyadmin user and database.
 
 See `/usr/local/hestia/install/deb/phpmyadmin/pma.sh`
+
+## MongoDB (VHestiaCP)
+
+VHestiaCP adds full MongoDB support including database management, user authentication, and cluster configuration.
+
+### Installing MongoDB
+
+```bash
+v-add-sys-mongodb [VERSION]
+```
+
+Supported versions: 6.0, 7.0, 8.0
+
+### MongoDB Commands
+
+| Command                            | Description                    |
+| ---------------------------------- | ------------------------------ |
+| `v-add-sys-mongodb`                | Install MongoDB server         |
+| `v-delete-sys-mongodb`             | Remove MongoDB server          |
+| `v-add-database-mongo`             | Create MongoDB database        |
+| `v-delete-database-mongo`          | Delete MongoDB database        |
+| `v-list-database-mongo`            | List MongoDB databases         |
+| `v-change-database-mongo-password` | Change database user password  |
+
+### Creating a MongoDB Database
+
+```bash
+v-add-database-mongo admin mydb myuser mypassword
+```
+
+### MongoDB Server Configuration
+
+Access MongoDB configuration via **Server** → **Services** → click **mongodb** → **Configure**.
+
+Features include:
+
+- **Cluster Mode**: Standalone, ReplicaSet, or Sharding
+- **Keyfile Authentication**: Generate, upload, or download keyfile for cluster authentication
+- **Percona Backup (PBM)**: Full backup solution with multiple options
+
+### Percona Backup for MongoDB (PBM)
+
+When using ReplicaSet mode, you can enable Percona Backup with:
+
+| Backup Type            | Description                                                                        |
+| ---------------------- | ---------------------------------------------------------------------------------- |
+| **Logical**            | Uses mongodump. Slower but compatible across MongoDB versions. Good for migration. |
+| **Physical**           | File-level copy. Faster but requires same MongoDB version for restore.             |
+| **Incremental + PITR** | Continuous oplog capture for point-in-time recovery to any second.                 |
+
+Backup storage options:
+
+- **Local Filesystem**: Store backups on the server
+- **Amazon S3 / Compatible**: Store backups in S3, MinIO, etc.
+
+### Keyfile Authentication for Clusters
+
+MongoDB ReplicaSet and Sharding clusters require a keyfile for internal authentication between nodes.
+
+From the MongoDB configuration page:
+
+1. **Generate Key**: Creates a new 756-byte random keyfile
+2. **Upload Key**: Upload existing keyfile from another node
+3. **Download Key**: Download keyfile to copy to other cluster nodes
+
+The keyfile path defaults to `/var/lib/mongodb/keyfile` with proper permissions (400) and ownership (mongodb:mongodb)

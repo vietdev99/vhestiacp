@@ -2822,11 +2822,6 @@ if [ -n "$VHESTIA_SRC" ] && [ -d "$VHESTIA_SRC/bin" ]; then
 		"v-delete-sys-haproxy"
 		"v-list-sys-haproxy"
 		"v-add-haproxy-backend"
-		"v-add-user-haproxy-backend"
-		"v-add-user-haproxy-frontend"
-		"v-delete-user-haproxy-backend"
-		"v-delete-user-haproxy-frontend"
-		"v-list-user-haproxy"
 		"v-rebuild-haproxy-conf"
 		"v-setup-haproxy-admin-routes"
 		"v-update-sys-haproxy-config"
@@ -2865,6 +2860,8 @@ if [ -n "$VHESTIA_SRC" ] && [ -d "$VHESTIA_SRC/bin" ]; then
 		"v-add-sys-rabbitmq"
 		# Redis
 		"v-add-sys-redis"
+		# Backup
+		"v-add-backup-gdrive"
 		# Package manager
 		"v-list-sys-packages"
 	)
@@ -3712,9 +3709,32 @@ Content-Type: text/html
 </html>
 ERROR_EOF
 	done
-	
+
 	# ============================================
-	# Step 5: Start HAProxy
+	# Step 5: Create default SSL certificate
+	# HAProxy SSL termination mode requires at least one certificate in /etc/haproxy/certs/
+	# ============================================
+	if [ "$haproxy_ssl_mode" = "termination" ]; then
+		echo "    - Creating default SSL certificate for HAProxy..."
+
+		# Generate self-signed certificate
+		openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+			-keyout /tmp/haproxy_default.key \
+			-out /tmp/haproxy_default.crt \
+			-subj "/CN=localhost/O=VHestiaCP/C=US" 2>/dev/null
+
+		# Combine cert and key into PEM format (HAProxy requires this)
+		cat /tmp/haproxy_default.crt /tmp/haproxy_default.key > /etc/haproxy/certs/default.pem
+		chmod 600 /etc/haproxy/certs/default.pem
+
+		# Cleanup temp files
+		rm -f /tmp/haproxy_default.key /tmp/haproxy_default.crt
+
+		echo "    - ✓ Default SSL certificate created"
+	fi
+
+	# ============================================
+	# Step 6: Start HAProxy
 	# ============================================
 	echo "    - Starting HAProxy..."
 	
@@ -3737,7 +3757,7 @@ ERROR_EOF
 	fi
 	
 	# ============================================
-	# Step 6: Update Hestia config
+	# Step 7: Update Hestia config
 	# ============================================
 	write_config_value "HAPROXY_SYSTEM" "yes"
 	write_config_value "HAPROXY_STATS" "yes"
