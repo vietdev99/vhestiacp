@@ -26,7 +26,8 @@ import {
   Activity,
   Shield,
   Network,
-  Cloud
+  Cloud,
+  FolderOpen
 } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -57,11 +58,12 @@ const databaseItems = [
 const adminItems = [
   { name: 'Packages', href: '/packages', icon: Package },
   { name: 'Services', href: '/server-services', icon: Activity },
-  { name: 'Install/Uninstall', href: '/services', icon: Server },
+  { name: 'Applications', href: '/applications', icon: Server },
   { name: 'Firewall', href: '/firewall', icon: Shield },
   { name: 'Database Settings', href: '/admin/database-settings', icon: Settings },
   { name: 'Cloud Storage', href: '/admin/rclone', icon: Cloud },
   { name: 'HAProxy', href: '/haproxy', icon: Network },
+  // File Manager is conditional - added dynamically based on system config
 ];
 
 export default function Layout() {
@@ -283,7 +285,7 @@ export default function Layout() {
                 onClick={() => setAdminMenuOpen(!adminMenuOpen)}
                 className={clsx(
                   'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                  (location.pathname.startsWith('/packages') || location.pathname.startsWith('/services') || location.pathname.startsWith('/server-services') || location.pathname.startsWith('/admin') || location.pathname.startsWith('/firewall') || location.pathname.startsWith('/haproxy'))
+                  (location.pathname.startsWith('/packages') || location.pathname.startsWith('/applications') || location.pathname.startsWith('/server-services') || location.pathname.startsWith('/admin') || location.pathname.startsWith('/firewall') || location.pathname.startsWith('/haproxy') || location.pathname.startsWith('/file-manager'))
                     ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400'
                     : 'text-gray-700 hover:bg-gray-100 dark:text-dark-text dark:hover:bg-dark-border'
                 )}
@@ -314,6 +316,22 @@ export default function Layout() {
                       </Link>
                     );
                   })}
+                  {/* File Manager - conditional based on FILE_MANAGER setting */}
+                  {systemInfo?.fileManager && (
+                    <Link
+                      to="/file-manager"
+                      className={clsx(
+                        'flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
+                        location.pathname.startsWith('/file-manager')
+                          ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400'
+                          : 'text-gray-600 hover:bg-gray-100 dark:text-dark-muted dark:hover:bg-dark-border'
+                      )}
+                      onClick={() => setSidebarOpen(false)}
+                    >
+                      <FolderOpen className="w-4 h-4" />
+                      File Manager
+                    </Link>
+                  )}
                 </div>
               )}
             </div>

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link } from 'react-router-dom';
 import api from '../utils/api';
 import {
   Globe,
@@ -10,17 +11,18 @@ import {
   Download,
   Trash2,
   RefreshCw,
-  Play,
-  Square,
   Loader2,
   CheckCircle,
   XCircle,
   Cpu,
-  HardDrive
+  HardDrive,
+  Leaf,
+  Archive,
+  ExternalLink
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-export default function Services() {
+export default function Applications() {
   const queryClient = useQueryClient();
   const [installing, setInstalling] = useState(null);
   const [uninstalling, setUninstalling] = useState(null);
@@ -34,6 +36,15 @@ export default function Services() {
     }
   });
 
+  // Fetch PBM status
+  const { data: pbmStatus } = useQuery({
+    queryKey: ['pbm-status'],
+    queryFn: async () => {
+      const res = await api.get('/api/mongodb/pbm/status');
+      return res.data;
+    }
+  });
+
   // Install mutation
   const installMutation = useMutation({
     mutationFn: async (serviceId) => {
@@ -42,11 +53,12 @@ export default function Services() {
     },
     onSuccess: (_, serviceId) => {
       queryClient.invalidateQueries(['services']);
-      toast.success('Service installed successfully');
+      queryClient.invalidateQueries(['pbm-status']);
+      toast.success('Application installed successfully');
       setInstalling(null);
     },
     onError: (error) => {
-      toast.error(error.response?.data?.error || 'Failed to install service');
+      toast.error(error.response?.data?.error || 'Failed to install application');
       setInstalling(null);
     }
   });
@@ -59,11 +71,46 @@ export default function Services() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['services']);
-      toast.success('Service uninstalled successfully');
+      queryClient.invalidateQueries(['pbm-status']);
+      toast.success('Application uninstalled successfully');
       setUninstalling(null);
     },
     onError: (error) => {
-      toast.error(error.response?.data?.error || 'Failed to uninstall service');
+      toast.error(error.response?.data?.error || 'Failed to uninstall application');
+      setUninstalling(null);
+    }
+  });
+
+  // PBM Install mutation
+  const pbmInstallMutation = useMutation({
+    mutationFn: async () => {
+      setInstalling('pbm');
+      await api.post('/api/services/pbm/install');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['pbm-status']);
+      toast.success('Percona Backup for MongoDB installed successfully');
+      setInstalling(null);
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.error || 'Failed to install PBM');
+      setInstalling(null);
+    }
+  });
+
+  // PBM Uninstall mutation
+  const pbmUninstallMutation = useMutation({
+    mutationFn: async () => {
+      setUninstalling('pbm');
+      await api.delete('/api/services/pbm');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['pbm-status']);
+      toast.success('Percona Backup for MongoDB uninstalled');
+      setUninstalling(null);
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.error || 'Failed to uninstall PBM');
       setUninstalling(null);
     }
   });
@@ -75,10 +122,10 @@ export default function Services() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries(['services']);
-      toast.success('Service restarted successfully');
+      toast.success('Application restarted successfully');
     },
     onError: (error) => {
-      toast.error(error.response?.data?.error || 'Failed to restart service');
+      toast.error(error.response?.data?.error || 'Failed to restart application');
     }
   });
 
@@ -89,6 +136,7 @@ export default function Services() {
       case 'mail':
       case 'queue': return Mail;
       case 'security': return Shield;
+      case 'backup': return Archive;
       default: return Server;
     }
   };
@@ -100,9 +148,15 @@ export default function Services() {
       case 'mail': return 'text-purple-500 bg-purple-100 dark:bg-purple-900/30';
       case 'queue': return 'text-orange-500 bg-orange-100 dark:bg-orange-900/30';
       case 'security': return 'text-red-500 bg-red-100 dark:bg-red-900/30';
+      case 'backup': return 'text-amber-500 bg-amber-100 dark:bg-amber-900/30';
       default: return 'text-gray-500 bg-gray-100 dark:bg-gray-900/30';
     }
   };
+
+  // Check if MongoDB is installed
+  const mongoInstalled = data?.categories?.some(cat =>
+    cat.services.some(s => s.id === 'mongodb' && s.installed)
+  );
 
   if (isLoading) {
     return (
@@ -115,7 +169,7 @@ export default function Services() {
   if (error) {
     return (
       <div className="text-center py-12">
-        <p className="text-red-500">Failed to load services. {error.response?.data?.error || ''}</p>
+        <p className="text-red-500">Failed to load applications. {error.response?.data?.error || ''}</p>
       </div>
     );
   }
@@ -125,9 +179,9 @@ export default function Services() {
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Services</h1>
+          <h1 className="text-2xl font-bold">Applications</h1>
           <p className="text-gray-500 dark:text-dark-muted mt-1">
-            Install or uninstall system packages. Some packages may require server restart.
+            Install or uninstall system applications and tools.
           </p>
         </div>
         <button
@@ -139,7 +193,109 @@ export default function Services() {
         </button>
       </div>
 
-      {/* Categories */}
+      {/* PBM Section - Show if MongoDB is installed */}
+      {mongoInstalled && (
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Archive className="w-5 h-5" />
+            Database Backup Tools
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* Percona Backup for MongoDB */}
+            <div className="card p-4 hover:shadow-md transition-shadow border-2 border-amber-200 dark:border-amber-800">
+              <div className="flex items-start justify-between">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-lg flex items-center justify-center text-amber-500 bg-amber-100 dark:bg-amber-900/30">
+                    <Leaf className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold">Percona Backup (PBM)</h3>
+                    <p className="text-sm text-gray-500 dark:text-dark-muted">
+                      Backup solution for MongoDB ReplicaSet/Sharding
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status */}
+              <div className="mt-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {pbmStatus?.installed ? (
+                    pbmStatus?.running ? (
+                      <span className="flex items-center gap-1.5 text-green-600 dark:text-green-400 text-sm">
+                        <CheckCircle className="w-4 h-4" />
+                        Running (v{pbmStatus?.version})
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1.5 text-yellow-600 dark:text-yellow-400 text-sm">
+                        <XCircle className="w-4 h-4" />
+                        Installed but not running
+                      </span>
+                    )
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-gray-400 text-sm">
+                      <XCircle className="w-4 h-4" />
+                      Not Installed
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="mt-4 pt-3 border-t border-gray-200 dark:border-dark-border flex items-center gap-2">
+                {pbmStatus?.installed ? (
+                  <>
+                    <Link
+                      to="/admin/database-settings?tab=mongodb"
+                      className="flex-1 btn btn-sm btn-secondary"
+                    >
+                      <ExternalLink className="w-4 h-4 mr-1" />
+                      Configure
+                    </Link>
+                    <button
+                      onClick={() => {
+                        if (confirm('Are you sure you want to uninstall Percona Backup for MongoDB?')) {
+                          pbmUninstallMutation.mutate();
+                        }
+                      }}
+                      disabled={uninstalling === 'pbm'}
+                      className="flex-1 btn btn-sm bg-red-100 hover:bg-red-200 text-red-700 dark:bg-red-900/30 dark:hover:bg-red-900/50 dark:text-red-400"
+                    >
+                      {uninstalling === 'pbm' ? (
+                        <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4 mr-1" />
+                      )}
+                      Uninstall
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    onClick={() => pbmInstallMutation.mutate()}
+                    disabled={installing === 'pbm'}
+                    className="flex-1 btn btn-sm btn-primary"
+                  >
+                    {installing === 'pbm' ? (
+                      <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                    ) : (
+                      <Download className="w-4 h-4 mr-1" />
+                    )}
+                    Install
+                  </button>
+                )}
+              </div>
+
+              {/* Info */}
+              <div className="mt-3 p-2 bg-gray-50 dark:bg-dark-border rounded text-xs text-gray-600 dark:text-dark-muted">
+                Supports logical, physical & incremental backups with PITR
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Other Categories */}
       {data?.categories?.map((category) => {
         const Icon = getCategoryIcon(category.services[0]?.category);
 

@@ -1,13 +1,15 @@
 import { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { Link, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import {
   Database, Settings, Server, Save, Key, Upload, Download,
-  CheckCircle, XCircle, AlertTriangle, Loader2, Leaf, Info
+  CheckCircle, XCircle, AlertTriangle, Loader2, Leaf, Info, ExternalLink
 } from 'lucide-react';
 
 export default function DatabaseSettings() {
-  const [activeTab, setActiveTab] = useState('mysql');
+  const [searchParams] = useSearchParams();
+  const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'mysql');
 
   const { data: systemInfo, isLoading } = useQuery({
     queryKey: ['system-info'],
@@ -694,18 +696,30 @@ function PBMSection({
 
   return (
     <div className="space-y-3">
-      <label className="flex items-center gap-2">
-        <input
-          type="checkbox"
-          checked={pbmEnabled}
-          onChange={(e) => setPbmEnabled(e.target.checked)}
-          className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-        />
-        <span className="font-medium">Enable Percona Backup (PBM)</span>
+      <div className="flex items-center justify-between">
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={pbmEnabled}
+            onChange={(e) => setPbmEnabled(e.target.checked)}
+            disabled={pbmStatus?.installed === false}
+            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+          <span className="font-medium">Enable Percona Backup (PBM)</span>
+          {pbmStatus?.installed === false && (
+            <span className="text-xs text-amber-600 bg-amber-100 px-2 py-0.5 rounded">Not Installed</span>
+          )}
+        </label>
         {pbmStatus?.installed === false && (
-          <span className="text-xs text-amber-600 bg-amber-100 px-2 py-0.5 rounded">Not Installed</span>
+          <Link
+            to="/applications"
+            className="text-sm text-primary-600 hover:underline flex items-center gap-1"
+          >
+            <ExternalLink className="w-3 h-3" />
+            Install PBM
+          </Link>
         )}
-      </label>
+      </div>
 
       {pbmEnabled && (
         <div className="p-4 bg-gray-50 dark:bg-dark-border rounded-lg space-y-4">

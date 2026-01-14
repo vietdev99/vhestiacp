@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../utils/api';
 import {
   Cloud, Plus, Trash2, RefreshCw, CheckCircle, XCircle,
-  Loader2, Settings, HardDrive, Server, Key, Eye, EyeOff
+  Loader2, Settings, HardDrive, Server, Key, Eye, EyeOff,
+  ExternalLink, AlertCircle
 } from 'lucide-react';
 
 export default function RcloneSettings() {
@@ -221,6 +222,17 @@ function AddRemoteModal({ providers, onClose, onSuccess }) {
   const [remoteName, setRemoteName] = useState('');
   const [config, setConfig] = useState({});
   const [showSecrets, setShowSecrets] = useState({});
+  const [oauthState, setOauthState] = useState(null); // { status: 'idle' | 'authorizing' | 'waiting' | 'success' | 'error', authUrl, pid, error }
+  const pollIntervalRef = useRef(null);
+
+  // Clean up polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollIntervalRef.current) {
+        clearInterval(pollIntervalRef.current);
+      }
+    };
+  }, []);
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
@@ -260,6 +272,69 @@ function AddRemoteModal({ providers, onClose, onSuccess }) {
 
   const toggleShowSecret = (name) => {
     setShowSecrets(prev => ({ ...prev, [name]: !prev[name] }));
+  };
+
+  // Start OAuth authorization
+  const startOAuth = async () => {
+    if (!selectedProvider) return;
+
+    setOauthState({ status: 'authorizing' });
+
+    try {
+      const res = await api.post('/api/rclone/oauth/authorize', {
+        provider: selectedProvider.id
+      });
+
+      if (res.data.authUrl) {
+        setOauthState({
+          status: 'waiting',
+          authUrl: res.data.authUrl,
+          pid: res.data.pid
+        });
+
+        // Start polling for token
+        pollIntervalRef.current = setInterval(async () => {
+          try {
+            const tokenRes = await api.get(`/api/rclone/oauth/token/${res.data.pid}`);
+            if (tokenRes.data.completed && tokenRes.data.token) {
+              clearInterval(pollIntervalRef.current);
+              pollIntervalRef.current = null;
+              setConfig(prev => ({ ...prev, token: tokenRes.data.token }));
+              setOauthState({ status: 'success' });
+            }
+          } catch (e) {
+            // Keep polling
+          }
+        }, 2000);
+
+        // Stop polling after 2 minutes
+        setTimeout(() => {
+          if (pollIntervalRef.current) {
+            clearInterval(pollIntervalRef.current);
+            pollIntervalRef.current = null;
+            if (oauthState?.status === 'waiting') {
+              setOauthState({ status: 'error', error: 'Authorization timed out. Please try again.' });
+            }
+          }
+        }, 120000);
+      } else {
+        setOauthState({ status: 'error', error: 'Failed to get authorization URL' });
+      }
+    } catch (error) {
+      setOauthState({
+        status: 'error',
+        error: error.response?.data?.error || 'Failed to start authorization'
+      });
+    }
+  };
+
+  // Cancel OAuth
+  const cancelOAuth = () => {
+    if (pollIntervalRef.current) {
+      clearInterval(pollIntervalRef.current);
+      pollIntervalRef.current = null;
+    }
+    setOauthState(null);
   };
 
   // Group providers by type
@@ -348,24 +423,166 @@ function AddRemoteModal({ providers, onClose, onSuccess }) {
               </p>
             </div>
 
-            {/* OAuth Token Help */}
+            {/* OAuth Authorization */}
             {selectedProvider.authType === 'oauth' && (
-              <div className="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
-                <p className="text-sm text-amber-800 dark:text-amber-300">
-                  <strong>To get the OAuth token:</strong>
-                </p>
-                <ol className="text-sm text-amber-700 dark:text-amber-400 list-decimal ml-4 mt-1 space-y-1">
-                  <li>On a computer with a web browser, run: <code className="bg-amber-100 dark:bg-amber-900 px-1 rounded">rclone authorize {selectedProvider.id}</code></li>
-                  <li>Complete the OAuth flow in your browser</li>
-                  <li>Copy the JSON token that appears in the terminal</li>
-                  <li>Paste it in the field below</li>
-                </ol>
+              <div className="space-y-3">
+                {/* OAuth Status */}
+                {oauthState?.status === 'waiting' && (
+                  <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
+                      <span className="font-medium text-blue-800 dark:text-blue-300">
+                        Waiting for authorization...
+                      </span>
+                    </div>
+                    <p className="text-sm text-blue-700 dark:text-blue-400 mb-3">
+                      Click the button below to open the authorization page. After approving, the token will be captured automatically.
+                    </p>
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={oauthState.authUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="btn btn-primary btn-sm"
+                      >
+                        <ExternalLink className="w-4 h-4 mr-1" />
+                        Open Authorization Page
+                      </a>
+                      <button
+                        type="button"
+                        onClick={cancelOAuth}
+                        className="btn btn-secondary btn-sm"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {oauthState?.status === 'success' && (
+                  <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <CheckCircle className="w-4 h-4 text-green-600" />
+                      <span className="text-green-800 dark:text-green-300 font-medium">
+                        Authorization successful! Token captured.
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {oauthState?.status === 'error' && (
+                  <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-4 h-4 text-red-600" />
+                      <span className="text-red-800 dark:text-red-300">
+                        {oauthState.error}
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {oauthState?.status === 'authorizing' && (
+                  <div className="p-3 bg-gray-50 dark:bg-gray-900/20 border border-gray-200 dark:border-gray-800 rounded-lg">
+                    <div className="flex items-center gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span>Starting authorization...</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Authorize Button or Manual Input */}
+                {(!oauthState || oauthState.status === 'error') && !config.token && (
+                  <div className="p-4 bg-gray-50 dark:bg-gray-900/20 border border-gray-200 dark:border-gray-700 rounded-lg">
+                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
+                      Click the button below to authorize with {selectedProvider.name}:
+                    </p>
+                    <button
+                      type="button"
+                      onClick={startOAuth}
+                      disabled={oauthState?.status === 'authorizing'}
+                      className="btn btn-primary"
+                    >
+                      {oauthState?.status === 'authorizing' ? (
+                        <>
+                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                          Starting...
+                        </>
+                      ) : (
+                        <>
+                          <Key className="w-4 h-4 mr-2" />
+                          Authorize with {selectedProvider.name}
+                        </>
+                      )}
+                    </button>
+
+                    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                      <p className="text-xs text-gray-500 mb-2">
+                        Or manually paste the token (run <code className="bg-gray-200 dark:bg-gray-800 px-1 rounded">rclone authorize {selectedProvider.id}</code> on a machine with a browser):
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
             {/* Provider Fields */}
             {selectedProvider.fields.map((field) => {
               if (field.type === 'hidden') return null;
+
+              // For OAuth providers, hide token field if we have a successful auth
+              // or show it collapsed under manual input section
+              if (selectedProvider.authType === 'oauth' && field.name === 'token') {
+                // If OAuth success or has token, show readonly display
+                if (oauthState?.status === 'success' || config.token) {
+                  return (
+                    <div key={field.name}>
+                      <label className="block text-sm font-medium mb-1">
+                        {field.label} {field.required && '*'}
+                      </label>
+                      <div className="relative">
+                        <textarea
+                          value={config[field.name] || ''}
+                          onChange={(e) => updateConfig(field.name, e.target.value)}
+                          className="input font-mono text-xs h-20 bg-green-50 dark:bg-green-900/20"
+                          readOnly={oauthState?.status === 'success'}
+                        />
+                        {oauthState?.status === 'success' && (
+                          <div className="absolute top-2 right-2">
+                            <CheckCircle className="w-4 h-4 text-green-600" />
+                          </div>
+                        )}
+                      </div>
+                      {config.token && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setConfig(prev => ({ ...prev, token: '' }));
+                            setOauthState(null);
+                          }}
+                          className="text-xs text-red-600 hover:underline mt-1"
+                        >
+                          Clear token and re-authorize
+                        </button>
+                      )}
+                    </div>
+                  );
+                }
+                // If no token and still in manual mode, show input
+                return (
+                  <div key={field.name}>
+                    <textarea
+                      value={config[field.name] || ''}
+                      onChange={(e) => updateConfig(field.name, e.target.value)}
+                      placeholder="Paste your token here..."
+                      required={field.required}
+                      className="input font-mono text-xs h-24"
+                    />
+                    {field.help && (
+                      <p className="text-xs text-gray-500 mt-1">{field.help}</p>
+                    )}
+                  </div>
+                );
+              }
 
               return (
                 <div key={field.name}>

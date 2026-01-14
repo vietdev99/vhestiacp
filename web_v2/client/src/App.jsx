@@ -31,7 +31,8 @@ import Packages from './pages/Packages';
 import PackageAdd from './pages/PackageAdd';
 import PackageEdit from './pages/PackageEdit';
 import QuickInstall from './pages/QuickInstall';
-import Services from './pages/Services';
+import Applications from './pages/Applications';
+import FileManager from './pages/FileManager';
 import ServerServices from './pages/ServerServices';
 import ServiceEdit from './pages/ServiceEdit';
 import Firewall from './pages/Firewall';
@@ -111,7 +112,8 @@ export default function App() {
         <Route path="packages/:name/edit" element={<ProtectedRoute adminOnly><PackageEdit /></ProtectedRoute>} />
         <Route path="server-services" element={<ProtectedRoute adminOnly><ServerServices /></ProtectedRoute>} />
         <Route path="server-services/:name/edit" element={<ProtectedRoute adminOnly><ServiceEdit /></ProtectedRoute>} />
-        <Route path="services" element={<ProtectedRoute adminOnly><Services /></ProtectedRoute>} />
+        <Route path="applications" element={<ProtectedRoute adminOnly><Applications /></ProtectedRoute>} />
+        <Route path="file-manager" element={<ProtectedRoute adminOnly><FileManager /></ProtectedRoute>} />
         <Route path="firewall" element={<ProtectedRoute adminOnly><Firewall /></ProtectedRoute>} />
         <Route path="firewall/add" element={<ProtectedRoute adminOnly><FirewallAdd /></ProtectedRoute>} />
         <Route path="firewall/:id/edit" element={<ProtectedRoute adminOnly><FirewallEdit /></ProtectedRoute>} />

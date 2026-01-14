@@ -232,6 +232,19 @@ router.get('/info', async (req, res) => {
       mongodb: fs.existsSync('/etc/mongod.conf') || fs.existsSync('/var/lib/mongodb')
     };
 
+    // Check if file manager is enabled
+    let fileManager = true; // Default to enabled for admin
+    try {
+      const hestiaConf = path.join(HESTIA_DIR, 'conf/hestia.conf');
+      if (fs.existsSync(hestiaConf)) {
+        const conf = fs.readFileSync(hestiaConf, 'utf8');
+        const fmMatch = conf.match(/^FILE_MANAGER='?(yes|no)'?/m);
+        if (fmMatch) {
+          fileManager = fmMatch[1] === 'yes';
+        }
+      }
+    } catch (e) {}
+
     let dnsTemplates = ['default'];
     try {
       const dnsTemplatesDir = path.join(HESTIA_DIR, 'data/templates/dns');
@@ -255,7 +268,7 @@ router.get('/info', async (req, res) => {
       { code: 'it', name: 'Italiano' }
     ];
 
-    res.json({ shells, phpVersions, packages, languages, ips, webTemplates, backendTemplates, webStats, installedServices, dnsTemplates });
+    res.json({ shells, phpVersions, packages, languages, ips, webTemplates, backendTemplates, webStats, installedServices, dnsTemplates, fileManager });
   } catch (error) {
     console.error('System info error:', error);
     res.status(500).json({ error: 'Failed to get system info' });

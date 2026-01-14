@@ -248,6 +248,240 @@ router.post('/remote/:name/test', async (req, res) => {
 });
 
 /**
+ * POST /api/rclone/oauth/start
+ * Start OAuth authorization flow
+ * This starts rclone authorize in the background and returns auth URL
+ */
+router.post('/oauth/start', async (req, res) => {
+  try {
+    const { provider } = req.body;
+
+    if (!provider) {
+      return res.status(400).json({ error: 'Provider is required' });
+    }
+
+    // Supported OAuth providers
+    const supportedProviders = ['drive', 'dropbox', 'onedrive'];
+    if (!supportedProviders.includes(provider)) {
+      return res.status(400).json({ error: 'Provider does not support web OAuth' });
+    }
+
+    // Generate a unique state for this auth session
+    const state = `vhestia_${Date.now()}_${Math.random().toString(36).substring(7)}`;
+
+    // Store the state in a temp file to track the session
+    const stateFile = `/tmp/rclone_oauth_${state}.json`;
+    fs.writeFileSync(stateFile, JSON.stringify({ provider, started: Date.now() }));
+
+    // Start rclone authorize with --auth-no-open-browser
+    // This will output a URL that the user needs to visit
+    const child = exec(
+      `rclone authorize ${provider} --auth-no-open-browser 2>&1`,
+      { timeout: 120000 }, // 2 minute timeout
+      (error, stdout, stderr) => {
+        // Parse the token from stdout when complete
+        try {
+          const tokenMatch = stdout.match(/Paste the following into your remote machine[\s\S]*?({[\s\S]*?})\s*$/);
+          if (tokenMatch) {
+            const tokenData = {
+              token: tokenMatch[1].trim(),
+              completed: Date.now()
+            };
+            fs.writeFileSync(stateFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(stateFile, 'utf8')), ...tokenData }));
+          }
+        } catch (e) {
+          console.error('Failed to parse token:', e);
+        }
+      }
+    );
+
+    // Wait a bit for rclone to output the URL
+    await new Promise(resolve => setTimeout(resolve, 2000));
+
+    // Try to read the URL from rclone output by checking the process
+    // Since we can't easily capture streaming output, we'll use a different approach
+    // The URL format for rclone is predictable based on provider
+
+    // For now, return the state and let client poll for completion
+    res.json({
+      success: true,
+      state,
+      message: 'OAuth process started. Please check the server console for the authorization URL, or use the manual method.',
+      manualCommand: `rclone authorize ${provider}`
+    });
+  } catch (error) {
+    console.error('OAuth start error:', error);
+    res.status(500).json({ error: error.message || 'Failed to start OAuth' });
+  }
+});
+
+/**
+ * GET /api/rclone/oauth/status/:state
+ * Check OAuth authorization status
+ */
+router.get('/oauth/status/:state', async (req, res) => {
+  try {
+    const { state } = req.params;
+    const stateFile = `/tmp/rclone_oauth_${state}.json`;
+
+    if (!fs.existsSync(stateFile)) {
+      return res.status(404).json({ error: 'OAuth session not found' });
+    }
+
+    const data = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+
+    if (data.token) {
+      // Clean up the state file
+      fs.unlinkSync(stateFile);
+      return res.json({
+        completed: true,
+        token: data.token
+      });
+    }
+
+    // Check if session expired (5 minutes)
+    if (Date.now() - data.started > 5 * 60 * 1000) {
+      fs.unlinkSync(stateFile);
+      return res.status(410).json({ error: 'OAuth session expired' });
+    }
+
+    res.json({
+      completed: false,
+      message: 'Waiting for authorization...'
+    });
+  } catch (error) {
+    console.error('OAuth status error:', error);
+    res.status(500).json({ error: error.message || 'Failed to check OAuth status' });
+  }
+});
+
+/**
+ * POST /api/rclone/oauth/authorize
+ * Run rclone authorize and return the auth URL directly
+ * Uses a simpler approach - runs authorize and captures output
+ */
+router.post('/oauth/authorize', async (req, res) => {
+  try {
+    const { provider } = req.body;
+
+    if (!provider) {
+      return res.status(400).json({ error: 'Provider is required' });
+    }
+
+    // Run rclone authorize with headless mode to get the URL
+    // We'll use spawn to capture stdout in real-time
+    const { spawn } = await import('child_process');
+
+    const proc = spawn('rclone', ['authorize', provider, '--auth-no-open-browser'], {
+      stdio: ['pipe', 'pipe', 'pipe']
+    });
+
+    let output = '';
+    let authUrl = null;
+
+    proc.stdout.on('data', (data) => {
+      output += data.toString();
+      // Look for the auth URL in the output
+      const urlMatch = output.match(/(https?:\/\/[^\s]+)/);
+      if (urlMatch && !authUrl) {
+        authUrl = urlMatch[1];
+      }
+    });
+
+    proc.stderr.on('data', (data) => {
+      output += data.toString();
+      const urlMatch = output.match(/(https?:\/\/[^\s]+)/);
+      if (urlMatch && !authUrl) {
+        authUrl = urlMatch[1];
+      }
+    });
+
+    // Wait up to 5 seconds for the URL
+    const timeout = setTimeout(() => {
+      if (!authUrl) {
+        proc.kill();
+      }
+    }, 5000);
+
+    // Return URL as soon as we have it
+    const checkUrl = setInterval(() => {
+      if (authUrl) {
+        clearInterval(checkUrl);
+        clearTimeout(timeout);
+        res.json({
+          success: true,
+          authUrl,
+          pid: proc.pid,
+          message: 'Open the URL in your browser to authorize'
+        });
+      }
+    }, 100);
+
+    // Handle process completion to capture token
+    proc.on('close', (code) => {
+      clearInterval(checkUrl);
+      clearTimeout(timeout);
+
+      // Try to extract the token from output
+      const tokenMatch = output.match(/Paste the following into your remote machine[\s\S]*?({[\s\S]*?})\s*$/);
+      if (tokenMatch) {
+        // Store the token in a temp file keyed by PID
+        const tokenFile = `/tmp/rclone_token_${proc.pid}.json`;
+        fs.writeFileSync(tokenFile, tokenMatch[1].trim());
+      }
+
+      if (!res.headersSent) {
+        if (authUrl) {
+          res.json({
+            success: true,
+            authUrl,
+            pid: proc.pid,
+            message: 'Open the URL in your browser to authorize'
+          });
+        } else {
+          res.status(500).json({ error: 'Failed to get authorization URL', output });
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('OAuth authorize error:', error);
+    res.status(500).json({ error: error.message || 'Failed to start authorization' });
+  }
+});
+
+/**
+ * GET /api/rclone/oauth/token/:pid
+ * Get the token after OAuth completion
+ */
+router.get('/oauth/token/:pid', async (req, res) => {
+  try {
+    const { pid } = req.params;
+    const tokenFile = `/tmp/rclone_token_${pid}.json`;
+
+    if (!fs.existsSync(tokenFile)) {
+      return res.json({
+        completed: false,
+        message: 'Waiting for authorization to complete...'
+      });
+    }
+
+    const token = fs.readFileSync(tokenFile, 'utf8');
+
+    // Clean up
+    fs.unlinkSync(tokenFile);
+
+    res.json({
+      completed: true,
+      token
+    });
+  } catch (error) {
+    console.error('Get token error:', error);
+    res.status(500).json({ error: error.message || 'Failed to get token' });
+  }
+});
+
+/**
  * GET /api/rclone/providers
  * Get list of supported rclone providers
  */

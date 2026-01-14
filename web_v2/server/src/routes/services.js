@@ -323,4 +323,36 @@ router.post('/:id/stop', adminMiddleware, async (req, res) => {
   }
 });
 
+/**
+ * POST /api/services/pbm/install
+ * Install Percona Backup for MongoDB
+ */
+router.post('/pbm/install', adminMiddleware, async (req, res) => {
+  try {
+    // Install PBM using the VHestiaCP script
+    await execHestia('v-add-sys-pbm', [], { timeout: 600000 }); // 10 min timeout
+
+    res.json({ success: true, message: 'Percona Backup for MongoDB installed successfully' });
+  } catch (error) {
+    console.error('Install PBM error:', error);
+    res.status(500).json({ error: error.message || 'Failed to install PBM' });
+  }
+});
+
+/**
+ * DELETE /api/services/pbm
+ * Uninstall Percona Backup for MongoDB
+ */
+router.delete('/pbm', adminMiddleware, async (req, res) => {
+  try {
+    // Uninstall PBM
+    await execHestia('v-delete-sys-pbm', [], { timeout: 300000 });
+
+    res.json({ success: true, message: 'Percona Backup for MongoDB uninstalled successfully' });
+  } catch (error) {
+    console.error('Uninstall PBM error:', error);
+    res.status(500).json({ error: error.message || 'Failed to uninstall PBM' });
+  }
+});
+
 export default router;
