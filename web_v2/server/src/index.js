@@ -19,6 +19,9 @@ import cronRoutes from './routes/cron.js';
 import databasesRoutes from './routes/databases.js';
 import mongodbRoutes from './routes/mongodb.js';
 import firewallRoutes from './routes/firewall.js';
+import haproxyRoutes from './routes/haproxy.js';
+import rcloneRoutes from './routes/rclone.js';
+import mariadbRoutes from './routes/mariadb.js';
 import { authMiddleware } from './middleware/auth.js';
 
 const app = express();
@@ -64,6 +67,9 @@ app.use('/api/cron', authMiddleware, cronRoutes);
 app.use('/api/databases', authMiddleware, databasesRoutes);
 app.use('/api/mongodb', authMiddleware, mongodbRoutes);
 app.use('/api/firewall', authMiddleware, firewallRoutes);
+app.use('/api/haproxy', authMiddleware, haproxyRoutes);
+app.use('/api/rclone', authMiddleware, rcloneRoutes);
+app.use('/api/mariadb', authMiddleware, mariadbRoutes);
 
 // Serve React static files in production
 const clientPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../../client/dist');

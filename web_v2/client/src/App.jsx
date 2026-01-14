@@ -38,6 +38,12 @@ import Firewall from './pages/Firewall';
 import FirewallAdd from './pages/FirewallAdd';
 import FirewallEdit from './pages/FirewallEdit';
 import FirewallBanlist from './pages/FirewallBanlist';
+import HAProxy from './pages/HAProxy';
+import HAProxyVisualize from './pages/HAProxyVisualize';
+import HAProxyConfig from './pages/HAProxyConfig';
+import HAProxyFrontendAdd from './pages/HAProxyFrontendAdd';
+import HAProxyBackendAdd from './pages/HAProxyBackendAdd';
+import RcloneSettings from './pages/RcloneSettings';
 
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, loading, isAdmin } = useAuth();
@@ -110,6 +116,12 @@ export default function App() {
         <Route path="firewall/add" element={<ProtectedRoute adminOnly><FirewallAdd /></ProtectedRoute>} />
         <Route path="firewall/:id/edit" element={<ProtectedRoute adminOnly><FirewallEdit /></ProtectedRoute>} />
         <Route path="firewall/banlist" element={<ProtectedRoute adminOnly><FirewallBanlist /></ProtectedRoute>} />
+        <Route path="haproxy" element={<ProtectedRoute adminOnly><HAProxy /></ProtectedRoute>} />
+        <Route path="haproxy/visualize" element={<ProtectedRoute adminOnly><HAProxyVisualize /></ProtectedRoute>} />
+        <Route path="haproxy/config" element={<ProtectedRoute adminOnly><HAProxyConfig /></ProtectedRoute>} />
+        <Route path="haproxy/frontend/add" element={<ProtectedRoute adminOnly><HAProxyFrontendAdd /></ProtectedRoute>} />
+        <Route path="haproxy/backend/add" element={<ProtectedRoute adminOnly><HAProxyBackendAdd /></ProtectedRoute>} />
+        <Route path="admin/rclone" element={<ProtectedRoute adminOnly><RcloneSettings /></ProtectedRoute>} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
