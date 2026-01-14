@@ -7,7 +7,7 @@ const router = express.Router();
 router.get('/', async (req, res) => {
   try {
     const { type = 'mysql' } = req.query;
-    const username = req.user.username;
+    const username = req.user.user;
 
     const data = await execHestiaJson('v-list-databases', [username]);
 
@@ -34,7 +34,7 @@ router.get('/', async (req, res) => {
 router.post('/', async (req, res) => {
   try {
     const { database, dbuser, password, type = 'mysql' } = req.body;
-    const username = req.user.username;
+    const username = req.user.user;
 
     if (!database) {
       return res.status(400).json({ error: 'Database name is required' });
@@ -60,7 +60,7 @@ router.post('/', async (req, res) => {
 router.delete('/:database', async (req, res) => {
   try {
     const { database } = req.params;
-    const username = req.user.username;
+    const username = req.user.user;
 
     await execHestia('v-delete-database', [username, database]);
     res.json({ success: true, message: 'Database deleted successfully' });
@@ -73,7 +73,7 @@ router.delete('/:database', async (req, res) => {
 // List MongoDB databases
 router.get('/mongodb', async (req, res) => {
   try {
-    const username = req.user.username;
+    const username = req.user.user;
 
     const data = await execHestiaJson('v-list-database-mongo', [username]);
     const databases = Object.entries(data).map(([name, info]) => ({
@@ -92,7 +92,7 @@ router.get('/mongodb', async (req, res) => {
 router.post('/mongodb', async (req, res) => {
   try {
     const { database, password } = req.body;
-    const username = req.user.username;
+    const username = req.user.user;
 
     if (!database) {
       return res.status(400).json({ error: 'Database name is required' });
@@ -115,7 +115,7 @@ router.post('/mongodb', async (req, res) => {
 router.delete('/mongodb/:database', async (req, res) => {
   try {
     const { database } = req.params;
-    const username = req.user.username;
+    const username = req.user.user;
 
     await execHestia('v-delete-database-mongo', [username, database]);
     res.json({ success: true, message: 'MongoDB database deleted successfully' });
