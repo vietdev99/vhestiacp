@@ -74,7 +74,7 @@ export default function Statistics() {
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back
           </Link>
-          <Link to="/server-services?cpu" className="btn btn-secondary">
+          <Link to="/server-info?tab=cpu" className="btn btn-secondary">
             <Cpu className="w-4 h-4 mr-2" />
             Advanced Details
           </Link>

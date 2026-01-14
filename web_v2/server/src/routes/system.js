@@ -491,6 +491,42 @@ router.put('/server/services/:name/config', adminMiddleware, async (req, res) =>
   }
 });
 
+/**
+ * GET /api/system/server/status/:type
+ * Get detailed server status (cpu, mem, disk, net, web, dns, mail, db)
+ */
+router.get('/server/status/:type', adminMiddleware, async (req, res) => {
+  try {
+    const { type } = req.params;
+
+    const commands = {
+      cpu: 'v-list-sys-cpu-status',
+      mem: 'v-list-sys-memory-status',
+      disk: 'v-list-sys-disk-status',
+      net: 'v-list-sys-network-status',
+      web: 'v-list-sys-web-status',
+      dns: 'v-list-sys-dns-status',
+      mail: 'v-list-sys-mail-status',
+      db: 'v-list-sys-db-status'
+    };
+
+    if (!commands[type]) {
+      return res.status(400).json({ error: 'Invalid status type' });
+    }
+
+    try {
+      const output = await execHestia(commands[type], []);
+      res.json({ type, output });
+    } catch (e) {
+      // Some commands might not exist or return errors for certain systems
+      res.json({ type, output: '', error: e.message });
+    }
+  } catch (error) {
+    console.error('Server status error:', error);
+    res.status(500).json({ error: 'Failed to get server status' });
+  }
+});
+
 // Service units for RRD charts
 const SERVICE_UNITS = {
   la: 'Points',
