@@ -223,13 +223,25 @@ router.get('/info', async (req, res) => {
 
     const webStats = ['none', 'awstats', 'webalizer'];
 
+    // Detect web server type
+    let webServer = 'nginx'; // default
+    if (fs.existsSync('/etc/apache2') || fs.existsSync('/etc/httpd')) {
+      // Check if nginx is also installed (nginx + apache combo)
+      if (fs.existsSync('/etc/nginx')) {
+        webServer = 'nginx'; // nginx is the primary when both are installed
+      } else {
+        webServer = 'apache';
+      }
+    }
+
     const installedServices = {
       dns: fs.existsSync('/etc/bind') || fs.existsSync('/etc/named'),
       mail: fs.existsSync('/etc/exim4') || fs.existsSync('/etc/postfix'),
       db: fs.existsSync('/etc/mysql') || fs.existsSync('/etc/postgresql') || fs.existsSync('/etc/mongod.conf'),
       mysql: fs.existsSync('/etc/mysql') || fs.existsSync('/etc/my.cnf'),
       pgsql: fs.existsSync('/etc/postgresql'),
-      mongodb: fs.existsSync('/etc/mongod.conf') || fs.existsSync('/var/lib/mongodb')
+      mongodb: fs.existsSync('/etc/mongod.conf') || fs.existsSync('/var/lib/mongodb'),
+      webServer // 'nginx' or 'apache'
     };
 
     let dnsTemplates = ['default'];

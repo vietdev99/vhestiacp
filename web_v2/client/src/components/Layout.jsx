@@ -26,7 +26,8 @@ import {
   Activity,
   Shield,
   Network,
-  Cloud
+  Cloud,
+  BarChart3
 } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -34,10 +35,11 @@ import api from '../utils/api';
 import clsx from 'clsx';
 
 // Navigation menu items - main items (not including Database submenu and Admin submenu)
+// Note: 'Web' item is added dynamically based on web server type (nginx/apache)
 const navigationItems = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Users', href: '/users', icon: Users, adminOnly: true },
-  { name: 'Web', href: '/web', icon: Globe },
+  // Web item is added dynamically in filteredNav based on webServer type
   { name: 'DNS', href: '/dns', icon: Globe, service: 'dns' },
   { name: 'Mail', href: '/mail', icon: Mail, service: 'mail' },
   // Database is handled separately as submenu
@@ -57,6 +59,7 @@ const databaseItems = [
 const adminItems = [
   { name: 'Packages', href: '/packages', icon: Package },
   { name: 'Services', href: '/server-services', icon: Activity },
+  { name: 'Statistics', href: '/statistics', icon: BarChart3 },
   { name: 'Install/Uninstall', href: '/services', icon: Server },
   { name: 'Firewall', href: '/firewall', icon: Shield },
   { name: 'Database Settings', href: '/admin/database-settings', icon: Settings },
@@ -86,7 +89,19 @@ export default function Layout() {
 
   // Filter navigation based on admin role and installed services
   const filteredNav = useMemo(() => {
-    return navigationItems.filter(item => {
+    // Get web server type for dynamic Web menu name
+    const webServer = systemInfo?.installedServices?.webServer || 'nginx';
+    const webServerName = webServer === 'apache' ? 'Web Apache' : 'Web Nginx';
+
+    // Build navigation with dynamic Web item
+    const navWithWeb = [
+      { name: 'Dashboard', href: '/', icon: LayoutDashboard },
+      { name: 'Users', href: '/users', icon: Users, adminOnly: true },
+      { name: webServerName, href: '/web', icon: Globe }, // Dynamic name based on web server
+      ...navigationItems.filter(item => item.name !== 'Dashboard' && item.name !== 'Users')
+    ];
+
+    return navWithWeb.filter(item => {
       // Check admin-only items
       if (item.adminOnly && !isAdmin) return false;
       // Check if service is installed
@@ -283,7 +298,7 @@ export default function Layout() {
                 onClick={() => setAdminMenuOpen(!adminMenuOpen)}
                 className={clsx(
                   'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                  (location.pathname.startsWith('/packages') || location.pathname.startsWith('/services') || location.pathname.startsWith('/server-services') || location.pathname.startsWith('/admin') || location.pathname.startsWith('/firewall') || location.pathname.startsWith('/haproxy'))
+                  (location.pathname.startsWith('/packages') || location.pathname.startsWith('/services') || location.pathname.startsWith('/server-services') || location.pathname.startsWith('/statistics') || location.pathname.startsWith('/admin') || location.pathname.startsWith('/firewall') || location.pathname.startsWith('/haproxy'))
                     ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400'
                     : 'text-gray-700 hover:bg-gray-100 dark:text-dark-text dark:hover:bg-dark-border'
                 )}
