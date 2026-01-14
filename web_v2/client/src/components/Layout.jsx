@@ -22,7 +22,8 @@ import {
   Package,
   Server,
   Leaf,
-  Cylinder
+  Cylinder,
+  Activity
 } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -52,6 +53,7 @@ const databaseItems = [
 // Admin submenu items
 const adminItems = [
   { name: 'Packages', href: '/packages', icon: Package },
+  { name: 'Services', href: '/server-services', icon: Activity },
   { name: 'Install/Uninstall', href: '/services', icon: Server },
   { name: 'Database Settings', href: '/admin/database-settings', icon: Settings },
 ];
@@ -275,7 +277,7 @@ export default function Layout() {
                 onClick={() => setAdminMenuOpen(!adminMenuOpen)}
                 className={clsx(
                   'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                  (location.pathname.startsWith('/packages') || location.pathname.startsWith('/services') || location.pathname.startsWith('/admin'))
+                  (location.pathname.startsWith('/packages') || location.pathname.startsWith('/services') || location.pathname.startsWith('/server-services') || location.pathname.startsWith('/admin'))
                     ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400'
                     : 'text-gray-700 hover:bg-gray-100 dark:text-dark-text dark:hover:bg-dark-border'
                 )}

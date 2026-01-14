@@ -1,6 +1,14 @@
 import { execSync, exec } from 'child_process';
 
-const HESTIA_BIN = '/usr/local/hestia/bin';
+const HESTIA = process.env.HESTIA || '/usr/local/hestia';
+const HESTIA_BIN = `${HESTIA}/bin`;
+
+// Environment variables needed for Hestia scripts
+const HESTIA_ENV = {
+  ...process.env,
+  HESTIA: HESTIA,
+  PATH: `${HESTIA_BIN}:${process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'}`
+};
 
 /**
  * Execute Hestia command synchronously
@@ -11,7 +19,7 @@ const HESTIA_BIN = '/usr/local/hestia/bin';
 export function execHestiaSync(cmd, args = []) {
   const fullCmd = `${HESTIA_BIN}/${cmd} ${args.map(a => `'${a}'`).join(' ')}`;
   try {
-    return execSync(fullCmd, { encoding: 'utf8', maxBuffer: 50 * 1024 * 1024 });
+    return execSync(fullCmd, { encoding: 'utf8', maxBuffer: 50 * 1024 * 1024, env: HESTIA_ENV });
   } catch (error) {
     throw new Error(`Command failed: ${error.message}`);
   }
@@ -29,7 +37,8 @@ export function execHestia(cmd, args = [], options = {}) {
     const fullCmd = `${HESTIA_BIN}/${cmd} ${args.map(a => `'${a}'`).join(' ')}`;
     const execOptions = {
       maxBuffer: 50 * 1024 * 1024,
-      timeout: options.timeout || 120000 // Default 2 minutes
+      timeout: options.timeout || 120000, // Default 2 minutes
+      env: HESTIA_ENV
     };
     exec(fullCmd, execOptions, (error, stdout, stderr) => {
       if (error) {

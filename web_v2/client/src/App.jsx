@@ -32,6 +32,8 @@ import PackageAdd from './pages/PackageAdd';
 import PackageEdit from './pages/PackageEdit';
 import QuickInstall from './pages/QuickInstall';
 import Services from './pages/Services';
+import ServerServices from './pages/ServerServices';
+import ServiceEdit from './pages/ServiceEdit';
 
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, loading, isAdmin } = useAuth();
@@ -97,6 +99,8 @@ export default function App() {
         <Route path="packages" element={<ProtectedRoute adminOnly><Packages /></ProtectedRoute>} />
         <Route path="packages/add" element={<ProtectedRoute adminOnly><PackageAdd /></ProtectedRoute>} />
         <Route path="packages/:name/edit" element={<ProtectedRoute adminOnly><PackageEdit /></ProtectedRoute>} />
+        <Route path="server-services" element={<ProtectedRoute adminOnly><ServerServices /></ProtectedRoute>} />
+        <Route path="server-services/:name/edit" element={<ProtectedRoute adminOnly><ServiceEdit /></ProtectedRoute>} />
         <Route path="services" element={<ProtectedRoute adminOnly><Services /></ProtectedRoute>} />
       </Route>
 
