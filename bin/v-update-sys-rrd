@@ -125,6 +125,11 @@ for period in $periods; do
 			esac
 		done
 	fi
+
+	# Updating MongoDB stats (if installed)
+	if [ -f "/etc/mongod.conf" ] || [ -d "/var/lib/mongodb" ]; then
+		"$BIN/v-update-sys-rrd-mongodb" "$period" > /dev/null 2>&1
+	fi
 done
 
 #----------------------------------------------------------#

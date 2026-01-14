@@ -103,6 +103,21 @@ function generate_pgsql_table() {
 	fi
 }
 
+function generate_mongodb_table() {
+	if [ -f "$RRD/db/mongodb_$host.rrd" ]; then
+		rrdtool xport --json -s $start -e $end --step $step \
+			DEF:c=$RRD/db/mongodb_$host.rrd:C:AVERAGE \
+			DEF:q=$RRD/db/mongodb_$host.rrd:Q:AVERAGE \
+			DEF:m=$RRD/db/mongodb_$host.rrd:M:AVERAGE \
+			XPORT:c:Connections \
+			XPORT:q:Queries \
+			XPORT:m:Memory
+	else
+		echo "Does not exists"
+		exit 1
+	fi
+}
+
 function generate_mail_table() {
 	rrdtool xport --json -s $start -e $end --step $step \
 		DEF:a=$RRD/mail/mail.rrd:A:AVERAGE \
@@ -183,6 +198,10 @@ case $chart in
 
 	"pgsql")
 		generate_pgsql_table
+		;;
+
+	"mongodb")
+		generate_mongodb_table
 		;;
 
 	"mail")
