@@ -18,6 +18,7 @@ import dnsRoutes from './routes/dns.js';
 import cronRoutes from './routes/cron.js';
 import databasesRoutes from './routes/databases.js';
 import mongodbRoutes from './routes/mongodb.js';
+import firewallRoutes from './routes/firewall.js';
 import { authMiddleware } from './middleware/auth.js';
 
 const app = express();
@@ -62,6 +63,7 @@ app.use('/api/dns', authMiddleware, dnsRoutes);
 app.use('/api/cron', authMiddleware, cronRoutes);
 app.use('/api/databases', authMiddleware, databasesRoutes);
 app.use('/api/mongodb', authMiddleware, mongodbRoutes);
+app.use('/api/firewall', authMiddleware, firewallRoutes);
 
 // Serve React static files in production
 const clientPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../../client/dist');

@@ -34,6 +34,10 @@ import QuickInstall from './pages/QuickInstall';
 import Services from './pages/Services';
 import ServerServices from './pages/ServerServices';
 import ServiceEdit from './pages/ServiceEdit';
+import Firewall from './pages/Firewall';
+import FirewallAdd from './pages/FirewallAdd';
+import FirewallEdit from './pages/FirewallEdit';
+import FirewallBanlist from './pages/FirewallBanlist';
 
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, loading, isAdmin } = useAuth();
@@ -102,6 +106,10 @@ export default function App() {
         <Route path="server-services" element={<ProtectedRoute adminOnly><ServerServices /></ProtectedRoute>} />
         <Route path="server-services/:name/edit" element={<ProtectedRoute adminOnly><ServiceEdit /></ProtectedRoute>} />
         <Route path="services" element={<ProtectedRoute adminOnly><Services /></ProtectedRoute>} />
+        <Route path="firewall" element={<ProtectedRoute adminOnly><Firewall /></ProtectedRoute>} />
+        <Route path="firewall/add" element={<ProtectedRoute adminOnly><FirewallAdd /></ProtectedRoute>} />
+        <Route path="firewall/:id/edit" element={<ProtectedRoute adminOnly><FirewallEdit /></ProtectedRoute>} />
+        <Route path="firewall/banlist" element={<ProtectedRoute adminOnly><FirewallBanlist /></ProtectedRoute>} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
