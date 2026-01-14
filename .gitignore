@@ -17,6 +17,25 @@ Thumbs.db
 # Logs
 *.log
 logs/
+# Environment files
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
 
 # Temp files
 *.tmp
@@ -28,3 +47,9 @@ logs/
 web_v2/client/node_modules
 web_v2/server/node_modules
 node_modules
+
+# Build directories
+web_v2/client/dist/
+web_v2/server/dist/
+**/dist/
+**/build/
