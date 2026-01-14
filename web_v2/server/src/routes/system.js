@@ -479,4 +479,82 @@ router.put('/server/services/:name/config', adminMiddleware, async (req, res) =>
   }
 });
 
+// Service units for RRD charts
+const SERVICE_UNITS = {
+  la: 'Points',
+  mem: 'Mbytes',
+  apache2: 'Connections',
+  nginx: 'Connections',
+  mail: 'Queue Size',
+  ftp: 'Connections',
+  ssh: 'Connections'
+};
+
+/**
+ * GET /api/system/rrd/list
+ * List available RRD charts
+ */
+router.get('/rrd/list', adminMiddleware, async (req, res) => {
+  try {
+    const rrdData = await execHestiaJson('v-list-sys-rrd', []);
+
+    // Transform to array format
+    const charts = Object.values(rrdData || {}).map(item => ({
+      type: item.TYPE,
+      rrd: item.RRD,
+      title: item.TITLE,
+      service: item.TYPE !== 'net' ? item.RRD : `net_${item.RRD}`
+    }));
+
+    res.json({ charts });
+  } catch (error) {
+    console.error('List RRD error:', error);
+    res.status(500).json({ error: 'Failed to list RRD charts' });
+  }
+});
+
+/**
+ * POST /api/system/rrd/export
+ * Export RRD chart data
+ */
+router.post('/rrd/export', adminMiddleware, async (req, res) => {
+  try {
+    const { service = 'la', period = 'daily' } = req.body;
+
+    // Validate period
+    const allowedPeriods = ['daily', 'weekly', 'monthly', 'yearly', 'biennially', 'triennially'];
+    if (!allowedPeriods.includes(period)) {
+      return res.status(400).json({ error: 'Invalid period' });
+    }
+
+    // Get RRD data
+    const output = await execHestia('v-export-rrd', [service, period]);
+
+    let data;
+    try {
+      data = JSON.parse(output);
+    } catch (e) {
+      console.error('Failed to parse RRD data:', output);
+      return res.status(500).json({ error: 'Failed to parse RRD data' });
+    }
+
+    // Add service and unit info
+    data.service = service;
+
+    // Determine unit
+    let unit = SERVICE_UNITS[service] || null;
+    if (service.startsWith('net_')) {
+      unit = 'KBytes';
+    } else if (service.startsWith('pgsql_') || service.startsWith('mysql_')) {
+      unit = 'Queries';
+    }
+    data.unit = unit;
+
+    res.json(data);
+  } catch (error) {
+    console.error('Export RRD error:', error);
+    res.status(500).json({ error: 'Failed to export RRD data' });
+  }
+});
+
 export default router;
