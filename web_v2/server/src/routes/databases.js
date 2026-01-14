@@ -56,6 +56,27 @@ router.post('/', async (req, res) => {
   }
 });
 
+// Change database password (MySQL/PostgreSQL)
+router.put('/:database/password', async (req, res) => {
+  try {
+    const { database } = req.params;
+    const { password } = req.body;
+    const username = req.user.user;
+
+    if (!password) {
+      return res.status(400).json({ error: 'Password is required' });
+    }
+
+    // v-change-database-password USER DATABASE DBUSER PASSWORD
+    // Get DB user from database name (typically same as database name)
+    await execHestia('v-change-database-password', [username, database, database, password]);
+    res.json({ success: true, message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('Error changing database password:', error);
+    res.status(500).json({ error: error.message || 'Failed to change password' });
+  }
+});
+
 // Delete database
 router.delete('/:database', async (req, res) => {
   try {
@@ -108,6 +129,26 @@ router.post('/mongodb', async (req, res) => {
   } catch (error) {
     console.error('Error creating MongoDB database:', error);
     res.status(500).json({ error: error.message || 'Failed to create MongoDB database' });
+  }
+});
+
+// Change MongoDB database password
+router.put('/mongodb/:database/password', async (req, res) => {
+  try {
+    const { database } = req.params;
+    const { password } = req.body;
+    const username = req.user.user;
+
+    if (!password) {
+      return res.status(400).json({ error: 'Password is required' });
+    }
+
+    // v-change-database-mongo-password USER DATABASE PASSWORD
+    await execHestia('v-change-database-mongo-password', [username, database, password]);
+    res.json({ success: true, message: 'Password changed successfully' });
+  } catch (error) {
+    console.error('Error changing MongoDB password:', error);
+    res.status(500).json({ error: error.message || 'Failed to change password' });
   }
 });
 
