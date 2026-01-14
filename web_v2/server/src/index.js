@@ -17,6 +17,7 @@ import servicesRoutes from './routes/services.js';
 import dnsRoutes from './routes/dns.js';
 import cronRoutes from './routes/cron.js';
 import databasesRoutes from './routes/databases.js';
+import haproxyRoutes from './routes/haproxy.js';
 import { authMiddleware } from './middleware/auth.js';
 
 const app = express();
@@ -60,6 +61,7 @@ app.use('/api/services', authMiddleware, servicesRoutes);
 app.use('/api/dns', authMiddleware, dnsRoutes);
 app.use('/api/cron', authMiddleware, cronRoutes);
 app.use('/api/databases', authMiddleware, databasesRoutes);
+app.use('/api/haproxy', authMiddleware, haproxyRoutes);
 
 // Serve React static files in production
 const clientPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../../client/dist');

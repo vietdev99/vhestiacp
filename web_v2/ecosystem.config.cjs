@@ -1,7 +1,7 @@
 module.exports = {
   apps: [
     {
-      name: 'vhestia-panel',
+      name: 'vhestia-panel-haproxy',
       cwd: './server',
       script: 'src/index.js',
       node_args: '--experimental-modules',
@@ -11,7 +11,7 @@ module.exports = {
       max_memory_restart: '256M',
       env: {
         NODE_ENV: 'production',
-        PORT: 9093,
+        PORT: 9095,
         HESTIA: '/usr/local/hestia',
         SSL_KEY: '/usr/local/hestia/ssl/certificate.key',
         SSL_CERT: '/usr/local/hestia/ssl/certificate.crt'

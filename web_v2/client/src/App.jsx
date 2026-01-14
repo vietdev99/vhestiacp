@@ -32,6 +32,11 @@ import PackageAdd from './pages/PackageAdd';
 import PackageEdit from './pages/PackageEdit';
 import QuickInstall from './pages/QuickInstall';
 import Services from './pages/Services';
+import HAProxy from './pages/HAProxy';
+import HAProxyVisualize from './pages/HAProxyVisualize';
+import HAProxyConfig from './pages/HAProxyConfig';
+import HAProxyFrontendAdd from './pages/HAProxyFrontendAdd';
+import HAProxyBackendAdd from './pages/HAProxyBackendAdd';
 
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, loading, isAdmin } = useAuth();
@@ -98,6 +103,11 @@ export default function App() {
         <Route path="packages/add" element={<ProtectedRoute adminOnly><PackageAdd /></ProtectedRoute>} />
         <Route path="packages/:name/edit" element={<ProtectedRoute adminOnly><PackageEdit /></ProtectedRoute>} />
         <Route path="services" element={<ProtectedRoute adminOnly><Services /></ProtectedRoute>} />
+        <Route path="haproxy" element={<ProtectedRoute adminOnly><HAProxy /></ProtectedRoute>} />
+        <Route path="haproxy/visualize" element={<ProtectedRoute adminOnly><HAProxyVisualize /></ProtectedRoute>} />
+        <Route path="haproxy/config" element={<ProtectedRoute adminOnly><HAProxyConfig /></ProtectedRoute>} />
+        <Route path="haproxy/frontend/add" element={<ProtectedRoute adminOnly><HAProxyFrontendAdd /></ProtectedRoute>} />
+        <Route path="haproxy/backend/add" element={<ProtectedRoute adminOnly><HAProxyBackendAdd /></ProtectedRoute>} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
