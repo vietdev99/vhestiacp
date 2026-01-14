@@ -26,7 +26,8 @@ import {
   Activity,
   Shield,
   Network,
-  Cloud
+  Cloud,
+  BarChart3
 } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -43,6 +44,7 @@ const navigationItems = [
   // Database is handled separately as submenu
   { name: 'Cron', href: '/cron', icon: Clock },
   { name: 'Backups', href: '/backups', icon: HardDrive },
+  { name: 'Statistics', href: '/stats', icon: BarChart3 },
   // Admin items (Packages, Services, Database Settings) handled separately as submenu
 ];
 
