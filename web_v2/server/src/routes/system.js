@@ -111,7 +111,11 @@ router.get('/info', async (req, res) => {
     const installedServices = {
       dns: fs.existsSync('/etc/bind') || fs.existsSync('/etc/named'),
       mail: fs.existsSync('/etc/exim4') || fs.existsSync('/etc/postfix'),
-      db: fs.existsSync('/etc/mysql') || fs.existsSync('/etc/postgresql')
+      db: fs.existsSync('/etc/mysql') || fs.existsSync('/etc/postgresql') || fs.existsSync('/etc/mongod.conf'),
+      // Individual database types for submenu
+      mysql: fs.existsSync('/etc/mysql') || fs.existsSync('/etc/my.cnf'),
+      pgsql: fs.existsSync('/etc/postgresql'),
+      mongodb: fs.existsSync('/etc/mongod.conf') || fs.existsSync('/var/lib/mongodb')
     };
 
     // Get DNS templates (BIND9)
