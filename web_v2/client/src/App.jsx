@@ -46,6 +46,7 @@ import HAProxyFrontendAdd from './pages/HAProxyFrontendAdd';
 import HAProxyBackendAdd from './pages/HAProxyBackendAdd';
 import RcloneSettings from './pages/RcloneSettings';
 import Stats from './pages/Stats';
+import Statistics from './pages/Statistics';
 
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, loading, isAdmin } = useAuth();
@@ -126,6 +127,7 @@ export default function App() {
         <Route path="haproxy/backend/add" element={<ProtectedRoute adminOnly><HAProxyBackendAdd /></ProtectedRoute>} />
         <Route path="admin/rclone" element={<ProtectedRoute adminOnly><RcloneSettings /></ProtectedRoute>} />
         <Route path="stats" element={<Stats />} />
+        <Route path="statistics" element={<ProtectedRoute adminOnly><Statistics /></ProtectedRoute>} />
       </Route>
 
       <Route path="*" element={<Navigate to="/" replace />} />
