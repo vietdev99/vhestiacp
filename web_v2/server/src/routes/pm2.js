@@ -10,7 +10,7 @@ const router = Router();
  */
 router.get('/', async (req, res) => {
   try {
-    const { user } = req.auth;
+    const user = req.user;
     const isAdmin = user.role === 'admin';
 
     if (isAdmin) {
@@ -19,7 +19,7 @@ router.get('/', async (req, res) => {
       res.json(result);
     } else {
       // Regular user sees only their PM2 processes
-      const result = await execHestiaJson('v-list-user-pm2', [user.username]);
+      const result = await execHestiaJson('v-list-user-pm2', [user.user]);
       res.json(result);
     }
   } catch (error) {
@@ -55,11 +55,11 @@ router.post('/:id/restart', async (req, res) => {
   try {
     const { id } = req.params;
     const { username } = req.body;
-    const { user } = req.auth;
+    const user = req.user;
     const isAdmin = user.role === 'admin';
 
     // Determine target user
-    const targetUser = isAdmin && username ? username : user.username;
+    const targetUser = isAdmin && username ? username : user.user;
 
     await execHestia('v-restart-pm2-app', [targetUser, id]);
     res.json({ success: true, message: 'Process restarted successfully' });
@@ -77,10 +77,10 @@ router.post('/:id/stop', async (req, res) => {
   try {
     const { id } = req.params;
     const { username } = req.body;
-    const { user } = req.auth;
+    const user = req.user;
     const isAdmin = user.role === 'admin';
 
-    const targetUser = isAdmin && username ? username : user.username;
+    const targetUser = isAdmin && username ? username : user.user;
 
     await execHestia('v-stop-pm2-app', [targetUser, id]);
     res.json({ success: true, message: 'Process stopped successfully' });
@@ -98,10 +98,10 @@ router.post('/:id/start', async (req, res) => {
   try {
     const { id } = req.params;
     const { username } = req.body;
-    const { user } = req.auth;
+    const user = req.user;
     const isAdmin = user.role === 'admin';
 
-    const targetUser = isAdmin && username ? username : user.username;
+    const targetUser = isAdmin && username ? username : user.user;
 
     await execHestia('v-start-pm2-app', [targetUser, id]);
     res.json({ success: true, message: 'Process started successfully' });
@@ -119,10 +119,10 @@ router.delete('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { username } = req.query;
-    const { user } = req.auth;
+    const user = req.user;
     const isAdmin = user.role === 'admin';
 
-    const targetUser = isAdmin && username ? username : user.username;
+    const targetUser = isAdmin && username ? username : user.user;
 
     await execHestia('v-delete-pm2-app', [targetUser, id]);
     res.json({ success: true, message: 'Process deleted successfully' });
@@ -140,10 +140,10 @@ router.get('/:id/logs', async (req, res) => {
   try {
     const { id } = req.params;
     const { username, lines = 100 } = req.query;
-    const { user } = req.auth;
+    const user = req.user;
     const isAdmin = user.role === 'admin';
 
-    const targetUser = isAdmin && username ? username : user.username;
+    const targetUser = isAdmin && username ? username : user.user;
 
     // Get logs using v-list-pm2-logs or direct file access
     const result = await execHestiaJson('v-list-pm2-logs', [targetUser, id, lines]);
@@ -162,7 +162,7 @@ router.get('/:id/logs', async (req, res) => {
 router.post('/bulk', async (req, res) => {
   try {
     const { action, processes } = req.body;
-    const { user } = req.auth;
+    const user = req.user;
     const isAdmin = user.role === 'admin';
 
     if (!action || !processes || !Array.isArray(processes)) {
@@ -177,7 +177,7 @@ router.post('/bulk', async (req, res) => {
     const results = [];
     for (const proc of processes) {
       const [username, id] = proc.split(':');
-      const targetUser = isAdmin ? username : user.username;
+      const targetUser = isAdmin ? username : user.user;
 
       try {
         switch (action) {

@@ -24,6 +24,8 @@ import rcloneRoutes from './routes/rclone.js';
 import mariadbRoutes from './routes/mariadb.js';
 import filesRoutes from './routes/files.js';
 import statsRoutes from './routes/stats.js';
+import pm2Routes from './routes/pm2.js';
+import backupsRoutes from './routes/backups.js';
 import { authMiddleware } from './middleware/auth.js';
 
 const app = express();
@@ -74,6 +76,8 @@ app.use('/api/rclone', authMiddleware, rcloneRoutes);
 app.use('/api/mariadb', authMiddleware, mariadbRoutes);
 app.use('/api/files', authMiddleware, filesRoutes);
 app.use('/api/stats', authMiddleware, statsRoutes);
+app.use('/api/pm2', authMiddleware, pm2Routes);
+app.use('/api/backups', authMiddleware, backupsRoutes);
 
 // Serve React static files in production
 const clientPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../../client/dist');

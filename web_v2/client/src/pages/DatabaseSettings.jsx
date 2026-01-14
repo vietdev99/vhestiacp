@@ -105,32 +105,567 @@ export default function DatabaseSettings() {
 }
 
 function MySQLSettings() {
+  const queryClient = useQueryClient();
+  const [config, setConfig] = useState('');
+  const [restartAfterSave, setRestartAfterSave] = useState(true);
+
+  // Replication settings
+  const [replicationMode, setReplicationMode] = useState('standalone');
+  const [role, setRole] = useState('master');
+  const [serverId, setServerId] = useState(1);
+  const [binlogFormat, setBinlogFormat] = useState('ROW');
+  const [replicationUser, setReplicationUser] = useState('repl');
+  const [replicationPassword, setReplicationPassword] = useState('');
+
+  // Slave settings
+  const [masterHost, setMasterHost] = useState('');
+  const [masterPort, setMasterPort] = useState(3306);
+  const [masterUser, setMasterUser] = useState('repl');
+  const [masterPassword, setMasterPassword] = useState('');
+  const [masterLogFile, setMasterLogFile] = useState('');
+  const [masterLogPos, setMasterLogPos] = useState('');
+
+  // Fetch MariaDB config
+  const { data: mariadbConfig, isLoading } = useQuery({
+    queryKey: ['mariadb-config'],
+    queryFn: async () => {
+      const res = await api.get('/api/mariadb/config');
+      return res.data;
+    }
+  });
+
+  // Initialize form with fetched data
+  useEffect(() => {
+    if (mariadbConfig) {
+      setConfig(mariadbConfig.config || '');
+      if (mariadbConfig.settings) {
+        setServerId(mariadbConfig.settings.serverId || 1);
+        setBinlogFormat(mariadbConfig.settings.binlogFormat || 'ROW');
+        if (mariadbConfig.settings.logBin) {
+          setReplicationMode(mariadbConfig.replicationStatus?.isSlave ? 'master-slave' :
+            mariadbConfig.settings.replicationMode === 'master' ? 'master-slave' : 'standalone');
+        }
+      }
+    }
+  }, [mariadbConfig]);
+
+  // Save config mutation
+  const saveMutation = useMutation({
+    mutationFn: async (data) => {
+      await api.post('/api/mariadb/config', data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['mariadb-config']);
+    }
+  });
+
+  // Setup replication mutation
+  const setupReplicationMutation = useMutation({
+    mutationFn: async (data) => {
+      const res = await api.post('/api/mariadb/replication/setup', data);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['mariadb-config']);
+    }
+  });
+
+  // Start slave mutation
+  const startSlaveMutation = useMutation({
+    mutationFn: async (data) => {
+      const res = await api.post('/api/mariadb/replication/start-slave', data);
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['mariadb-config']);
+    }
+  });
+
+  // Stop slave mutation
+  const stopSlaveMutation = useMutation({
+    mutationFn: async () => {
+      const res = await api.post('/api/mariadb/replication/stop-slave');
+      return res.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['mariadb-config']);
+    }
+  });
+
+  // Handle config save
+  const handleSaveConfig = () => {
+    saveMutation.mutate({
+      config,
+      configPath: mariadbConfig?.configPath,
+      restart: restartAfterSave
+    });
+  };
+
+  // Handle replication setup
+  const handleSetupReplication = () => {
+    setupReplicationMutation.mutate({
+      mode: replicationMode,
+      role,
+      serverId,
+      binlogFormat,
+      replicationUser,
+      replicationPassword
+    });
+  };
+
+  // Handle start slave
+  const handleStartSlave = () => {
+    startSlaveMutation.mutate({
+      masterHost,
+      masterPort,
+      masterUser,
+      masterPassword,
+      masterLogFile: masterLogFile || undefined,
+      masterLogPos: masterLogPos ? parseInt(masterLogPos) : undefined
+    });
+  };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-32">
+        <Loader2 className="w-6 h-6 animate-spin text-primary-600" />
+      </div>
+    );
+  }
+
+  const replicationStatus = mariadbConfig?.replicationStatus;
+
   return (
     <div className="space-y-6">
-      <div className="flex items-center gap-3 mb-4">
-        <Server className="w-5 h-5 text-blue-500" />
-        <h3 className="text-lg font-medium">MariaDB / MySQL Configuration</h3>
+      {/* Status Bar */}
+      <div className="flex items-center gap-4 p-4 bg-gray-50 dark:bg-dark-border rounded-lg">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-gray-600 dark:text-dark-muted">Status:</span>
+          {mariadbConfig?.status === 'running' ? (
+            <span className="flex items-center gap-1 text-green-600">
+              <CheckCircle className="w-4 h-4" />
+              Running
+            </span>
+          ) : (
+            <span className="flex items-center gap-1 text-red-600">
+              <XCircle className="w-4 h-4" />
+              Stopped
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium text-gray-600 dark:text-dark-muted">Version:</span>
+          <span className="text-sm">{mariadbConfig?.version || 'Unknown'}</span>
+        </div>
+        {replicationStatus?.isMaster && (
+          <span className="px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded">Master</span>
+        )}
+        {replicationStatus?.isSlave && (
+          <span className="px-2 py-1 text-xs bg-purple-100 text-purple-700 rounded">Slave</span>
+        )}
       </div>
 
-      <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-4">
-        <p className="text-sm text-blue-700 dark:text-blue-300">
-          MariaDB configuration can be managed through the old panel at{' '}
-          <a href="/edit/server/mysql/" className="underline font-medium">
-            /edit/server/mysql/
-          </a>
-        </p>
+      {/* Replication Status */}
+      {(replicationStatus?.isMaster || replicationStatus?.isSlave) && (
+        <div className="p-4 border border-gray-200 dark:border-dark-border rounded-lg space-y-3">
+          <h4 className="font-medium flex items-center gap-2">
+            <Server className="w-4 h-4" />
+            Replication Status
+          </h4>
+
+          {replicationStatus?.masterStatus && (
+            <div className="grid grid-cols-2 gap-4 text-sm">
+              <div>
+                <span className="text-gray-500">Binary Log File:</span>
+                <span className="ml-2 font-mono">{replicationStatus.masterStatus.file}</span>
+              </div>
+              <div>
+                <span className="text-gray-500">Position:</span>
+                <span className="ml-2 font-mono">{replicationStatus.masterStatus.position}</span>
+              </div>
+            </div>
+          )}
+
+          {replicationStatus?.slaveStatus && (
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <span className="text-gray-500">Master Host:</span>
+                  <span className="ml-2 font-mono">{replicationStatus.slaveStatus.masterHost}</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500">IO Thread:</span>
+                  {replicationStatus.slaveStatus.slaveIORunning ? (
+                    <CheckCircle className="w-4 h-4 text-green-500" />
+                  ) : (
+                    <XCircle className="w-4 h-4 text-red-500" />
+                  )}
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-gray-500">SQL Thread:</span>
+                  {replicationStatus.slaveStatus.slaveSQLRunning ? (
+                    <CheckCircle className="w-4 h-4 text-green-500" />
+                  ) : (
+                    <XCircle className="w-4 h-4 text-red-500" />
+                  )}
+                </div>
+                <div>
+                  <span className="text-gray-500">Lag:</span>
+                  <span className="ml-2">{replicationStatus.slaveStatus.secondsBehindMaster}s</span>
+                </div>
+              </div>
+
+              {replicationStatus.slaveStatus.lastError && (
+                <div className="p-2 bg-red-50 dark:bg-red-900/20 rounded text-sm text-red-700 dark:text-red-400">
+                  <strong>Error:</strong> {replicationStatus.slaveStatus.lastError}
+                </div>
+              )}
+
+              <div className="flex gap-2">
+                {replicationStatus.slaveStatus.slaveIORunning ? (
+                  <button
+                    onClick={() => stopSlaveMutation.mutate()}
+                    disabled={stopSlaveMutation.isPending}
+                    className="btn btn-secondary btn-sm"
+                  >
+                    {stopSlaveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+                    Stop Slave
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => startSlaveMutation.mutate({
+                      masterHost: replicationStatus.slaveStatus.masterHost,
+                      masterUser,
+                      masterPassword: masterPassword || 'repl_password'
+                    })}
+                    disabled={startSlaveMutation.isPending}
+                    className="btn btn-primary btn-sm"
+                  >
+                    {startSlaveMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : null}
+                    Start Slave
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Config Editor */}
+      <div>
+        <label className="block text-sm font-medium mb-2">
+          Configuration File ({mariadbConfig?.configPath || '/etc/mysql/my.cnf'})
+        </label>
+        <textarea
+          value={config}
+          onChange={(e) => setConfig(e.target.value)}
+          className="w-full h-48 font-mono text-sm p-3 bg-gray-900 text-gray-100 rounded-lg border border-gray-700 focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+          spellCheck={false}
+        />
+        <div className="flex items-center justify-between mt-3">
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={restartAfterSave}
+              onChange={(e) => setRestartAfterSave(e.target.checked)}
+              className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+            />
+            <span className="text-sm">Restart service after saving</span>
+          </label>
+          <button
+            onClick={handleSaveConfig}
+            disabled={saveMutation.isPending}
+            className="btn btn-primary"
+          >
+            {saveMutation.isPending ? (
+              <>
+                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              <>
+                <Save className="w-4 h-4 mr-2" />
+                Save Configuration
+              </>
+            )}
+          </button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="p-4 bg-gray-50 dark:bg-dark-border rounded-lg">
-          <h4 className="font-medium mb-2">Config File</h4>
-          <p className="text-sm text-gray-600 dark:text-dark-muted">/etc/mysql/my.cnf</p>
-        </div>
-        <div className="p-4 bg-gray-50 dark:bg-dark-border rounded-lg">
-          <h4 className="font-medium mb-2">Service</h4>
-          <p className="text-sm text-gray-600 dark:text-dark-muted">mariadb.service</p>
+      {/* Replication Setup */}
+      <div className="border-t border-gray-200 dark:border-dark-border pt-6">
+        <h3 className="text-lg font-medium mb-4 flex items-center gap-2">
+          <Server className="w-5 h-5 text-blue-500" />
+          Replication Configuration
+        </h3>
+
+        <div className="space-y-4">
+          {/* Replication Mode */}
+          <div>
+            <label className="block text-sm font-medium mb-1">Replication Mode</label>
+            <select
+              value={replicationMode}
+              onChange={(e) => setReplicationMode(e.target.value)}
+              className="input"
+            >
+              <option value="standalone">Standalone (No Replication)</option>
+              <option value="master-slave">Master-Slave</option>
+              <option value="master-master">Master-Master</option>
+            </select>
+          </div>
+
+          {replicationMode !== 'standalone' && (
+            <div className="ml-4 pl-4 border-l-4 border-blue-500 space-y-4">
+              {/* Role selection for master-slave */}
+              {replicationMode === 'master-slave' && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">This Server Role</label>
+                  <select
+                    value={role}
+                    onChange={(e) => setRole(e.target.value)}
+                    className="input"
+                  >
+                    <option value="master">Master (Primary)</option>
+                    <option value="slave">Slave (Replica)</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Server ID */}
+              <div>
+                <label className="block text-sm font-medium mb-1">Server ID</label>
+                <input
+                  type="number"
+                  value={serverId}
+                  onChange={(e) => setServerId(parseInt(e.target.value))}
+                  min={1}
+                  className="input"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Each server in the replication topology must have a unique ID
+                </p>
+              </div>
+
+              {/* Binlog Format */}
+              <div>
+                <label className="block text-sm font-medium mb-1">Binary Log Format</label>
+                <select
+                  value={binlogFormat}
+                  onChange={(e) => setBinlogFormat(e.target.value)}
+                  className="input"
+                >
+                  <option value="ROW">ROW (Recommended)</option>
+                  <option value="STATEMENT">STATEMENT</option>
+                  <option value="MIXED">MIXED</option>
+                </select>
+              </div>
+
+              {/* Master settings */}
+              {(role === 'master' || replicationMode === 'master-master') && (
+                <div className="p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg space-y-3">
+                  <h4 className="font-medium text-blue-700 dark:text-blue-300">Master Settings</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Replication User</label>
+                      <input
+                        type="text"
+                        value={replicationUser}
+                        onChange={(e) => setReplicationUser(e.target.value)}
+                        placeholder="repl"
+                        className="input"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Replication Password</label>
+                      <input
+                        type="password"
+                        value={replicationPassword}
+                        onChange={(e) => setReplicationPassword(e.target.value)}
+                        placeholder="Enter password for new user"
+                        className="input"
+                      />
+                    </div>
+                  </div>
+                  <p className="text-xs text-blue-600 dark:text-blue-400">
+                    This will create a replication user with REPLICATION SLAVE privileges
+                  </p>
+                </div>
+              )}
+
+              {/* Slave settings */}
+              {(role === 'slave' || replicationMode === 'master-master') && (
+                <div className="p-4 bg-purple-50 dark:bg-purple-900/20 rounded-lg space-y-3">
+                  <h4 className="font-medium text-purple-700 dark:text-purple-300">
+                    {replicationMode === 'master-master' ? 'Connect to Other Master' : 'Connect to Master'}
+                  </h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Master Host</label>
+                      <input
+                        type="text"
+                        value={masterHost}
+                        onChange={(e) => setMasterHost(e.target.value)}
+                        placeholder="192.168.1.100"
+                        className="input"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Master Port</label>
+                      <input
+                        type="number"
+                        value={masterPort}
+                        onChange={(e) => setMasterPort(parseInt(e.target.value))}
+                        className="input"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Replication User</label>
+                      <input
+                        type="text"
+                        value={masterUser}
+                        onChange={(e) => setMasterUser(e.target.value)}
+                        placeholder="repl"
+                        className="input"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Replication Password</label>
+                      <input
+                        type="password"
+                        value={masterPassword}
+                        onChange={(e) => setMasterPassword(e.target.value)}
+                        className="input"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">
+                        Binary Log File <span className="text-gray-400">(optional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={masterLogFile}
+                        onChange={(e) => setMasterLogFile(e.target.value)}
+                        placeholder="mariadb-bin.000001"
+                        className="input font-mono"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">
+                        Log Position <span className="text-gray-400">(optional)</span>
+                      </label>
+                      <input
+                        type="text"
+                        value={masterLogPos}
+                        onChange={(e) => setMasterLogPos(e.target.value)}
+                        placeholder="4"
+                        className="input font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  <p className="text-xs text-purple-600 dark:text-purple-400">
+                    Leave log file/position empty to use GTID-based replication (recommended for MariaDB 10.0+)
+                  </p>
+                </div>
+              )}
+
+              {/* Setup Actions */}
+              <div className="flex flex-wrap gap-3">
+                <button
+                  onClick={handleSetupReplication}
+                  disabled={setupReplicationMutation.isPending}
+                  className="btn btn-primary"
+                >
+                  {setupReplicationMutation.isPending ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Setting up...
+                    </>
+                  ) : (
+                    <>
+                      <Settings className="w-4 h-4 mr-2" />
+                      Setup Replication Config
+                    </>
+                  )}
+                </button>
+
+                {role === 'slave' && (
+                  <button
+                    onClick={handleStartSlave}
+                    disabled={startSlaveMutation.isPending || !masterHost || !masterPassword}
+                    className="btn btn-secondary"
+                  >
+                    {startSlaveMutation.isPending ? (
+                      <>
+                        <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                        Starting...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle className="w-4 h-4 mr-2" />
+                        Start Slave Replication
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Tips */}
+      <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+        <h4 className="font-medium text-amber-800 dark:text-amber-300 mb-2">Replication Setup Tips</h4>
+        <ul className="text-sm text-amber-700 dark:text-amber-400 space-y-1 list-disc list-inside">
+          <li><strong>Master-Slave:</strong> One master handles writes, slaves handle reads. Good for read scaling.</li>
+          <li><strong>Master-Master:</strong> Both servers can accept writes. Use with caution - requires careful conflict handling.</li>
+          <li>Ensure both servers can communicate on port 3306 (check firewall rules)</li>
+          <li>For initial sync, consider using mysqldump on master and importing on slave</li>
+          <li>Always test replication in a staging environment first</li>
+        </ul>
+      </div>
+
+      {/* Status Messages */}
+      {saveMutation.isSuccess && (
+        <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-700 dark:text-green-400 text-sm">
+          <CheckCircle className="w-4 h-4 inline mr-2" />
+          Configuration saved successfully
+        </div>
+      )}
+      {saveMutation.isError && (
+        <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 text-sm">
+          <XCircle className="w-4 h-4 inline mr-2" />
+          {saveMutation.error?.response?.data?.error || 'Failed to save configuration'}
+        </div>
+      )}
+      {setupReplicationMutation.isSuccess && (
+        <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-700 dark:text-green-400 text-sm">
+          <CheckCircle className="w-4 h-4 inline mr-2" />
+          Replication configuration applied. Service restarted.
+        </div>
+      )}
+      {setupReplicationMutation.isError && (
+        <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 text-sm">
+          <XCircle className="w-4 h-4 inline mr-2" />
+          {setupReplicationMutation.error?.response?.data?.error || 'Failed to setup replication'}
+        </div>
+      )}
+      {startSlaveMutation.isSuccess && (
+        <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-700 dark:text-green-400 text-sm">
+          <CheckCircle className="w-4 h-4 inline mr-2" />
+          Slave replication started successfully
+        </div>
+      )}
+      {startSlaveMutation.isError && (
+        <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 text-sm">
+          <XCircle className="w-4 h-4 inline mr-2" />
+          {startSlaveMutation.error?.response?.data?.error || 'Failed to start slave replication'}
+        </div>
+      )}
     </div>
   );
 }

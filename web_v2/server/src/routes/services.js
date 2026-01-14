@@ -50,6 +50,13 @@ const AVAILABLE_SERVICES = {
     addCmd: 'v-add-sys-mongodb',
     deleteCmd: null
   },
+  pbm: {
+    name: 'Percona Backup (PBM)',
+    description: 'Backup tool for MongoDB',
+    category: 'database',
+    addCmd: 'v-add-sys-pbm',
+    deleteCmd: 'v-delete-sys-pbm'
+  },
   redis: {
     name: 'Redis',
     description: 'In-Memory Cache & Database',

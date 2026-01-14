@@ -28,7 +28,8 @@ import {
   Network,
   Cloud,
   FolderOpen,
-  BarChart3
+  BarChart3,
+  Box
 } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -46,6 +47,7 @@ const navigationItems = [
   // Database is handled separately as submenu
   { name: 'Cron', href: '/cron', icon: Clock },
   { name: 'Backups', href: '/backups', icon: HardDrive },
+  { name: 'PM2', href: '/pm2', icon: Box },
   { name: 'Statistics', href: '/stats', icon: BarChart3 },
   // Admin items (Packages, Services, Database Settings) handled separately as submenu
 ];
