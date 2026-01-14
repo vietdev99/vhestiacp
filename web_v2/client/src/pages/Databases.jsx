@@ -1,16 +1,27 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useState, useMemo } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import api from '../utils/api';
-import { Plus, Search, Database, MoreVertical, HardDrive } from 'lucide-react';
+import { Plus, Search, Database, MoreVertical, HardDrive, Leaf } from 'lucide-react';
+
+// Database type labels
+const DB_TYPE_CONFIG = {
+  mysql: { label: 'MariaDB', description: 'Manage your MariaDB/MySQL databases', api: '/api/databases', addPath: '/databases/add?type=mysql', badge: 'mysql' },
+  pgsql: { label: 'PostgreSQL', description: 'Manage your PostgreSQL databases', api: '/api/databases', addPath: '/databases/add?type=pgsql', badge: 'pgsql' },
+  mongodb: { label: 'MongoDB', description: 'Manage your MongoDB databases', api: '/api/databases/mongodb', addPath: '/databases/mongodb/add', badge: 'mongodb' }
+};
 
 export default function Databases() {
   const [search, setSearch] = useState('');
+  const [searchParams] = useSearchParams();
+  const dbType = searchParams.get('type') || 'mysql';
+
+  const typeConfig = DB_TYPE_CONFIG[dbType] || DB_TYPE_CONFIG.mysql;
 
   const { data, isLoading, error } = useQuery({
-    queryKey: ['databases'],
+    queryKey: ['databases', dbType],
     queryFn: async () => {
-      const res = await api.get('/api/databases');
+      const res = await api.get(typeConfig.api, { params: { type: dbType } });
       return res.data.databases || [];
     }
   });
@@ -35,17 +46,23 @@ export default function Databases() {
     );
   }
 
+  // MongoDB has different columns
+  const isMongoDB = dbType === 'mongodb';
+
   return (
     <div>
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Databases</h1>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            {isMongoDB ? <Leaf className="w-6 h-6 text-green-600" /> : <Database className="w-6 h-6" />}
+            {typeConfig.label}
+          </h1>
           <p className="text-gray-500 dark:text-dark-muted mt-1">
-            Manage your MySQL/MariaDB databases
+            {typeConfig.description}
           </p>
         </div>
-        <Link to="/databases/add" className="btn btn-primary">
+        <Link to={typeConfig.addPath} className="btn btn-primary">
           <Plus className="w-4 h-4 mr-2" />
           Add Database
         </Link>
@@ -75,16 +92,16 @@ export default function Databases() {
                   Database
                 </th>
                 <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 dark:text-dark-muted uppercase tracking-wider">
-                  User
+                  {isMongoDB ? 'Collections' : 'User'}
                 </th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-dark-muted uppercase tracking-wider">
                   Type
                 </th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-dark-muted uppercase tracking-wider">
-                  Disk
+                  {isMongoDB ? 'Size' : 'Disk'}
                 </th>
                 <th className="px-4 py-3 text-center text-xs font-medium text-gray-500 dark:text-dark-muted uppercase tracking-wider">
-                  Status
+                  {isMongoDB ? 'Users' : 'Status'}
                 </th>
                 <th className="px-4 py-3 text-right text-xs font-medium text-gray-500 dark:text-dark-muted uppercase tracking-wider">
                   Actions
@@ -96,27 +113,42 @@ export default function Databases() {
                 <tr key={item.database} className="hover:bg-gray-50 dark:hover:bg-dark-border/50">
                   <td className="px-4 py-4">
                     <div className="flex items-center gap-2">
-                      <Database className="w-5 h-5 text-gray-400" />
+                      {isMongoDB ? (
+                        <Leaf className="w-5 h-5 text-green-500" />
+                      ) : (
+                        <Database className="w-5 h-5 text-gray-400" />
+                      )}
                       <span className="font-medium">{item.database}</span>
                     </div>
                   </td>
                   <td className="px-4 py-4 text-sm text-gray-600 dark:text-dark-muted">
-                    {item.DBUSER || '-'}
+                    {isMongoDB ? (item.COLLECTIONS || 0) : (item.DBUSER || '-')}
                   </td>
                   <td className="px-4 py-4 text-center">
-                    <span className="badge badge-info">{item.TYPE || 'mysql'}</span>
+                    <span className={`badge ${isMongoDB ? 'badge-success' : 'badge-info'}`}>
+                      {typeConfig.badge}
+                    </span>
                   </td>
                   <td className="px-4 py-4 text-center">
                     <span className="flex items-center justify-center gap-1 text-sm text-gray-600 dark:text-dark-muted">
                       <HardDrive className="w-4 h-4" />
-                      {item.U_DISK || 0} MB
+                      {isMongoDB
+                        ? `${Math.round((item.SIZE || 0) / 1024)} KB`
+                        : `${item.U_DISK || 0} MB`
+                      }
                     </span>
                   </td>
                   <td className="px-4 py-4 text-center">
-                    {item.SUSPENDED === 'yes' ? (
-                      <span className="badge badge-danger">Suspended</span>
+                    {isMongoDB ? (
+                      <span className="text-sm text-gray-600 dark:text-dark-muted">
+                        {item.USERS || 0} users
+                      </span>
                     ) : (
-                      <span className="badge badge-success">Active</span>
+                      item.SUSPENDED === 'yes' ? (
+                        <span className="badge badge-danger">Suspended</span>
+                      ) : (
+                        <span className="badge badge-success">Active</span>
+                      )
                     )}
                   </td>
                   <td className="px-4 py-4 text-right">

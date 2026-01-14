@@ -18,26 +18,42 @@ import {
   ArrowLeftCircle,
   User,
   ChevronDown,
+  ChevronRight,
   Package,
-  Server
+  Server,
+  Leaf,
+  Cylinder
 } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import api from '../utils/api';
 import clsx from 'clsx';
 
-// Navigation menu items - Packages and Services at bottom
+// Navigation menu items - main items (not including Database submenu and Admin submenu)
 const navigationItems = [
   { name: 'Dashboard', href: '/', icon: LayoutDashboard },
   { name: 'Users', href: '/users', icon: Users, adminOnly: true },
   { name: 'Web', href: '/web', icon: Globe },
   { name: 'DNS', href: '/dns', icon: Globe, service: 'dns' },
   { name: 'Mail', href: '/mail', icon: Mail, service: 'mail' },
-  { name: 'Databases', href: '/databases', icon: Database, service: 'db' },
+  // Database is handled separately as submenu
   { name: 'Cron', href: '/cron', icon: Clock },
   { name: 'Backups', href: '/backups', icon: HardDrive },
-  { name: 'Packages', href: '/packages', icon: Package, adminOnly: true },
-  { name: 'Services', href: '/services', icon: Server, adminOnly: true },
+  // Admin items (Packages, Services, Database Settings) handled separately as submenu
+];
+
+// Database submenu items - filtered by installed services
+const databaseItems = [
+  { name: 'MariaDB', href: '/databases?type=mysql', icon: Cylinder, service: 'mysql' },
+  { name: 'PostgreSQL', href: '/databases?type=pgsql', icon: Database, service: 'pgsql' },
+  { name: 'MongoDB', href: '/databases?type=mongodb', icon: Leaf, service: 'mongodb' },
+];
+
+// Admin submenu items
+const adminItems = [
+  { name: 'Packages', href: '/packages', icon: Package },
+  { name: 'Install/Uninstall', href: '/services', icon: Server },
+  { name: 'Database Settings', href: '/admin/database-settings', icon: Settings },
 ];
 
 export default function Layout() {
@@ -47,6 +63,8 @@ export default function Layout() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [dbMenuOpen, setDbMenuOpen] = useState(false);
+  const [adminMenuOpen, setAdminMenuOpen] = useState(false);
 
   // Fetch system info to check installed services
   const { data: systemInfo } = useQuery({
@@ -70,6 +88,19 @@ export default function Layout() {
       return true;
     });
   }, [isAdmin, systemInfo]);
+
+  // Filter database items based on installed services
+  const filteredDbItems = useMemo(() => {
+    return databaseItems.filter(item => {
+      if (item.service && systemInfo?.installedServices) {
+        return systemInfo.installedServices[item.service] === true;
+      }
+      return true;
+    });
+  }, [systemInfo]);
+
+  // Check if any database is installed
+  const hasAnyDatabase = filteredDbItems.length > 0;
 
   const handleReturnToAdmin = () => {
     if (previousUser) {
@@ -193,6 +224,92 @@ export default function Layout() {
               </Link>
             );
           })}
+
+          {/* Database submenu */}
+          {hasAnyDatabase && (
+            <div>
+              <button
+                onClick={() => setDbMenuOpen(!dbMenuOpen)}
+                className={clsx(
+                  'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                  location.pathname.startsWith('/databases')
+                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400'
+                    : 'text-gray-700 hover:bg-gray-100 dark:text-dark-text dark:hover:bg-dark-border'
+                )}
+              >
+                <Database className="w-5 h-5" />
+                <span className="flex-1 text-left">Databases</span>
+                <ChevronRight className={clsx('w-4 h-4 transition-transform', dbMenuOpen && 'rotate-90')} />
+              </button>
+              {dbMenuOpen && (
+                <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-200 dark:border-dark-border pl-3">
+                  {filteredDbItems.map((item) => {
+                    const isActive = location.pathname + location.search === item.href ||
+                      (location.pathname === '/databases' && location.search === `?type=${item.service}`);
+                    return (
+                      <Link
+                        key={item.name}
+                        to={item.href}
+                        className={clsx(
+                          'flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
+                          isActive
+                            ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400'
+                            : 'text-gray-600 hover:bg-gray-100 dark:text-dark-muted dark:hover:bg-dark-border'
+                        )}
+                        onClick={() => setSidebarOpen(false)}
+                      >
+                        <item.icon className="w-4 h-4" />
+                        {item.name}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Admin submenu */}
+          {isAdmin && (
+            <div className="mt-4 pt-4 border-t border-gray-200 dark:border-dark-border">
+              <button
+                onClick={() => setAdminMenuOpen(!adminMenuOpen)}
+                className={clsx(
+                  'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                  (location.pathname.startsWith('/packages') || location.pathname.startsWith('/services') || location.pathname.startsWith('/admin'))
+                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400'
+                    : 'text-gray-700 hover:bg-gray-100 dark:text-dark-text dark:hover:bg-dark-border'
+                )}
+              >
+                <Settings className="w-5 h-5" />
+                <span className="flex-1 text-left">Admin</span>
+                <ChevronRight className={clsx('w-4 h-4 transition-transform', adminMenuOpen && 'rotate-90')} />
+              </button>
+              {adminMenuOpen && (
+                <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-200 dark:border-dark-border pl-3">
+                  {adminItems.map((item) => {
+                    const isActive = location.pathname === item.href ||
+                      (item.href !== '/' && location.pathname.startsWith(item.href));
+                    return (
+                      <Link
+                        key={item.name}
+                        to={item.href}
+                        className={clsx(
+                          'flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
+                          isActive
+                            ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400'
+                            : 'text-gray-600 hover:bg-gray-100 dark:text-dark-muted dark:hover:bg-dark-border'
+                        )}
+                        onClick={() => setSidebarOpen(false)}
+                      >
+                        <item.icon className="w-4 h-4" />
+                        {item.name}
+                      </Link>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
         </nav>
 
         {/* Bottom actions */}

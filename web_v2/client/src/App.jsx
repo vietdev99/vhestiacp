@@ -21,6 +21,8 @@ import Mail from './pages/Mail';
 import MailAdd from './pages/MailAdd';
 import Databases from './pages/Databases';
 import DatabaseAdd from './pages/DatabaseAdd';
+import MongoDBAdd from './pages/MongoDBAdd';
+import DatabaseSettings from './pages/DatabaseSettings';
 import Cron from './pages/Cron';
 import CronAdd from './pages/CronAdd';
 import CronEdit from './pages/CronEdit';
@@ -86,6 +88,8 @@ export default function App() {
         <Route path="mail/add" element={<MailAdd />} />
         <Route path="databases" element={<Databases />} />
         <Route path="databases/add" element={<DatabaseAdd />} />
+        <Route path="databases/mongodb/add" element={<MongoDBAdd />} />
+        <Route path="admin/database-settings" element={<ProtectedRoute adminOnly><DatabaseSettings /></ProtectedRoute>} />
         <Route path="cron" element={<Cron />} />
         <Route path="cron/add" element={<CronAdd />} />
         <Route path="cron/:id/edit" element={<CronEdit />} />

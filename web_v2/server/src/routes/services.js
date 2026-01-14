@@ -140,6 +140,19 @@ const AVAILABLE_SERVICES = {
   }
 };
 
+// Service name mappings (config key -> possible service names in v-list-sys-services)
+const SERVICE_ALIASES = {
+  mysql: ['mysql', 'mariadb', 'mysqld'],
+  postgresql: ['postgresql', 'postgres', 'pgsql'],
+  mongodb: ['mongodb', 'mongod'],
+  exim4: ['exim4', 'exim'],
+  bind9: ['bind9', 'named', 'bind'],
+  apache2: ['apache2', 'httpd', 'apache'],
+  proftpd: ['proftpd', 'vsftpd', 'pure-ftpd'],
+  clamav: ['clamav', 'clamav-daemon', 'clamd'],
+  spamd: ['spamd', 'spamassassin']
+};
+
 /**
  * GET /api/services
  * List all services and their status
@@ -149,10 +162,23 @@ router.get('/', adminMiddleware, async (req, res) => {
     // Get running services
     const runningServices = await execHestiaJson('v-list-sys-services', []);
 
+    // Helper to find service by aliases
+    const findService = (key) => {
+      // Direct match
+      if (runningServices[key]) return runningServices[key];
+
+      // Check aliases
+      const aliases = SERVICE_ALIASES[key] || [];
+      for (const alias of aliases) {
+        if (runningServices[alias]) return runningServices[alias];
+      }
+
+      return null;
+    };
+
     // Map services with status
     const services = Object.entries(AVAILABLE_SERVICES).map(([key, config]) => {
-      const running = runningServices[key] || runningServices[key.replace('-', '')] ||
-                     runningServices[key.replace('4', '')] || null;
+      const running = findService(key);
 
       return {
         id: key,
