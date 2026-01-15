@@ -889,5 +889,191 @@ router.post('/instances/check-port', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/mongodb/instances
+ * List all MongoDB instances
+ */
+router.get('/instances', async (req, res) => {
+  try {
+    const result = execSync('bash /usr/local/hestia/bin/v-list-mongodb-instances json', { encoding: 'utf8' });
+    const instances = JSON.parse(result || '{}');
+    res.json(instances);
+  } catch (error) {
+    console.error('List instances error:', error);
+    res.status(500).json({ error: error.message || 'Failed to list instances' });
+  }
+});
+
+/**
+ * POST /api/mongodb/instances
+ * Create a new MongoDB instance
+ */
+router.post('/instances', async (req, res) => {
+  try {
+    const { name, port, dataDir } = req.body;
+    
+    if (!name || !port) {
+      return res.status(400).json({ error: 'Name and port are required' });
+    }
+
+    // Create instance using shell script
+    execSync(`bash /usr/local/hestia/bin/v-add-mongodb-instance '${name}' '${port}' '${dataDir || ''}'`, { encoding: 'utf8' });
+    
+    res.json({ success: true, message: `Instance ${name} created successfully` });
+  } catch (error) {
+    console.error('Create instance error:', error);
+    res.status(500).json({ error: error.message || 'Failed to create instance' });
+  }
+});
+
+/**
+ * DELETE /api/mongodb/instances/:name
+ * Delete a MongoDB instance
+ */
+router.delete('/instances/:name', async (req, res) => {
+  try {
+    const { name } = req.params;
+    
+    if (name === 'default') {
+      return res.status(400).json({ error: 'Cannot delete default instance' });
+    }
+
+    execSync(`bash /usr/local/hestia/bin/v-delete-mongodb-instance '${name}'`, { encoding: 'utf8' });
+    
+    res.json({ success: true, message: `Instance ${name} deleted successfully` });
+  } catch (error) {
+    console.error('Delete instance error:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete instance' });
+  }
+});
+
+/**
+ * GET /api/mongodb/instances/:name/config
+ * Get instance configuration
+ */
+router.get('/instances/:name/config', async (req, res) => {
+  try {
+    const { name } = req.params;
+    const configPath = name === 'default' 
+      ? '/etc/mongod.conf'
+      : `/etc/mongodb-instances/${name}.conf`;
+
+    if (!fs.existsSync(configPath)) {
+      return res.status(404).json({ error: `Config file not found for instance ${name}` });
+    }
+
+    const config = fs.readFileSync(configPath, 'utf8');
+    
+    // Load settings from JSON file for this instance
+    const instanceSettingsFile = path.join(HESTIA_DIR, `data/mongodb-instances/${name}-settings.json`);
+    let settings = {};
+    if (fs.existsSync(instanceSettingsFile)) {
+      settings = JSON.parse(fs.readFileSync(instanceSettingsFile, 'utf8'));
+    }
+
+    res.json({ config, settings });
+  } catch (error) {
+    console.error('Get instance config error:', error);
+    res.status(500).json({ error: error.message || 'Failed to get instance config' });
+  }
+});
+
+/**
+ * POST /api/mongodb/instances/:name/config
+ * Save instance configuration
+ */
+router.post('/instances/:name/config', async (req, res) => {
+  try {
+    const { name } = req.params;
+    const { config, restart, settings } = req.body;
+
+    const configPath = name === 'default' 
+      ? '/etc/mongod.conf'
+      : `/etc/mongodb-instances/${name}.conf`;
+
+    // Save config file
+    if (config) {
+      const backupPath = `${configPath}.backup.${Date.now()}`;
+      try {
+        fs.copyFileSync(configPath, backupPath);
+      } catch {
+        // No existing config to backup
+      }
+      fs.writeFileSync(configPath, config, 'utf8');
+    }
+
+    // Save settings to JSON file
+    if (settings) {
+      const instanceSettingsFile = path.join(HESTIA_DIR, `data/mongodb-instances/${name}-settings.json`);
+      const dir = path.dirname(instanceSettingsFile);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      fs.writeFileSync(instanceSettingsFile, JSON.stringify(settings, null, 2), 'utf8');
+    }
+
+    // Restart instance if requested
+    if (restart) {
+      const serviceName = name === 'default' ? 'mongod' : `mongod-${name}`;
+      exec(`systemctl restart ${serviceName}`, (error) => {
+        if (error) {
+          console.error(`Restart ${serviceName} error:`, error);
+        }
+      });
+    }
+
+    res.json({ success: true, message: 'Configuration saved successfully' });
+  } catch (error) {
+    console.error('Save instance config error:', error);
+    res.status(500).json({ error: error.message || 'Failed to save configuration' });
+  }
+});
+
+/**
+ * POST /api/mongodb/instances/:name/start
+ * Start a MongoDB instance
+ */
+router.post('/instances/:name/start', async (req, res) => {
+  try {
+    const { name } = req.params;
+    execSync(`bash /usr/local/hestia/bin/v-start-mongodb-instance '${name}'`, { encoding: 'utf8' });
+    res.json({ success: true, message: `Instance ${name} started successfully` });
+  } catch (error) {
+    console.error('Start instance error:', error);
+    res.status(500).json({ error: error.message || 'Failed to start instance' });
+  }
+});
+
+/**
+ * POST /api/mongodb/instances/:name/stop
+ * Stop a MongoDB instance
+ */
+router.post('/instances/:name/stop', async (req, res) => {
+  try {
+    const { name } = req.params;
+    execSync(`bash /usr/local/hestia/bin/v-stop-mongodb-instance '${name}'`, { encoding: 'utf8' });
+    res.json({ success: true, message: `Instance ${name} stopped successfully` });
+  } catch (error) {
+    console.error('Stop instance error:', error);
+    res.status(500).json({ error: error.message || 'Failed to stop instance' });
+  }
+});
+
+/**
+ * POST /api/mongodb/instances/:name/restart
+ * Restart a MongoDB instance
+ */
+router.post('/instances/:name/restart', async (req, res) => {
+  try {
+    const { name } = req.params;
+    execSync(`bash /usr/local/hestia/bin/v-restart-mongodb-instance '${name}'`, { encoding: 'utf8' });
+    res.json({ success: true, message: `Instance ${name} restarted successfully` });
+  } catch (error) {
+    console.error('Restart instance error:', error);
+    res.status(500).json({ error: error.message || 'Failed to restart instance' });
+  }
+});
+
 export default router;
+
 
