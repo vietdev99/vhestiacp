@@ -307,30 +307,6 @@ export default function ServerConfigure() {
               ))}
             </select>
           </div>
-          <div>
-            <label className="form-label">Theme</label>
-            <select
-              className="form-select w-full"
-              value={formData.theme || ''}
-              onChange={(e) => handleFieldChange('theme', e.target.value)}
-            >
-              {(data?.themes || []).map(t => (
-                <option key={t} value={t}>{t}</option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="form-label">Default Language</label>
-            <select
-              className="form-select w-full"
-              value={formData.language || ''}
-              onChange={(e) => handleFieldChange('language', e.target.value)}
-            >
-              {(data?.languages || []).map(lang => (
-                <option key={lang} value={lang}>{lang}</option>
-              ))}
-            </select>
-          </div>
           <div className="flex items-center gap-2">
             <input
               type="checkbox"
