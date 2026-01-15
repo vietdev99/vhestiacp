@@ -19,7 +19,7 @@ source $HESTIA/func/main.sh
 source_conf "$HESTIA/conf/hestia.conf"
 
 WEB_V2_DIR="$HESTIA/web_v2"
-WEB_V2_PORT=9093
+WEB_V2_PORT=8083
 
 #----------------------------------------------------------#
 #                    Verifications                         #

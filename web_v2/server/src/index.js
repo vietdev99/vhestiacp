@@ -29,7 +29,7 @@ import backupsRoutes from './routes/backups.js';
 import { authMiddleware } from './middleware/auth.js';
 
 const app = express();
-const PORT = process.env.PORT || 9093;
+const PORT = process.env.PORT || 8083;
 const HESTIA_DIR = process.env.HESTIA || '/usr/local/hestia';
 
 // SSL certificates (use Hestia's certificates)

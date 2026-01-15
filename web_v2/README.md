@@ -7,7 +7,7 @@ Modern web panel for VHestiaCP built with React + Node.js.
 - React 18 + TailwindCSS for modern UI
 - Dark/Light mode support
 - JWT authentication
-- Direct HTTPS server (port 9093)
+- Direct HTTPS server (port 8083)
 - PM2 process management
 - Real-time updates (coming soon)
 
@@ -55,7 +55,7 @@ pm2 save
 
 ### 3. Access
 
-Open https://your-server:9093
+Open https://your-server:8083
 
 ## Development
 

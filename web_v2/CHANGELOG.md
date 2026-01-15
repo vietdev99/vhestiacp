@@ -70,7 +70,7 @@ All notable changes to VHestiaCP Panel v2 will be documented in this file.
 - React 18 + TailwindCSS modern UI
 - Dark/Light mode support
 - JWT authentication with secure cookies
-- Direct HTTPS server on port 9093
+- Direct HTTPS server on port 8083
 - PM2 process management
 
 #### Features

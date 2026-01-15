@@ -764,9 +764,10 @@
                             <div class="option-item">
                                 <div class="option-info">
                                     <span class="option-name">PHP-FPM</span>
+                                    <span class="option-desc">Optional</span>
                                 </div>
                                 <label class="toggle-switch">
-                                    <input type="checkbox" id="phpfpm" checked onchange="generateCommand()">
+                                    <input type="checkbox" id="phpfpm" onchange="generateCommand()">
                                     <span class="toggle-slider"></span>
                                 </label>
                             </div>
@@ -798,9 +799,10 @@
                             <div class="option-item highlight">
                                 <div class="option-info">
                                     <span class="option-name">Node.js + PM2</span>
+                                    <span class="option-desc">Required for Panel</span>
                                 </div>
                                 <label class="toggle-switch">
-                                    <input type="checkbox" id="nodejs" onchange="toggleNodejs()">
+                                    <input type="checkbox" id="nodejs" checked onchange="toggleNodejs()">
                                     <span class="toggle-slider"></span>
                                 </label>
                             </div>

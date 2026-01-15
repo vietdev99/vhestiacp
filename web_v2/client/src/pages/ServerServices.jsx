@@ -139,13 +139,22 @@ export default function ServerServices() {
             Monitor and manage running services on the server
           </p>
         </div>
-        <button
-          onClick={() => refetch()}
-          className="btn btn-secondary"
-        >
-          <RefreshCw className="w-4 h-4 mr-2" />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to="/server-configure"
+            className="btn btn-primary"
+          >
+            <Settings className="w-4 h-4 mr-2" />
+            Configure
+          </Link>
+          <button
+            onClick={() => refetch()}
+            className="btn btn-secondary"
+          >
+            <RefreshCw className="w-4 h-4 mr-2" />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* System Info Card */}
