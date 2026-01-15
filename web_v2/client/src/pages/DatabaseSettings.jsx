@@ -4,7 +4,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import api from '../utils/api';
 import {
   Database, Settings, Server, Save, Key, Upload, Download,
-  CheckCircle, XCircle, AlertTriangle, Loader2, Leaf, Info, ExternalLink
+  CheckCircle, XCircle, AlertTriangle, Loader2, Leaf, Info, ExternalLink,
+  Play, Square, RefreshCw, Trash2, Plus
 } from 'lucide-react';
 
 export default function DatabaseSettings() {
@@ -714,7 +715,7 @@ function PostgreSQLSettings() {
 }
 
 // MongoDB Instance Manager Component with Tabs
-function MongoDBInstanceManager() {
+function MongoDBInstanceManager({ rcloneRemotes = [] }) {
   const queryClient = useQueryClient();
   const [showAddDialog, setShowAddDialog] = useState(false);
   const [activeInstance, setActiveInstance] = useState(null);
@@ -732,6 +733,99 @@ function MongoDBInstanceManager() {
   });
 
   const instances = instancesData?.instances || [];
+
+  // Config editing state for selected instance
+  const [editConfig, setEditConfig] = useState({
+    dataDir: '',
+    clusterMode: 'standalone',
+    replicaSetName: 'rs0',
+    nodeRole: 'primary',
+    shardRole: 'shardsvr',
+    keyfilePath: '',
+    // PBM settings
+    pbm: {
+      enabled: false,
+      type: 'logical',
+      storage: 'filesystem',
+      path: '/var/lib/pbm/backups',
+      scheduleType: 'daily',
+      time: '02:00'
+    }
+  });
+  const [configText, setConfigText] = useState('');
+  const [showConfigEditor, setShowConfigEditor] = useState(false);
+  const [showPbmSettings, setShowPbmSettings] = useState(false);
+  const [restartAfterSave, setRestartAfterSave] = useState(true);
+
+  // Fetch config for selected instance
+  const { data: instanceConfig, refetch: refetchConfig } = useQuery({
+    queryKey: ['mongodb-instance-config', activeInstance],
+    queryFn: async () => {
+      if (!activeInstance) return null;
+      // For default instance, use the main config endpoint
+      if (activeInstance === 'default') {
+        const res = await api.get('/api/mongodb/config');
+        return res.data;
+      }
+      // For custom instances, read their config file
+      const res = await api.get(`/api/mongodb/instances/${activeInstance}`);
+      return res.data;
+    },
+    enabled: !!activeInstance
+  });
+
+  // Update edit state when instance config loads
+  useEffect(() => {
+    if (instanceConfig) {
+      const settings = instanceConfig.settings || {};
+      setEditConfig({
+        dataDir: instanceConfig.dataDir || settings.dataDir || '',
+        clusterMode: instanceConfig.clusterMode || settings.clusterMode || 'standalone',
+        replicaSetName: instanceConfig.replicaSetName || settings.replicaSetName || 'rs0',
+        nodeRole: instanceConfig.nodeRole || settings.nodeRole || 'primary',
+        shardRole: instanceConfig.shardRole || settings.shardRole || 'shardsvr',
+        keyfilePath: instanceConfig.keyfilePath || settings.keyfilePath || '',
+        pbm: instanceConfig.pbm || settings.pbm || {
+          enabled: false,
+          type: 'logical',
+          storage: 'filesystem',
+          path: '/var/lib/pbm/backups',
+          scheduleType: 'daily',
+          time: '02:00'
+        }
+      });
+      setConfigText(instanceConfig.config || '');
+    }
+  }, [instanceConfig]);
+
+  // Save config mutation
+  const saveConfigMutation = useMutation({
+    mutationFn: async (configData) => {
+      if (activeInstance === 'default') {
+        // Use existing config save endpoint for default
+        const res = await api.post('/api/mongodb/config', {
+          config: configData.configText,
+          restart: restartAfterSave,
+          ...configData.settings
+        });
+        return res.data;
+      }
+      // For custom instances - update their config
+      const res = await api.post(`/api/mongodb/instances/${activeInstance}/config`, {
+        config: configData.configText,
+        restart: restartAfterSave,
+        settings: configData.settings
+      });
+      return res.data;
+    },
+    onSuccess: () => {
+      refetch();
+      refetchConfig();
+      // Refetch status again after a delay to catch service restart
+      setTimeout(() => refetch(), 2000);
+      setTimeout(() => refetch(), 5000);
+    }
+  });
   
   // Set active instance to first one if not set
   useEffect(() => {
@@ -827,7 +921,7 @@ function MongoDBInstanceManager() {
             className="flex items-center gap-1 px-4 py-2 text-sm font-medium text-gray-400 hover:text-primary-600 border-b-2 border-transparent"
             title="Add Instance"
           >
-            <span className="text-lg">+</span>
+            <Plus className="w-4 h-4" />
           </button>
         </nav>
       </div>
@@ -964,7 +1058,7 @@ function MongoDBInstanceManager() {
                     className="btn btn-secondary btn-sm"
                     title="Restart"
                   >
-                    {restartMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : '🔄 Restart'}
+                    {restartMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <><RefreshCw className="w-4 h-4" /> Restart</>}
                   </button>
                   <button
                     onClick={() => stopMutation.mutate(selectedInstance.name)}
@@ -972,7 +1066,7 @@ function MongoDBInstanceManager() {
                     className="btn btn-secondary btn-sm"
                     title="Stop"
                   >
-                    {stopMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : '⏹️ Stop'}
+                    {stopMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Square className="w-4 h-4" /> Stop</>}
                   </button>
                 </>
               ) : (
@@ -982,7 +1076,7 @@ function MongoDBInstanceManager() {
                   className="btn btn-primary btn-sm"
                   title="Start"
                 >
-                  {startMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : '▶️ Start'}
+                  {startMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Play className="w-4 h-4" /> Start</>}
                 </button>
               )}
               <button
@@ -995,7 +1089,7 @@ function MongoDBInstanceManager() {
                 className="btn btn-danger btn-sm"
                 title="Delete"
               >
-                {deleteMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : '🗑️ Delete'}
+                {deleteMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Trash2 className="w-4 h-4" /> Delete</>}
               </button>
             </div>
           </div>
@@ -1026,6 +1120,563 @@ function MongoDBInstanceManager() {
           <div className="mt-4 p-3 bg-white dark:bg-dark-card rounded-lg">
             <span className="text-xs text-gray-500 uppercase">Data Directory</span>
             <p className="font-mono text-sm">{selectedInstance.dataDir}</p>
+          </div>
+
+          {/* Instance Configuration */}
+          <div className="mt-4 p-3 bg-white dark:bg-dark-card rounded-lg">
+            <span className="text-xs text-gray-500 uppercase">Configuration File</span>
+            <p className="font-mono text-sm">{selectedInstance.configPath}</p>
+          </div>
+
+          {/* Cluster Info */}
+          <div className="mt-4 grid grid-cols-2 gap-4">
+            <div className="p-3 bg-white dark:bg-dark-card rounded-lg">
+              <span className="text-xs text-gray-500 uppercase">Cluster Mode</span>
+            <p className="font-medium capitalize">{selectedInstance.clusterMode}</p>
+            </div>
+            {selectedInstance.replicaSetName && (
+              <div className="p-3 bg-white dark:bg-dark-card rounded-lg">
+                <span className="text-xs text-gray-500 uppercase">Replica Set</span>
+                <p className="font-medium">{selectedInstance.replicaSetName}</p>
+              </div>
+            )}
+          </div>
+
+          {/* Advanced Configuration Section */}
+          <div className="mt-6 pt-6 border-t border-gray-200 dark:border-dark-border">
+            <h4 className="text-md font-medium mb-4">Instance Configuration</h4>
+            
+            {/* Config File Editor Toggle */}
+            <div className="mb-4">
+              <button
+                onClick={() => setShowConfigEditor(!showConfigEditor)}
+                className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-dark-muted hover:text-primary-600"
+              >
+                <span className={`transform transition-transform ${showConfigEditor ? 'rotate-90' : ''}`}>▶</span>
+                Configuration File ({selectedInstance.configPath})
+              </button>
+              {showConfigEditor && (
+                <textarea
+                  value={configText}
+                  onChange={(e) => setConfigText(e.target.value)}
+                  className="w-full h-64 font-mono text-sm p-3 mt-2 bg-gray-900 text-gray-100 rounded-lg border border-gray-700 focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+                  spellCheck={false}
+                  placeholder="Loading configuration..."
+                />
+              )}
+            </div>
+
+            {/* Quick Settings */}
+            <div className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Data Directory
+                    <span className="text-gray-500 text-xs ml-2">(Requires Restart)</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={editConfig.dataDir}
+                    onChange={(e) => setEditConfig({...editConfig, dataDir: e.target.value})}
+                    className="input"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">Port</label>
+                  <input
+                    type="text"
+                    value={selectedInstance.port}
+                    readOnly
+                    className="input bg-gray-100 dark:bg-gray-800"
+                    title="Port cannot be changed after instance creation"
+                  />
+                </div>
+              </div>
+
+              {/* Cluster Mode */}
+              <div>
+                <label className="block text-sm font-medium mb-1">Cluster Mode</label>
+                <select
+                  value={editConfig.clusterMode}
+                  onChange={(e) => setEditConfig({...editConfig, clusterMode: e.target.value})}
+                  className="input"
+                >
+                  <option value="standalone">Standalone (Default)</option>
+                  <option value="replicaset">ReplicaSet</option>
+                  <option value="sharding">Sharding (Cluster)</option>
+                </select>
+              </div>
+
+              {/* ReplicaSet Options */}
+              {editConfig.clusterMode === 'replicaset' && (
+                <div className="ml-4 pl-4 border-l-4 border-primary-500 space-y-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Replica Set Name</label>
+                      <input
+                        type="text"
+                        value={editConfig.replicaSetName}
+                        onChange={(e) => setEditConfig({...editConfig, replicaSetName: e.target.value})}
+                        placeholder="rs0"
+                        className="input"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium mb-1">Node Role</label>
+                      <select
+                        value={editConfig.nodeRole}
+                        onChange={(e) => setEditConfig({...editConfig, nodeRole: e.target.value})}
+                        className="input"
+                      >
+                        <option value="primary">Primary</option>
+                        <option value="secondary">Secondary</option>
+                        <option value="arbiter">Arbiter</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Keyfile Path</label>
+                    <input
+                      type="text"
+                      value={editConfig.keyfilePath}
+                      onChange={(e) => setEditConfig({...editConfig, keyfilePath: e.target.value})}
+                      placeholder="/var/lib/mongodb/keyfile"
+                      className="input"
+                    />
+                    <div className="flex gap-2 mt-2">
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            await api.post('/api/mongodb/keyfile/generate', { path: editConfig.keyfilePath });
+                            alert('Keyfile generated successfully!');
+                          } catch (err) {
+                            alert('Failed to generate keyfile: ' + (err.response?.data?.error || err.message));
+                          }
+                        }}
+                        className="px-3 py-1 text-sm bg-blue-600 text-white rounded hover:bg-blue-700"
+                      >
+                        Generate Key
+                      </button>
+                      <label className="px-3 py-1 text-sm bg-green-600 text-white rounded hover:bg-green-700 cursor-pointer">
+                        Upload Key
+                        <input
+                          type="file"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            if (file) {
+                              try {
+                                const formData = new FormData();
+                                formData.append('keyfile', file);
+                                formData.append('path', editConfig.keyfilePath);
+                                await api.post('/api/mongodb/keyfile/upload', formData, {
+                                  headers: { 'Content-Type': 'multipart/form-data' }
+                                });
+                                alert('Keyfile uploaded successfully!');
+                              } catch (err) {
+                                alert('Failed to upload keyfile: ' + (err.response?.data?.error || err.message));
+                              }
+                            }
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={async () => {
+                          try {
+                            const res = await api.get('/api/mongodb/keyfile/status', { params: { path: editConfig.keyfilePath } });
+                            alert(`Keyfile Status:\n${JSON.stringify(res.data, null, 2)}`);
+                          } catch (err) {
+                            alert('Failed to check keyfile: ' + (err.response?.data?.error || err.message));
+                          }
+                        }}
+                        className="px-3 py-1 text-sm bg-gray-600 text-white rounded hover:bg-gray-700"
+                      >
+                        Check Status
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* PBM Backup Section */}
+                  <div className="mt-4 pt-4 border-t border-gray-200 dark:border-dark-border">
+                    <button
+                      onClick={() => setShowPbmSettings(!showPbmSettings)}
+                      className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-dark-muted hover:text-primary-600"
+                    >
+                      <span className={`transform transition-transform ${showPbmSettings ? 'rotate-90' : ''}`}>▶</span>
+                      <Database className="w-4 h-4" />
+                      PBM Backup Configuration
+                    </button>
+                    
+                    {showPbmSettings && (
+                      <div className="mt-4 space-y-4">
+                        {/* Enable PBM */}
+                        <label className="flex items-center gap-2">
+                          <input
+                            type="checkbox"
+                            checked={editConfig.pbm?.enabled || false}
+                            onChange={(e) => setEditConfig({
+                              ...editConfig, 
+                              pbm: {...editConfig.pbm, enabled: e.target.checked}
+                            })}
+                            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                          />
+                          <span className="text-sm font-medium">Enable PBM Backups</span>
+                        </label>
+
+                        {editConfig.pbm?.enabled && (
+                          <div className="space-y-4 pl-4 border-l-2 border-blue-400">
+                            {/* Backup Type */}
+                            <div>
+                              <label className="block text-sm font-medium mb-1">Backup Type</label>
+                              <select
+                                value={editConfig.pbm?.type || 'logical'}
+                                onChange={(e) => setEditConfig({
+                                  ...editConfig, 
+                                  pbm: {...editConfig.pbm, type: e.target.value}
+                                })}
+                                className="input"
+                              >
+                                <option value="logical">Logical (mongodump)</option>
+                                <option value="physical">Physical (Hot Backup)</option>
+                                <option value="pitr">PITR (Point-in-Time Recovery)</option>
+                              </select>
+                            </div>
+
+                            {/* Storage Type */}
+                            <div>
+                              <label className="block text-sm font-medium mb-1">Storage</label>
+                              <select
+                                value={editConfig.pbm?.storage || 'filesystem'}
+                                onChange={(e) => setEditConfig({
+                                  ...editConfig, 
+                                  pbm: {...editConfig.pbm, storage: e.target.value}
+                                })}
+                                className="input"
+                              >
+                                <option value="filesystem">Local Filesystem</option>
+                                <option value="s3">S3 Compatible</option>
+                                {rcloneRemotes && rcloneRemotes.map(remote => (
+                                  <option key={remote} value={`rclone:${remote}`}>Rclone: {remote}</option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* Backup Path */}
+                            {editConfig.pbm?.storage === 'filesystem' && (
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Backup Path</label>
+                                <input
+                                  type="text"
+                                  value={editConfig.pbm?.path || '/var/lib/pbm/backups'}
+                                  onChange={(e) => setEditConfig({
+                                    ...editConfig, 
+                                    pbm: {...editConfig.pbm, path: e.target.value}
+                                  })}
+                                  className="input"
+                                  placeholder="/var/lib/pbm/backups"
+                                />
+                              </div>
+                            )}
+
+                            {/* Rclone Path */}
+                            {editConfig.pbm?.storage?.startsWith('rclone:') && (
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Remote Path</label>
+                                <input
+                                  type="text"
+                                  value={editConfig.pbm?.rclonePath || '/backups'}
+                                  onChange={(e) => setEditConfig({
+                                    ...editConfig, 
+                                    pbm: {...editConfig.pbm, rclonePath: e.target.value}
+                                  })}
+                                  className="input"
+                                  placeholder="/backups"
+                                />
+                              </div>
+                            )}
+
+                            {/* Schedule */}
+                            <div className="space-y-4">
+                              <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">Schedule</label>
+                                  <select
+                                    value={editConfig.pbm?.scheduleType || 'daily'}
+                                    onChange={(e) => setEditConfig({
+                                      ...editConfig, 
+                                      pbm: {...editConfig.pbm, scheduleType: e.target.value}
+                                    })}
+                                    className="input"
+                                  >
+                                    <option value="hourly">Hourly</option>
+                                    <option value="daily">Daily</option>
+                                    <option value="weekly">Weekly</option>
+                                    <option value="monthly">Monthly</option>
+                                  </select>
+                                </div>
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">Time</label>
+                                  <input
+                                    type="time"
+                                    value={editConfig.pbm?.time || '02:00'}
+                                    onChange={(e) => setEditConfig({
+                                      ...editConfig, 
+                                      pbm: {...editConfig.pbm, time: e.target.value}
+                                    })}
+                                    className="input"
+                                  />
+                                </div>
+                              </div>
+                              
+                              {/* Weekday picker for Weekly */}
+                              {editConfig.pbm?.scheduleType === 'weekly' && (
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">Day of Week</label>
+                                  <select
+                                    value={editConfig.pbm?.weekday || '0'}
+                                    onChange={(e) => setEditConfig({
+                                      ...editConfig, 
+                                      pbm: {...editConfig.pbm, weekday: e.target.value}
+                                    })}
+                                    className="input"
+                                  >
+                                    <option value="0">Sunday</option>
+                                    <option value="1">Monday</option>
+                                    <option value="2">Tuesday</option>
+                                    <option value="3">Wednesday</option>
+                                    <option value="4">Thursday</option>
+                                    <option value="5">Friday</option>
+                                    <option value="6">Saturday</option>
+                                  </select>
+                                </div>
+                              )}
+
+                              {/* Day picker for Monthly */}
+                              {editConfig.pbm?.scheduleType === 'monthly' && (
+                                <div>
+                                  <label className="block text-sm font-medium mb-1">Day of Month</label>
+                                  <select
+                                    value={editConfig.pbm?.dayOfMonth || '1'}
+                                    onChange={(e) => setEditConfig({
+                                      ...editConfig, 
+                                      pbm: {...editConfig.pbm, dayOfMonth: e.target.value}
+                                    })}
+                                    className="input"
+                                  >
+                                    {Array.from({length: 31}, (_, i) => i + 1).map(day => (
+                                      <option key={day} value={day}>{day}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              )}
+                            </div>
+
+                            {/* S3 Settings */}
+                            {editConfig.pbm?.storage === 's3' && (
+                              <div className="space-y-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                                <h5 className="text-sm font-medium">S3 Settings</h5>
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div>
+                                    <label className="block text-sm font-medium mb-1">Endpoint URL</label>
+                                    <input
+                                      type="text"
+                                      value={editConfig.pbm?.s3Endpoint || ''}
+                                      onChange={(e) => setEditConfig({
+                                        ...editConfig, 
+                                        pbm: {...editConfig.pbm, s3Endpoint: e.target.value}
+                                      })}
+                                      className="input"
+                                      placeholder="https://s3.amazonaws.com"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-sm font-medium mb-1">Bucket</label>
+                                    <input
+                                      type="text"
+                                      value={editConfig.pbm?.s3Bucket || ''}
+                                      onChange={(e) => setEditConfig({
+                                        ...editConfig, 
+                                        pbm: {...editConfig.pbm, s3Bucket: e.target.value}
+                                      })}
+                                      className="input"
+                                      placeholder="my-backup-bucket"
+                                    />
+                                  </div>
+                                </div>
+                                <div className="grid grid-cols-2 gap-4">
+                                  <div>
+                                    <label className="block text-sm font-medium mb-1">Access Key</label>
+                                    <input
+                                      type="text"
+                                      value={editConfig.pbm?.s3Key || ''}
+                                      onChange={(e) => setEditConfig({
+                                        ...editConfig, 
+                                        pbm: {...editConfig.pbm, s3Key: e.target.value}
+                                      })}
+                                      className="input"
+                                    />
+                                  </div>
+                                  <div>
+                                    <label className="block text-sm font-medium mb-1">Secret Key</label>
+                                    <input
+                                      type="password"
+                                      value={editConfig.pbm?.s3Secret || ''}
+                                      onChange={(e) => setEditConfig({
+                                        ...editConfig, 
+                                        pbm: {...editConfig.pbm, s3Secret: e.target.value}
+                                      })}
+                                      className="input"
+                                    />
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Retention and Compression */}
+                            <div className="grid grid-cols-2 gap-4">
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Retention (days)</label>
+                                <input
+                                  type="number"
+                                  value={editConfig.pbm?.retention || 7}
+                                  onChange={(e) => setEditConfig({
+                                    ...editConfig, 
+                                    pbm: {...editConfig.pbm, retention: parseInt(e.target.value)}
+                                  })}
+                                  className="input"
+                                  min="1"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-sm font-medium mb-1">Compression</label>
+                                <select
+                                  value={editConfig.pbm?.compression || 'snappy'}
+                                  onChange={(e) => setEditConfig({
+                                    ...editConfig, 
+                                    pbm: {...editConfig.pbm, compression: e.target.value}
+                                  })}
+                                  className="input"
+                                >
+                                  <option value="none">None</option>
+                                  <option value="snappy">Snappy (Fast)</option>
+                                  <option value="zstd">Zstd (Best)</option>
+                                  <option value="gzip">Gzip</option>
+                                </select>
+                              </div>
+                            </div>
+
+                            {/* PITR Settings - shown when backup type is PITR */}
+                            {editConfig.pbm?.type === 'pitr' && (
+                              <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
+                                <h5 className="text-sm font-medium mb-4 text-green-600">PITR Settings</h5>
+                                <div className="grid grid-cols-2 gap-4 pl-4 border-l-2 border-green-400">
+                                  <div>
+                                    <label className="block text-sm font-medium mb-1">Oplog Capture Interval (minutes)</label>
+                                    <input
+                                      type="number"
+                                      value={editConfig.pbm?.pitrInterval || 10}
+                                      onChange={(e) => setEditConfig({
+                                        ...editConfig, 
+                                        pbm: {...editConfig.pbm, pitrInterval: parseInt(e.target.value)}
+                                      })}
+                                      className="input"
+                                      min="1"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">How often to capture oplog slices</p>
+                                  </div>
+                                  <div>
+                                    <label className="block text-sm font-medium mb-1">PITR Retention (days)</label>
+                                    <input
+                                      type="number"
+                                      value={editConfig.pbm?.pitrRetention || 3}
+                                      onChange={(e) => setEditConfig({
+                                        ...editConfig, 
+                                        pbm: {...editConfig.pbm, pitrRetention: parseInt(e.target.value)}
+                                      })}
+                                      className="input"
+                                      min="1"
+                                    />
+                                    <p className="text-xs text-gray-500 mt-1">Days to retain PITR oplog data</p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Sharding Options */}
+              {editConfig.clusterMode === 'sharding' && (
+                <div className="ml-4 pl-4 border-l-4 border-amber-500 space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Cluster Role</label>
+                    <select
+                      value={editConfig.shardRole}
+                      onChange={(e) => setEditConfig({...editConfig, shardRole: e.target.value})}
+                      className="input"
+                    >
+                      <option value="shardsvr">Shard Server (Data)</option>
+                      <option value="configsvr">Config Server (Metadata)</option>
+                      <option value="mongos">Mongos Router</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-1">Keyfile Path</label>
+                    <input
+                      type="text"
+                      value={editConfig.keyfilePath}
+                      onChange={(e) => setEditConfig({...editConfig, keyfilePath: e.target.value})}
+                      placeholder="/var/lib/mongodb/keyfile"
+                      className="input"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Save Section */}
+            <div className="flex items-center justify-between mt-6 pt-4 border-t border-gray-200 dark:border-dark-border">
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={restartAfterSave}
+                  onChange={(e) => setRestartAfterSave(e.target.checked)}
+                  className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                />
+                <span className="text-sm">Restart service after saving</span>
+              </label>
+              <button
+                onClick={() => saveConfigMutation.mutate({ configText, settings: editConfig })}
+                disabled={saveConfigMutation.isPending}
+                className="btn btn-primary"
+              >
+                {saveConfigMutation.isPending ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Saving...</>
+                ) : (
+                  <><Save className="w-4 h-4 mr-2" /> Save Configuration</>
+                )}
+              </button>
+            </div>
+
+            {/* Save Status */}
+            {saveConfigMutation.isSuccess && (
+              <div className="mt-3 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-700 dark:text-green-400 text-sm">
+                <CheckCircle className="w-4 h-4 inline mr-2" />
+                Configuration saved successfully
+              </div>
+            )}
+            {saveConfigMutation.isError && (
+              <div className="mt-3 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 text-sm">
+                <XCircle className="w-4 h-4 inline mr-2" />
+                {saveConfigMutation.error?.response?.data?.error || 'Failed to save configuration'}
+              </div>
+            )}
           </div>
         </div>
       ) : null}
@@ -1212,245 +1863,8 @@ function MongoDBSettings({ rcloneRemotes }) {
 
   return (
     <div className="space-y-6">
-      {/* MongoDB Instances Section */}
-      <MongoDBInstanceManager />
-
-      {/* Default Instance Status Bar */}
-      <div className="border-t border-gray-200 dark:border-dark-border pt-6">
-        <h3 className="text-lg font-medium mb-4">Default Instance (Legacy)</h3>
-        <div className="flex items-center gap-4 p-4 bg-gray-50 dark:bg-dark-border rounded-lg">
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-600 dark:text-dark-muted">Status:</span>
-            {mongoConfig?.status === 'running' ? (
-              <span className="flex items-center gap-1 text-green-600">
-                <CheckCircle className="w-4 h-4" />
-                Running
-              </span>
-            ) : (
-              <span className="flex items-center gap-1 text-red-600">
-                <XCircle className="w-4 h-4" />
-                Stopped
-              </span>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm font-medium text-gray-600 dark:text-dark-muted">Version:</span>
-            <span className="text-sm">{mongoConfig?.version || 'Unknown'}</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Config Editor - Collapsible */}
-      <div>
-        <button
-          onClick={() => setShowConfig(!showConfig)}
-          className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-dark-muted hover:text-primary-600 mb-2"
-        >
-          <span className={`transform transition-transform ${showConfig ? 'rotate-90' : ''}`}>▶</span>
-          Configuration File ({mongoConfig?.configPath || '/etc/mongod.conf'})
-        </button>
-        {showConfig && (
-          <textarea
-            value={config}
-            onChange={(e) => setConfig(e.target.value)}
-            className="w-full h-64 font-mono text-sm p-3 bg-gray-900 text-gray-100 rounded-lg border border-gray-700 focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
-            spellCheck={false}
-          />
-        )}
-      </div>
-
-      {/* Advanced Configuration */}
-      <div className="border-t border-gray-200 dark:border-dark-border pt-6">
-        <h3 className="text-lg font-medium mb-4">Advanced Configuration</h3>
-
-        {/* Data Directory */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium mb-1">
-            Data Directory
-            <span className="text-gray-500 text-xs ml-2">(Requires Service Restart)</span>
-          </label>
-          <input
-            type="text"
-            value={dataDir}
-            onChange={(e) => setDataDir(e.target.value)}
-            className="input"
-          />
-        </div>
-
-        {/* Cluster Mode */}
-        <div className="mb-4">
-          <label className="block text-sm font-medium mb-1">Cluster Mode</label>
-          <select
-            value={clusterMode}
-            onChange={(e) => setClusterMode(e.target.value)}
-            className="input"
-          >
-            <option value="standalone">Standalone (Default)</option>
-            <option value="replicaset">ReplicaSet</option>
-            <option value="sharding">Sharding (Cluster)</option>
-          </select>
-        </div>
-
-        {/* ReplicaSet Options */}
-        {clusterMode === 'replicaset' && (
-          <div className="ml-4 pl-4 border-l-4 border-primary-500 space-y-4 mb-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Replica Set Name</label>
-              <input
-                type="text"
-                value={replicaSetName}
-                onChange={(e) => setReplicaSetName(e.target.value)}
-                placeholder="rs0"
-                className="input"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium mb-1">Node Role</label>
-              <select
-                value={nodeRole}
-                onChange={(e) => setNodeRole(e.target.value)}
-                className="input"
-              >
-                <option value="primary">Primary</option>
-                <option value="secondary">Secondary</option>
-                <option value="arbiter">Arbiter</option>
-              </select>
-            </div>
-
-            {/* Keyfile Authentication */}
-            <KeyfileSection
-              keyfilePath={keyfilePath}
-              setKeyfilePath={setKeyfilePath}
-              keyfileStatus={keyfileStatus}
-              onGenerate={() => generateKeyfileMutation.mutate()}
-              onDownload={handleDownloadKeyfile}
-              isGenerating={generateKeyfileMutation.isPending}
-              generateError={generateKeyfileMutation.error}
-              generateSuccess={generateKeyfileMutation.isSuccess}
-            />
-
-            {/* PBM Backup Section */}
-            <PBMSection
-              pbmStatus={pbmStatus}
-              pbmEnabled={pbmEnabled}
-              setPbmEnabled={setPbmEnabled}
-              pbmType={pbmType}
-              setPbmType={setPbmType}
-              pbmScheduleType={pbmScheduleType}
-              setPbmScheduleType={setPbmScheduleType}
-              pbmTime={pbmTime}
-              setPbmTime={setPbmTime}
-              pbmWeekday={pbmWeekday}
-              setPbmWeekday={setPbmWeekday}
-              pbmInterval={pbmInterval}
-              setPbmInterval={setPbmInterval}
-              pbmCron={pbmCron}
-              setPbmCron={setPbmCron}
-              pbmRetention={pbmRetention}
-              setPbmRetention={setPbmRetention}
-              pbmStorage={pbmStorage}
-              setPbmStorage={setPbmStorage}
-              pbmPath={pbmPath}
-              setPbmPath={setPbmPath}
-              pbmS3Endpoint={pbmS3Endpoint}
-              setPbmS3Endpoint={setPbmS3Endpoint}
-              pbmS3Bucket={pbmS3Bucket}
-              setPbmS3Bucket={setPbmS3Bucket}
-              pbmS3Key={pbmS3Key}
-              setPbmS3Key={setPbmS3Key}
-              pbmS3Secret={pbmS3Secret}
-              setPbmS3Secret={setPbmS3Secret}
-              pbmCompression={pbmCompression}
-              setPbmCompression={setPbmCompression}
-              pbmPitr={pbmPitr}
-              setPbmPitr={setPbmPitr}
-              pbmUsername={pbmUsername}
-              setPbmUsername={setPbmUsername}
-              pbmPassword={pbmPassword}
-              setPbmPassword={setPbmPassword}
-              pitrInterval={pitrInterval}
-              setPitrInterval={setPitrInterval}
-              pitrRetention={pitrRetention}
-              setPitrRetention={setPitrRetention}
-              rcloneRemotes={rcloneRemotes || []}
-            />
-          </div>
-        )}
-
-        {/* Sharding Options */}
-        {clusterMode === 'sharding' && (
-          <div className="ml-4 pl-4 border-l-4 border-amber-500 space-y-4 mb-4">
-            <div>
-              <label className="block text-sm font-medium mb-1">Cluster Role</label>
-              <select
-                value={shardRole}
-                onChange={(e) => setShardRole(e.target.value)}
-                className="input"
-              >
-                <option value="shardsvr">Shard Server (Data)</option>
-                <option value="configsvr">Config Server (Metadata)</option>
-                <option value="mongos">Mongos Router</option>
-              </select>
-            </div>
-
-            {/* Keyfile Authentication */}
-            <KeyfileSection
-              keyfilePath={keyfilePath}
-              setKeyfilePath={setKeyfilePath}
-              keyfileStatus={keyfileStatus}
-              onGenerate={() => generateKeyfileMutation.mutate()}
-              onDownload={handleDownloadKeyfile}
-              isGenerating={generateKeyfileMutation.isPending}
-              generateError={generateKeyfileMutation.error}
-              generateSuccess={generateKeyfileMutation.isSuccess}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Save Options */}
-      <div className="flex items-center justify-between pt-4 border-t border-gray-200 dark:border-dark-border">
-        <label className="flex items-center gap-2">
-          <input
-            type="checkbox"
-            checked={restartAfterSave}
-            onChange={(e) => setRestartAfterSave(e.target.checked)}
-            className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-          />
-          <span className="text-sm">Restart service after saving</span>
-        </label>
-        <button
-          onClick={handleSave}
-          disabled={saveMutation.isPending}
-          className="btn btn-primary"
-        >
-          {saveMutation.isPending ? (
-            <>
-              <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            <>
-              <Save className="w-4 h-4 mr-2" />
-              Save Configuration
-            </>
-          )}
-        </button>
-      </div>
-
-      {/* Save Status */}
-      {saveMutation.isSuccess && (
-        <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg text-green-700 dark:text-green-400 text-sm">
-          <CheckCircle className="w-4 h-4 inline mr-2" />
-          Configuration saved successfully
-        </div>
-      )}
-      {saveMutation.isError && (
-        <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-400 text-sm">
-          <XCircle className="w-4 h-4 inline mr-2" />
-          {saveMutation.error?.response?.data?.error || 'Failed to save configuration'}
-        </div>
-      )}
+      {/* MongoDB Instances Section - handles all instance management and config */}
+      <MongoDBInstanceManager rcloneRemotes={rcloneRemotes} />
     </div>
   );
 }

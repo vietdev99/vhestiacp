@@ -2,6 +2,7 @@ import express from 'express';
 import { exec, execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import multer from 'multer';
 import { adminMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -298,8 +299,8 @@ router.post('/keyfile/generate', async (req, res) => {
     const { path: keyfilePath = '/var/lib/mongodb/keyfile' } = req.body;
 
     // Validate path
-    if (!/^\/var\/lib\/mongodb\/|^\/etc\/mongodb\//.test(keyfilePath)) {
-      return res.status(400).json({ error: 'Invalid keyfile path. Must be in /var/lib/mongodb/ or /etc/mongodb/' });
+    if (!/^\/var\/lib\/mongodb(-instances)?\//i.test(keyfilePath) && !/^\/etc\/mongodb\//.test(keyfilePath)) {
+      return res.status(400).json({ error: 'Invalid keyfile path. Must be in /var/lib/mongodb/, /var/lib/mongodb-instances/, or /etc/mongodb/' });
     }
 
     // Ensure directory exists
@@ -369,8 +370,8 @@ router.get('/keyfile/download', async (req, res) => {
     const keyfilePath = req.query.path || '/var/lib/mongodb/keyfile';
 
     // Validate path
-    if (!/^\/var\/lib\/mongodb\/|^\/etc\/mongodb\//.test(keyfilePath)) {
-      return res.status(400).json({ error: 'Invalid keyfile path' });
+    if (!/^\/var\/lib\/mongodb(-instances)?\//i.test(keyfilePath) && !/^\/etc\/mongodb\//.test(keyfilePath)) {
+      return res.status(400).json({ error: 'Invalid keyfile path. Must be in /var/lib/mongodb/, /var/lib/mongodb-instances/, or /etc/mongodb/' });
     }
 
     if (!fs.existsSync(keyfilePath)) {
@@ -393,22 +394,30 @@ router.get('/keyfile/download', async (req, res) => {
  * POST /api/mongodb/keyfile/upload
  * Upload keyfile
  */
-router.post('/keyfile/upload', async (req, res) => {
+const upload = multer({ storage: multer.memoryStorage() });
+router.post('/keyfile/upload', upload.single('keyfile'), async (req, res) => {
   try {
-    const { path: keyfilePath = '/var/lib/mongodb/keyfile', content } = req.body;
+    const keyfilePath = req.body.path || '/var/lib/mongodb/keyfile';
+    const file = req.file;
 
-    // Validate path
-    if (!/^\/var\/lib\/mongodb\/|^\/etc\/mongodb\//.test(keyfilePath)) {
-      return res.status(400).json({ error: 'Invalid keyfile path. Must be in /var/lib/mongodb/ or /etc/mongodb/' });
+    if (!file) {
+      return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    // Validate content
-    if (!content || content.length < 6 || content.length > 2048) {
+    // Validate path
+    if (!/^\/var\/lib\/mongodb(-instances)?\//i.test(keyfilePath) && !/^\/etc\/mongodb\//.test(keyfilePath)) {
+      return res.status(400).json({ error: 'Invalid keyfile path. Must be in /var/lib/mongodb/, /var/lib/mongodb-instances/, or /etc/mongodb/' });
+    }
+
+    // Validate content size
+    if (file.size < 6 || file.size > 2048) {
       return res.status(400).json({ error: 'Invalid keyfile size. Must be between 6 and 2048 bytes.' });
     }
 
+    const content = file.buffer.toString('utf8').trim();
+
     // Basic validation - keyfile should contain only base64 characters
-    if (!/^[A-Za-z0-9+/=\s]+$/.test(content.trim())) {
+    if (!/^[A-Za-z0-9+/=\s]+$/.test(content)) {
       return res.status(400).json({ error: 'Invalid keyfile content. Must be base64 encoded.' });
     }
 
@@ -417,7 +426,7 @@ router.post('/keyfile/upload', async (req, res) => {
     execSync(`mkdir -p ${dir}`, { encoding: 'utf8' });
 
     // Write keyfile
-    fs.writeFileSync(keyfilePath, content.trim(), 'utf8');
+    fs.writeFileSync(keyfilePath, content, 'utf8');
 
     // Set proper permissions
     execSync(`chmod 400 ${keyfilePath}`, { encoding: 'utf8' });
@@ -433,6 +442,7 @@ router.post('/keyfile/upload', async (req, res) => {
     res.status(500).json({ error: error.message || 'Failed to upload keyfile' });
   }
 });
+
 
 /**
  * GET /api/mongodb/pbm/status

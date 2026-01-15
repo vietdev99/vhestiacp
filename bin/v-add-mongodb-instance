@@ -283,7 +283,7 @@ else
     echo "Warning: jq not installed, metadata may not be properly formatted"
 fi
 
-chmod 644 "$INSTANCES`_META_FILE"
+chmod 644 "$INSTANCES_META_FILE"
 
 #----------------------------------------------------------#
 #                       Result                             #

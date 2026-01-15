@@ -31,6 +31,71 @@ INSTANCES_META_FILE="$HESTIA/data/mongodb-instances.json"
 output='{"instances":['
 first=true
 
+# First, add the default MongoDB instance (port 27017) if it exists
+if systemctl list-unit-files mongod.service &>/dev/null; then
+    # Get service status
+    if systemctl is-active --quiet mongod 2>/dev/null; then
+        status="running"
+    else
+        status="stopped"
+    fi
+    
+    # Read port from default config
+    default_port=27017
+    if [ -f "/etc/mongod.conf" ]; then
+        port_from_config=$(grep "port:" /etc/mongod.conf 2>/dev/null | head -1 | awk '{print $2}')
+        [ -n "$port_from_config" ] && default_port=$port_from_config
+    fi
+    
+    # Get cluster mode from default config
+    if grep -q "replication:" /etc/mongod.conf 2>/dev/null; then
+        if grep -q "sharding:" /etc/mongod.conf 2>/dev/null; then
+            cluster_mode="sharding"
+        else
+            cluster_mode="replicaset"
+        fi
+        replica_set_name=$(grep "replSetName:" /etc/mongod.conf 2>/dev/null | head -1 | awk '{print $2}' | tr -d "\"'")
+    else
+        cluster_mode="standalone"
+        replica_set_name=""
+    fi
+    
+    # Get data directory from config
+    data_dir="/var/lib/mongodb"
+    if [ -f "/etc/mongod.conf" ]; then
+        db_path=$(grep "dbPath:" /etc/mongod.conf 2>/dev/null | awk '{print $2}')
+        [ -n "$db_path" ] && data_dir=$db_path
+    fi
+    
+    # Get memory usage
+    pid=$(systemctl show mongod --property=MainPID --value 2>/dev/null)
+    if [ -n "$pid" ] && [ "$pid" != "0" ]; then
+        mem=$(ps -o rss= -p "$pid" 2>/dev/null | awk '{printf "%.1f MB", $1/1024}')
+    else
+        mem="0 MB"
+    fi
+    
+    # Get data size
+    data_size=$(du -sh "$data_dir" 2>/dev/null | awk '{print $1}')
+    [ -z "$data_size" ] && data_size="0"
+    
+    # Add default instance as first entry
+    output+='{'
+    output+='"name":"default",'
+    output+="\"port\":$default_port,"
+    output+="\"status\":\"$status\","
+    output+="\"clusterMode\":\"$cluster_mode\","
+    output+="\"replicaSetName\":\"$replica_set_name\","
+    output+="\"dataDir\":\"$data_dir\","
+    output+='"configPath":"/etc/mongod.conf",'
+    output+='"serviceName":"mongod",'
+    output+="\"memory\":\"$mem\","
+    output+="\"dataSize\":\"$data_size\","
+    output+='"isDefault":true'
+    output+='}'
+    first=false
+fi
+
 # Scan for instance directories
 if [ -d "$INSTANCES_DATA_DIR" ]; then
     for instance_dir in "$INSTANCES_DATA_DIR"/*/; do
