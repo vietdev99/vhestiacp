@@ -72,9 +72,9 @@ fi
 
 # Validate cluster mode
 case "$cluster_mode" in
-    standalone|replicaset|sharding) ;;
+    standalone|replicaset|configsvr|shardsvr) ;;
     *)
-        echo "Error: Invalid cluster mode. Use: standalone, replicaset, sharding"
+        echo "Error: Invalid cluster mode. Use: standalone, replicaset, configsvr, shardsvr"
         exit 1
         ;;
 esac
@@ -159,12 +159,16 @@ processManagement:
 EOF
 
 # Add security and replication for non-standalone modes
-if [ "$cluster_mode" != "standalone" ]; then
-    cat >> "$config_file" << EOF
+# Always enable authorization for security
+cat >> "$config_file" << EOF
 
 security:
-  keyFile: $keyfile_path
   authorization: enabled
+EOF
+
+if [ "$cluster_mode" != "standalone" ]; then
+    cat >> "$config_file" << EOF
+  keyFile: $keyfile_path
 
 replication:
   replSetName: "$replica_set_name"
@@ -172,7 +176,13 @@ EOF
 fi
 
 # Add sharding config if needed
-if [ "$cluster_mode" == "sharding" ]; then
+if [ "$cluster_mode" == "configsvr" ]; then
+    cat >> "$config_file" << EOF
+
+sharding:
+  clusterRole: configsvr
+EOF
+elif [ "$cluster_mode" == "shardsvr" ]; then
     cat >> "$config_file" << EOF
 
 sharding:
@@ -237,12 +247,28 @@ systemctl start "$service_name"
 sleep 3
 
 # Check status
-if systemctl is-active --quiet "$service_name"; then
     echo "  ✅ Instance started successfully"
 else
     echo "  ⚠️ Instance failed to start"
     systemctl status "$service_name" --no-pager || true
     exit 1
+fi
+
+# Create Root User
+echo "Creating root user..."
+ROOT_PASSWORD=$(generate_password)
+sleep 2
+
+# Try to create user via localhost exception (works before first user created)
+mongosh --port $port --eval "db.getSiblingDB('admin').createUser({user: 'admin', pwd: '$ROOT_PASSWORD', roles: ['root']})" > /dev/null 2>&1
+
+if [ $? -eq 0 ]; then
+    echo "Root user created successfully"
+    # Save password to Hestia config file
+    echo "ROOT_PASSWORD='$ROOT_PASSWORD'" > "$HESTIA/conf/mongodb-$instance_name.conf"
+    chmod 600 "$HESTIA/conf/mongodb-$instance_name.conf"
+else
+    echo "Warning: Failed to create root user. Authentication might be enabled but no user created?"
 fi
 
 # Update metadata file

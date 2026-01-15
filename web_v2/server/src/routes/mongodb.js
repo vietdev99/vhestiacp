@@ -640,11 +640,37 @@ const INSTANCES_META_FILE = path.join(HESTIA_DIR, 'data/mongodb-instances.json')
  */
 router.get('/instances', async (req, res) => {
   try {
-    const output = execSync(`${HESTIA_DIR}/bin/v-list-mongodb-instances json`, { 
-      encoding: 'utf8',
-      timeout: 30000 
-    });
-    const data = JSON.parse(output);
+    let output;
+    try {
+      output = execSync(`${HESTIA_DIR}/bin/v-list-mongodb-instances json`, { 
+        encoding: 'utf8',
+        timeout: 30000 
+      });
+    } catch (e) {
+      output = '{"instances": []}';
+    }
+    
+    let data = JSON.parse(output);
+    
+    // Auto-create default instance if none exist
+    if (!data.instances || data.instances.length === 0) {
+      console.log('No MongoDB instances found, creating default...');
+      try {
+        execSync(`${HESTIA_DIR}/bin/v-add-mongodb-instance default 27017 standalone`, {
+          encoding: 'utf8',
+          timeout: 60000
+        });
+        // Reload instances list
+        output = execSync(`${HESTIA_DIR}/bin/v-list-mongodb-instances json`, { 
+          encoding: 'utf8',
+          timeout: 30000 
+        });
+        data = JSON.parse(output);
+      } catch (createError) {
+        console.error('Failed to create default MongoDB instance:', createError);
+      }
+    }
+    
     res.json(data);
   } catch (error) {
     console.error('List instances error:', error);
@@ -687,7 +713,20 @@ router.post('/instances', async (req, res) => {
         console.error('Create instance error:', stderr || error.message);
         return res.status(500).json({ error: stderr || error.message || 'Failed to create instance' });
       }
-      res.json({ success: true, message: `Instance '${name}' created successfully`, output: stdout });
+      // Read root password
+      let rootPassword = '';
+      try {
+        const confPath = path.join(HESTIA_DIR, `conf/mongodb-${name}.conf`);
+        if (fs.existsSync(confPath)) {
+          const content = fs.readFileSync(confPath, 'utf8');
+          const match = content.match(/ROOT_PASSWORD='([^']+)'/);
+          if (match) {
+            rootPassword = match[1];
+          }
+        }
+      } catch (e) {}
+
+      res.json({ success: true, message: `Instance '${name}' created successfully`, rootPassword, output: stdout });
     });
   } catch (error) {
     console.error('Create instance error:', error);
@@ -721,7 +760,33 @@ router.get('/instances/:name', async (req, res) => {
       config = fs.readFileSync(instance.configPath, 'utf8');
     }
     
-    res.json({ ...instance, config });
+    // Load settings from JSON file for this instance (includes PBM settings)
+    const instanceSettingsFile = path.join(HESTIA_DIR, `data/mongodb-instances/${name}-settings.json`);
+    let settings = {};
+    if (fs.existsSync(instanceSettingsFile)) {
+      try {
+        settings = JSON.parse(fs.readFileSync(instanceSettingsFile, 'utf8'));
+      } catch (e) {
+        console.error(`Failed to parse settings for instance ${name}:`, e);
+      }
+    }
+    
+    // Get root password from Hestia conf
+    let rootPassword = '';
+    const hestiaConfPath = path.join(HESTIA_DIR, `conf/mongodb-${name}.conf`);
+    if (fs.existsSync(hestiaConfPath)) {
+      try {
+        const confContent = fs.readFileSync(hestiaConfPath, 'utf8');
+        const match = confContent.match(/ROOT_PASSWORD='([^']+)'/);
+        if (match) {
+          rootPassword = match[1];
+        }
+      } catch (e) {
+        console.error(`Failed to read Hestia conf for instance ${name}:`, e);
+      }
+    }
+    
+    res.json({ ...instance, config, settings, rootPassword });
   } catch (error) {
     console.error('Get instance error:', error);
     res.status(500).json({ error: error.message || 'Failed to get instance details' });
@@ -919,10 +984,65 @@ router.post('/instances', async (req, res) => {
     // Create instance using shell script
     execSync(`bash /usr/local/hestia/bin/v-add-mongodb-instance '${name}' '${port}' '${dataDir || ''}'`, { encoding: 'utf8' });
     
-    res.json({ success: true, message: `Instance ${name} created successfully` });
+    // Read the generated root password
+    let rootPassword = '';
+    try {
+      const confPath = path.join(HESTIA_DIR, `conf/mongodb-${name}.conf`);
+      if (fs.existsSync(confPath)) {
+        const content = fs.readFileSync(confPath, 'utf8');
+        const match = content.match(/ROOT_PASSWORD='([^']+)'/);
+        if (match) {
+          rootPassword = match[1];
+        }
+      }
+    } catch (e) {
+      console.error('Failed to read root password after instance creation:', e);
+    }
+
+    res.json({ success: true, message: `Instance ${name} created successfully`, rootPassword });
   } catch (error) {
     console.error('Create instance error:', error);
     res.status(500).json({ error: error.message || 'Failed to create instance' });
+  }
+});
+
+/**
+ * POST /api/mongodb/instances/:name/reset-password
+ * Reset mongodb password for an instance
+ */
+router.post('/instances/:name/reset-password', async (req, res) => {
+  try {
+    const { name } = req.params;
+    
+    exec(`${HESTIA_DIR}/bin/v-reset-mongodb-instance-password "${name}"`, { timeout: 60000 }, (error, stdout, stderr) => {
+      if (error) {
+        console.error('Reset MongoDB password error:', stderr || error.message);
+        return res.status(500).json({ error: stderr || error.message || 'Failed to reset password' });
+      }
+      
+      // Read new password
+      let rootPassword = '';
+      try {
+        const confPath = path.join(HESTIA_DIR, `conf/mongodb-${name}.conf`);
+        if (fs.existsSync(confPath)) {
+          const content = fs.readFileSync(confPath, 'utf8');
+          const match = content.match(/ROOT_PASSWORD='([^']+)'/);
+          if (match) {
+            rootPassword = match[1];
+          }
+        }
+      } catch (e) {}
+
+      res.json({ 
+        success: true, 
+        message: `Password for instance '${name}' reset successfully`,
+        rootPassword,
+        output: stdout
+      });
+    });
+  } catch (error) {
+    console.error('Reset MongoDB password error:', error);
+    res.status(500).json({ error: error.message || 'Failed to reset password' });
   }
 });
 
@@ -1010,6 +1130,127 @@ router.post('/instances/:name/config', async (req, res) => {
         fs.mkdirSync(dir, { recursive: true });
       }
       fs.writeFileSync(instanceSettingsFile, JSON.stringify(settings, null, 2), 'utf8');
+
+      // Configure PBM for this instance if settings provided
+      if (settings.pbm) {
+        try {
+          const pbm = settings.pbm;
+          const pbmConfigPath = name === 'default' 
+            ? '/etc/pbm-config.yaml'
+            : `/etc/pbm-${name}-config.yaml`;
+          const pbmServiceName = name === 'default' ? 'pbm-agent' : `pbm-agent-${name}`;
+          
+          // Get instance port from config
+          let port = 27017;
+          if (name !== 'default') {
+            // Parse port from instance list or config
+            try {
+              const instancesResult = execSync('bash /usr/local/hestia/bin/v-list-mongodb-instances json', { encoding: 'utf8' });
+              const instances = JSON.parse(instancesResult || '{}');
+              if (instances[name] && instances[name].PORT) {
+                port = parseInt(instances[name].PORT);
+              }
+            } catch (e) {
+              console.error('Failed to get instance port:', e);
+            }
+          }
+
+          if (pbm.enabled) {
+            // Create PBM config file
+            let yamlContent = '';
+
+            if (pbm.storage === 'filesystem') {
+              const storagePath = pbm.path || `/var/lib/pbm/${name}/backups`;
+              yamlContent = `storage:
+  type: filesystem
+  filesystem:
+    path: ${storagePath}
+`;
+              // Ensure storage directory exists
+              execSync(`mkdir -p ${storagePath}`, { encoding: 'utf8' });
+              execSync(`chown mongodb:mongodb ${storagePath}`, { encoding: 'utf8' });
+            } else if (pbm.storage === 's3') {
+              yamlContent = `storage:
+  type: s3
+  s3:
+    region: ${pbm.s3Region || 'us-east-1'}
+    bucket: ${pbm.s3Bucket}
+    endpointUrl: ${pbm.s3Endpoint || ''}
+    credentials:
+      access-key-id: ${pbm.s3Key}
+      secret-access-key: ${pbm.s3Secret}
+`;
+            } else if (pbm.storage && pbm.storage.startsWith('rclone:')) {
+              const remoteName = pbm.storage.replace('rclone:', '');
+              const remotePath = pbm.rclonePath || '/backups';
+              yamlContent = `storage:
+  type: s3
+  s3:
+    provider: Other
+    endpoint: rclone:${remoteName}:${remotePath}
+`;
+            }
+
+            // Add PITR config if type is pitr
+            if (pbm.type === 'pitr' && pbm.pitrInterval) {
+              yamlContent += `\npitr:
+  enabled: true
+  oplogSpanMin: ${pbm.pitrInterval || 10}
+`;
+            }
+
+            // Write PBM config
+            if (yamlContent) {
+              fs.writeFileSync(pbmConfigPath, yamlContent, 'utf8');
+              execSync(`chmod 644 ${pbmConfigPath}`, { encoding: 'utf8' });
+            }
+
+            // Setup PBM environment and service
+            const replicaSetName = settings.replicaSetName || 'rs0';
+            const mongoUri = `mongodb://127.0.0.1:${port}/?replicaSet=${replicaSetName}`;
+            
+            // Create systemd service for this instance's pbm-agent
+            const serviceContent = `[Unit]
+Description=pbm-agent for MongoDB instance ${name}
+After=network.target ${name === 'default' ? 'mongod' : `mongod-${name}`}.service
+
+[Service]
+Type=simple
+User=mongodb
+Group=mongodb
+Environment="PBM_MONGODB_URI=${mongoUri}"
+Environment="PBM_AGENT_CONFIG=${pbmConfigPath}"
+ExecStart=/usr/bin/pbm-agent
+Restart=on-failure
+RestartSec=5s
+
+[Install]
+WantedBy=multi-user.target
+`;
+            
+            const serviceFile = `/etc/systemd/system/${pbmServiceName}.service`;
+            fs.writeFileSync(serviceFile, serviceContent, 'utf8');
+            
+            // Reload systemd and enable/start service
+            execSync('systemctl daemon-reload', { encoding: 'utf8' });
+            execSync(`systemctl enable ${pbmServiceName}`, { encoding: 'utf8' });
+            exec(`systemctl restart ${pbmServiceName}`, (error) => {
+              if (error) console.error(`Restart ${pbmServiceName} error:`, error);
+            });
+          } else {
+            // PBM disabled - stop and disable service
+            try {
+              execSync(`systemctl stop ${pbmServiceName}`, { encoding: 'utf8' });
+              execSync(`systemctl disable ${pbmServiceName}`, { encoding: 'utf8' });
+            } catch (e) {
+              // Service might not exist, ignore
+            }
+          }
+        } catch (pbmError) {
+          console.error('Failed to configure PBM:', pbmError);
+          // Don't fail the whole request, just log
+        }
+      }
     }
 
     // Restart instance if requested
