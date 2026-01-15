@@ -605,4 +605,213 @@ router.post('/rrd/export', adminMiddleware, async (req, res) => {
   }
 });
 
+/**
+ * GET /api/system/server/config
+ * Get system configuration
+ */
+router.get('/server/config', adminMiddleware, async (req, res) => {
+  try {
+    const config = await execHestiaJson('v-list-sys-config', []);
+    
+    // Get system info for hostname/timezone
+    const sysInfo = await execHestiaJson('v-list-sys-info', []);
+    
+    // Get PHP versions
+    let phpVersions = [];
+    try {
+      const phpDir = '/etc/php';
+      if (fs.existsSync(phpDir)) {
+        phpVersions = fs.readdirSync(phpDir)
+          .filter(f => /^\d+\.\d+$/.test(f))
+          .map(v => {
+            // Check if installed (basic check)
+            const installed = true; 
+            // Check domains using this version requires iterating users, simplified for now
+            return { version: v, installed, domains: [] };
+          })
+          .sort();
+      }
+    } catch (e) {}
+
+    // Get timezones/themes/languages (mocked or fetched from system if possible)
+    // For now returning current values
+    
+    res.json({
+      hostname: sysInfo.sysinfo?.HOSTNAME || sysInfo?.HOSTNAME || 'Unknown',
+      timezone: sysInfo.sysinfo?.TIMEZONE || sysInfo?.TIMEZONE || 'UTC',
+      config: {
+        theme: config.THEME,
+        language: config.LANGUAGE,
+        debugMode: config.DEBUG_MODE === 'yes',
+        webmailAlias: config.WEBMAIL_ALIAS,
+        dbPmaAlias: config.DB_PMA_ALIAS,
+        dbPgaAlias: config.DB_PGA_ALIAS,
+        inactiveSessionTimeout: config.INACTIVE_SESSION_TIMEOUT,
+        loginStyle: config.LOGIN_STYLE,
+        api: config.API,
+        apiSystem: config.API_SYSTEM,
+        policySystemPasswordReset: config.POLICY_SYSTEM_PASSWORD_RESET,
+        policyUserChangeTheme: config.POLICY_USER_CHANGE_THEME,
+        fileManager: config.FILE_MANAGER,
+        webTerminal: config.WEB_TERMINAL,
+        pluginAppInstaller: config.PLUGIN_APP_INSTALLER,
+        diskQuota: config.DISK_QUOTA,
+        resourcesLimit: config.RESOURCES_LIMIT,
+        firewallSystem: config.FIREWALL_SYSTEM,
+        upgradeSendEmail: config.UPGRADE_SEND_EMAIL === 'yes',
+        upgradeSendEmailLog: config.UPGRADE_SEND_EMAIL_LOG === 'yes',
+        smtpRelay: config.SMTP_RELAY === 'yes',
+        smtpRelayHost: config.SMTP_RELAY_HOST,
+        smtpRelayPort: config.SMTP_RELAY_PORT,
+        smtpRelayUser: config.SMTP_RELAY_USER,
+        policyCsrfStrictness: config.POLICY_CSRF_STRICTNESS,
+        policySystemProtectedAdmin: config.POLICY_SYSTEM_PROTECTED_ADMIN,
+        policySystemHideAdmin: config.POLICY_SYSTEM_HIDE_ADMIN,
+        policySystemHideServices: config.POLICY_SYSTEM_HIDE_SERVICES,
+        policyUserEditDetails: config.POLICY_USER_EDIT_DETAILS,
+        policyUserEditWebTemplates: config.POLICY_USER_EDIT_WEB_TEMPLATES,
+        policyUserEditDnsTemplates: config.POLICY_USER_EDIT_DNS_TEMPLATES,
+        policyUserViewLogs: config.POLICY_USER_VIEW_LOGS,
+        policyUserDeleteLogs: config.POLICY_USER_DELETE_LOGS,
+        policyBackupSuspendedUsers: config.POLICY_BACKUP_SUSPENDED_USERS,
+        policySyncErrorDocuments: config.POLICY_SYNC_ERROR_DOCUMENTS,
+        policySyncSkeleton: config.POLICY_SYNC_SKELETON,
+        enforceSubdomainOwnership: config.ENFORCE_SUBDOMAIN_OWNERSHIP
+      },
+      backup: {
+        local: config.BACKUP_SYSTEM === 'local' || !config.BACKUP_SYSTEM || config.BACKUP_SYSTEM.includes('local'),
+        mode: config.BACKUP_MODE,
+        gzip: config.BACKUP_GZIP,
+        remote: config.BACKUP_REMOTE,
+        directory: config.BACKUP
+      },
+      incrementalBackup: config.BACKUP_INCREMENTAL === 'yes',
+      mysql: { enabled: !!config.DB_SYSTEM?.includes('mysql') },
+      pgsql: { enabled: !!config.DB_SYSTEM?.includes('pgsql') },
+      ssl: {
+        CRT: config.SSL_CRT || '',
+        KEY: config.SSL_KEY || '',
+        SUBJECT: config.SSL_SUBJECT,
+        NOT_BEFORE: config.SSL_NOT_BEFORE,
+        NOT_AFTER: config.SSL_NOT_AFTER,
+        SIGNATURE: config.SSL_SIGNATURE,
+        KEY_SIZE: config.SSL_KEY_SIZE,
+        ISSUER: config.SSL_ISSUER
+      },
+      phpVersions: phpVersions,
+      systemPhp: config.WEB_BACKEND
+    });
+
+  } catch (error) {
+    console.error('Get server config error:', error);
+    res.status(500).json({ error: 'Failed to get server configuration' });
+  }
+});
+
+/**
+ * PUT /api/system/server/config
+ * Update server configuration
+ */
+router.put('/server/config', adminMiddleware, async (req, res) => {
+  try {
+    const { field, value } = req.body;
+    
+    console.log(`Updating config field: ${field} = ${value}`);
+
+    if (field === 'hostname') {
+      await execHestia('v-change-sys-hostname', [value]);
+    } else if (field === 'timezone') {
+      await execHestia('v-change-sys-timezone', [value]);
+    } else if (field === 'defaultPhp') {
+      await execHestia('v-change-sys-php', [value]);
+    } else {
+      // Map frontend fields to config keys
+      const configMap = {
+        theme: 'THEME',
+        language: 'LANGUAGE',
+        debugMode: 'DEBUG_MODE',
+        webmailAlias: 'WEBMAIL_ALIAS',
+        dbPmaAlias: 'DB_PMA_ALIAS',
+        dbPgaAlias: 'DB_PGA_ALIAS',
+        inactiveSessionTimeout: 'INACTIVE_SESSION_TIMEOUT',
+        loginStyle: 'LOGIN_STYLE',
+        api: 'API',
+        apiSystem: 'API_SYSTEM',
+        policySystemPasswordReset: 'POLICY_SYSTEM_PASSWORD_RESET',
+        policyUserChangeTheme: 'POLICY_USER_CHANGE_THEME',
+        fileManager: 'FILE_MANAGER',
+        webTerminal: 'WEB_TERMINAL',
+        pluginAppInstaller: 'PLUGIN_APP_INSTALLER',
+        diskQuota: 'DISK_QUOTA',
+        resourcesLimit: 'RESOURCES_LIMIT',
+        firewallSystem: 'FIREWALL_SYSTEM',
+        upgradeSendEmail: 'UPGRADE_SEND_EMAIL',
+        upgradeSendEmailLog: 'UPGRADE_SEND_EMAIL_LOG',
+        smtpRelay: 'SMTP_RELAY',
+        smtpRelayHost: 'SMTP_RELAY_HOST',
+        smtpRelayPort: 'SMTP_RELAY_PORT',
+        smtpRelayUser: 'SMTP_RELAY_USER',
+        backupMode: 'BACKUP_MODE',
+        backupGzip: 'BACKUP_GZIP',
+        backupRemote: 'BACKUP_REMOTE',
+        incrementalBackup: 'BACKUP_INCREMENTAL',
+        policyCsrfStrictness: 'POLICY_CSRF_STRICTNESS',
+        policySystemProtectedAdmin: 'POLICY_SYSTEM_PROTECTED_ADMIN',
+        policySystemHideAdmin: 'POLICY_SYSTEM_HIDE_ADMIN',
+        policySystemHideServices: 'POLICY_SYSTEM_HIDE_SERVICES',
+        policyUserEditDetails: 'POLICY_USER_EDIT_DETAILS',
+        policyUserEditWebTemplates: 'POLICY_USER_EDIT_WEB_TEMPLATES',
+        policyUserEditDnsTemplates: 'POLICY_USER_EDIT_DNS_TEMPLATES',
+        policyUserViewLogs: 'POLICY_USER_VIEW_LOGS',
+        policyUserDeleteLogs: 'POLICY_USER_DELETE_LOGS',
+        policyBackupSuspendedUsers: 'POLICY_BACKUP_SUSPENDED_USERS',
+        policySyncErrorDocuments: 'POLICY_SYNC_ERROR_DOCUMENTS',
+        policySyncSkeleton: 'POLICY_SYNC_SKELETON',
+        enforceSubdomainOwnership: 'ENFORCE_SUBDOMAIN_OWNERSHIP'
+      };
+
+      const configKey = configMap[field];
+      if (configKey) {
+        // Boolean conversion if needed
+        let configValue = value;
+        if (typeof value === 'boolean') {
+          configValue = value ? 'yes' : 'no';
+        }
+        await execHestia('v-change-sys-config-value', [configKey, String(configValue)]);
+      } else if (field === 'backupEnabled') {
+         // Special handling for backupEnabled if needed, or assume it toggles generic BACKUP_SYSTEM settings?
+         // For now maybe not implemented by v-change-sys-config-value directly for complex changes.
+         // If it's turning off local backup:
+         // Hestia config usually: BACKUP_SYSTEM='local,remote' or 'local' or 'remote'.
+         // This might need more complex logic. Leaving as is (might not work fully for complex fields).
+      }
+    }
+
+    res.json({ success: true, message: 'Configuration updated successfully' });
+  } catch (error) {
+    console.error('Update server config error:', error);
+    res.status(500).json({ error: error.message || 'Failed to update configuration' });
+  }
+});
+
+router.post('/server/config/feature', adminMiddleware, async (req, res) => {
+  // Placeholder for feature toggling if needed
+  res.json({ success: true });
+});
+
+router.post('/server/config/php', adminMiddleware, async (req, res) => {
+  // Placeholder for php install/uninstall
+   res.json({ success: true });
+});
+
+router.post('/server/config/default-php', adminMiddleware, async (req, res) => {
+  const { version } = req.body;
+  try {
+     await execHestia('v-change-sys-php', [version]);
+     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

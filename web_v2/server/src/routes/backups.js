@@ -109,4 +109,94 @@ router.post('/:backup/restore', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/backups/settings
+ * Get backup settings
+ */
+router.get('/settings', async (req, res) => {
+  try {
+    // Get backup settings from hestia.conf
+    const result = await execHestiaJson('v-list-sys-config', []);
+    
+    res.json({
+      backupDir: result.BACKUP || '/backup',
+      backups: result.BACKUPS || 3,
+      backupGzip: result.BACKUP_GZIP || 5,
+      backupMode: result.BACKUP_MODE || 'local',
+      backupRemote: result.BACKUP_REMOTE || '',
+      backupRemoteType: result.BACKUP_REMOTE_TYPE || ''
+    });
+  } catch (error) {
+    console.error('Get backup settings error:', error);
+    res.status(500).json({ error: 'Failed to get backup settings' });
+  }
+});
+
+/**
+ * POST /api/backups/settings
+ * Update backup settings
+ */
+router.post('/settings', async (req, res) => {
+  try {
+    const { backupDir, backups, backupGzip, backupMode, backupRemote, backupRemoteType } = req.body;
+
+    // Update backup directory
+    if (backupDir) {
+      await execHestia('v-change-sys-config-value', ['BACKUP', backupDir]);
+    }
+
+    // Update number of backups
+    if (backups !== undefined) {
+      await execHestia('v-change-sys-config-value', ['BACKUPS', String(backups)]);
+    }
+
+    // Update compression level
+    if (backupGzip !== undefined) {
+      await execHestia('v-change-sys-config-value', ['BACKUP_GZIP', String(backupGzip)]);
+    }
+
+    // Update backup mode (local/rclone)
+    if (backupMode) {
+      await execHestia('v-change-sys-config-value', ['BACKUP_MODE', backupMode]);
+    }
+
+    // Update remote (rclone remote name)
+    if (backupRemote !== undefined) {
+      await execHestia('v-change-sys-config-value', ['BACKUP_REMOTE', backupRemote]);
+    }
+
+    // Update remote type
+    if (backupRemoteType !== undefined) {
+      await execHestia('v-change-sys-config-value', ['BACKUP_REMOTE_TYPE', backupRemoteType]);
+    }
+
+    res.json({ success: true, message: 'Backup settings updated successfully' });
+  } catch (error) {
+    console.error('Update backup settings error:', error);
+    res.status(500).json({ error: error.message || 'Failed to update backup settings' });
+  }
+});
+
+/**
+ * GET /api/backups/rclone-remotes
+ * Get list of available rclone remotes
+ */
+router.get('/rclone-remotes', async (req, res) => {
+  try {
+    const result = await execHestiaJson('v-list-sys-rclone', []);
+    
+    // Transform to array
+    const remotes = Object.entries(result || {}).map(([name, data]) => ({
+      name,
+      type: data?.TYPE || 'unknown',
+      ...data
+    }));
+    
+    res.json({ remotes });
+  } catch (error) {
+    console.error('Get rclone remotes error:', error);
+    res.json({ remotes: [] }); // Return empty array if no remotes
+  }
+});
+
 export default router;

@@ -1,0 +1,2 @@
+put d:/Workspace/Messi/Code/VHestiaCP/web_v2/server/src/routes/mongodb.js /usr/local/hestia/web_v2/server/src/routes/mongodb.js
+quit

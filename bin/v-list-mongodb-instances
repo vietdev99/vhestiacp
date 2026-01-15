@@ -1,0 +1,128 @@
+#!/bin/bash
+# info: list mongodb instances
+# options: [FORMAT]
+#
+# example: v-list-mongodb-instances
+# example: v-list-mongodb-instances json
+#
+# This function lists all MongoDB instances and their status.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+format=${1:-json}
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Directories
+INSTANCES_DATA_DIR="/var/lib/mongodb-instances"
+INSTANCES_CONF_DIR="/etc/mongodb-instances"
+INSTANCES_META_FILE="$HESTIA/data/mongodb-instances.json"
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Build JSON output
+output='{"instances":['
+first=true
+
+# Scan for instance directories
+if [ -d "$INSTANCES_DATA_DIR" ]; then
+    for instance_dir in "$INSTANCES_DATA_DIR"/*/; do
+        if [ -d "$instance_dir" ]; then
+            instance_name=$(basename "$instance_dir")
+            service_name="mongod-${instance_name}"
+            config_file="$INSTANCES_CONF_DIR/${instance_name}.conf"
+            
+            # Check if config exists
+            if [ ! -f "$config_file" ]; then
+                continue
+            fi
+            
+            # Get port from config
+            port=$(grep "port:" "$config_file" 2>/dev/null | awk '{print $2}')
+            
+            # Get cluster mode from config
+            if grep -q "replication:" "$config_file" 2>/dev/null; then
+                if grep -q "sharding:" "$config_file" 2>/dev/null; then
+                    cluster_mode="sharding"
+                else
+                    cluster_mode="replicaset"
+                fi
+                replica_set_name=$(grep "replSetName:" "$config_file" 2>/dev/null | awk '{print $2}' | tr -d '"')
+            else
+                cluster_mode="standalone"
+                replica_set_name=""
+            fi
+            
+            # Get service status
+            if systemctl is-active --quiet "$service_name" 2>/dev/null; then
+                status="running"
+            elif systemctl is-enabled --quiet "$service_name" 2>/dev/null; then
+                status="stopped"
+            else
+                status="unknown"
+            fi
+            
+            # Get memory usage
+            pid=$(systemctl show "$service_name" --property=MainPID --value 2>/dev/null)
+            if [ -n "$pid" ] && [ "$pid" != "0" ]; then
+                mem=$(ps -o rss= -p "$pid" 2>/dev/null | awk '{printf "%.1f MB", $1/1024}')
+            else
+                mem="0 MB"
+            fi
+            
+            # Get data size
+            data_size=$(du -sh "${instance_dir}data" 2>/dev/null | awk '{print $1}')
+            [ -z "$data_size" ] && data_size="0"
+            
+            # Add to JSON
+            if [ "$first" = true ]; then
+                first=false
+            else
+                output+=','
+            fi
+            
+            output+='{'
+            output+="\"name\":\"$instance_name\","
+            output+="\"port\":$port,"
+            output+="\"status\":\"$status\","
+            output+="\"clusterMode\":\"$cluster_mode\","
+            output+="\"replicaSetName\":\"$replica_set_name\","
+            output+="\"dataDir\":\"${instance_dir}data\","
+            output+="\"configPath\":\"$config_file\","
+            output+="\"serviceName\":\"$service_name\","
+            output+="\"memory\":\"$mem\","
+            output+="\"dataSize\":\"$data_size\""
+            output+='}'
+        fi
+    done
+fi
+
+output+=']}'
+
+# Output
+if [ "$format" = "json" ]; then
+    if command -v jq &>/dev/null; then
+        echo "$output" | jq .
+    else
+        echo "$output"
+    fi
+elif [ "$format" = "plain" ]; then
+    echo "MongoDB Instances:"
+    echo ""
+    if command -v jq &>/dev/null; then
+        echo "$output" | jq -r '.instances[] | "  \(.name): port=\(.port), status=\(.status), mode=\(.clusterMode)"'
+    else
+        echo "$output"
+    fi
+else
+    echo "$output"
+fi
+
+exit 0

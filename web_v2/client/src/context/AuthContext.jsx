@@ -31,8 +31,14 @@ export function AuthProvider({ children }) {
     }
   };
 
-  const login = async (username, password) => {
-    const res = await api.post('/api/auth/login', { username, password });
+  const login = async (username, password, totpCode) => {
+    const res = await api.post('/api/auth/login', { username, password, totpCode });
+    
+    // Check if 2FA is required
+    if (res.data.requiresTwoFactor) {
+      return res.data;
+    }
+    
     setUser(res.data.user);
     // Clear previous user on fresh login
     setPreviousUser(null);

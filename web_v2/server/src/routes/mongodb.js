@@ -5,9 +5,51 @@ import path from 'path';
 import { adminMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
+const HESTIA_DIR = process.env.HESTIA || '/usr/local/hestia';
+const MONGODB_SETTINGS_FILE = path.join(HESTIA_DIR, 'data/mongodb-settings.json');
 
 // All routes require admin
 router.use(adminMiddleware);
+
+// Helper: Load persistent MongoDB settings
+function loadMongoSettings() {
+  try {
+    if (fs.existsSync(MONGODB_SETTINGS_FILE)) {
+      return JSON.parse(fs.readFileSync(MONGODB_SETTINGS_FILE, 'utf8'));
+    }
+  } catch (e) {
+    console.error('Failed to load MongoDB settings:', e);
+  }
+  return {
+    clusterMode: 'standalone',
+    replicaSetName: 'rs0',
+    nodeRole: 'primary',
+    shardRole: 'shardsvr',
+    keyfilePath: '/var/lib/mongodb/keyfile',
+    dataDir: '/var/lib/mongodb',
+    pbm: {
+      enabled: false,
+      type: 'logical',
+      storage: 'filesystem',
+      path: '/var/lib/pbm/backups'
+    }
+  };
+}
+
+// Helper: Save persistent MongoDB settings
+function saveMongoSettings(settings) {
+  try {
+    const dir = path.dirname(MONGODB_SETTINGS_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    fs.writeFileSync(MONGODB_SETTINGS_FILE, JSON.stringify(settings, null, 2), 'utf8');
+    return true;
+  } catch (e) {
+    console.error('Failed to save MongoDB settings:', e);
+    return false;
+  }
+}
 
 /**
  * GET /api/mongodb/config
@@ -44,8 +86,14 @@ router.get('/config', async (req, res) => {
       config = '';
     }
 
-    // Parse current settings from config (YAML format)
-    const settings = parseMongoConfig(config);
+    // Load persistent settings (overrides parsed config)
+    const savedSettings = loadMongoSettings();
+    
+    // Parse current settings from config file as fallback
+    const parsedSettings = parseMongoConfig(config);
+    
+    // Merge: saved settings take priority
+    const settings = { ...parsedSettings, ...savedSettings };
 
     res.json({
       status,
@@ -62,23 +110,105 @@ router.get('/config', async (req, res) => {
 
 /**
  * POST /api/mongodb/config
- * Save MongoDB configuration
+ * Save MongoDB configuration and cluster settings
  */
 router.post('/config', async (req, res) => {
   try {
-    const { config, restart } = req.body;
+    const { 
+      config, 
+      restart, 
+      clusterMode, 
+      replicaSetName, 
+      nodeRole, 
+      shardRole, 
+      keyfilePath, 
+      dataDir,
+      pbm
+    } = req.body;
+    
+    console.log('=== MongoDB Config Save Request ===');
+    console.log('clusterMode:', clusterMode);
+    console.log('replicaSetName:', replicaSetName);
+    console.log('pbm:', JSON.stringify(pbm));
+    console.log('===================================');
+    
     const configPath = '/etc/mongod.conf';
 
-    // Backup current config
-    const backupPath = `${configPath}.backup.${Date.now()}`;
-    try {
-      fs.copyFileSync(configPath, backupPath);
-    } catch {
-      // No existing config to backup
+    // Save cluster settings to persistent file
+    if (clusterMode !== undefined) {
+      const currentSettings = loadMongoSettings();
+      const newSettings = {
+        ...currentSettings,
+        clusterMode: clusterMode || currentSettings.clusterMode,
+        replicaSetName: replicaSetName || currentSettings.replicaSetName,
+        nodeRole: nodeRole || currentSettings.nodeRole,
+        shardRole: shardRole || currentSettings.shardRole,
+        keyfilePath: keyfilePath || currentSettings.keyfilePath,
+        dataDir: dataDir || currentSettings.dataDir,
+        pbm: pbm || currentSettings.pbm
+      };
+      saveMongoSettings(newSettings);
+      
+      // Update mongod.conf based on cluster settings
+      if (config) {
+        let updatedConfig = config;
+        
+        // Update replication section based on cluster mode
+        if (clusterMode === 'replicaset') {
+          // Add/update replication section
+          if (!updatedConfig.includes('replication:')) {
+            updatedConfig += `\n\nreplication:\n  replSetName: "${replicaSetName || 'rs0'}"\n`;
+          } else {
+            updatedConfig = updatedConfig.replace(
+              /replSetName:\s*["']?[^"'\n]+["']?/,
+              `replSetName: "${replicaSetName || 'rs0'}"`
+            );
+          }
+          
+          // Add keyFile if not present
+          if (keyfilePath && !updatedConfig.includes('keyFile:')) {
+            if (updatedConfig.includes('security:')) {
+              updatedConfig = updatedConfig.replace(
+                /security:/,
+                `security:\n  keyFile: ${keyfilePath}`
+              );
+            } else {
+              updatedConfig += `\nsecurity:\n  keyFile: ${keyfilePath}\n`;
+            }
+          }
+        } else if (clusterMode === 'sharding') {
+          // Add sharding section
+          if (!updatedConfig.includes('sharding:')) {
+            updatedConfig += `\n\nsharding:\n  clusterRole: ${shardRole || 'shardsvr'}\n`;
+          }
+        } else if (clusterMode === 'standalone') {
+          // Remove replication and sharding sections for standalone
+          updatedConfig = updatedConfig
+            .replace(/\nreplication:[\s\S]*?(?=\n\w|$)/g, '')
+            .replace(/\nsharding:[\s\S]*?(?=\n\w|$)/g, '');
+        }
+        
+        // Write updated config
+        // Backup current config
+        const backupPath = `${configPath}.backup.${Date.now()}`;
+        try {
+          fs.copyFileSync(configPath, backupPath);
+        } catch {
+          // No existing config to backup
+        }
+        
+        fs.writeFileSync(configPath, updatedConfig.trim() + '\n', 'utf8');
+      }
+    } else if (config) {
+      // Just save raw config without cluster settings update
+      const backupPath = `${configPath}.backup.${Date.now()}`;
+      try {
+        fs.copyFileSync(configPath, backupPath);
+      } catch {
+        // No existing config to backup
+      }
+      fs.writeFileSync(configPath, config, 'utf8');
     }
-
-    // Write new config
-    fs.writeFileSync(configPath, config, 'utf8');
 
     // Restart service if requested
     if (restart) {
@@ -87,6 +217,69 @@ router.post('/config', async (req, res) => {
           console.error('Restart mongod error:', error);
         }
       });
+    }
+
+    // Configure PBM if settings provided
+    if (pbm) {
+      try {
+        const pbmConfigPath = '/etc/pbm-config.yaml';
+        let yamlContent = '';
+
+        if (pbm.storage === 'filesystem') {
+          yamlContent = `storage:
+  type: filesystem
+  filesystem:
+    path: ${pbm.path || '/var/lib/pbm/backups'}
+`;
+        } else if (pbm.storage === 's3') {
+          yamlContent = `storage:
+  type: s3
+  s3:
+    region: ${pbm.s3Region || 'us-east-1'}
+    bucket: ${pbm.s3Bucket}
+    endpointUrl: ${pbm.s3Endpoint}
+    credentials:
+      access-key-id: ${pbm.s3Key}
+      secret-access-key: ${pbm.s3Secret}
+`;
+        }
+
+        if (pbm.pitr) {
+           yamlContent += `
+pitr:
+  enabled: true
+  oplogSpanMin: ${pbm.pitrInterval || 10}
+`;
+        }
+
+        if (yamlContent) {
+          fs.writeFileSync(pbmConfigPath, yamlContent, 'utf8');
+          // Ensure permissions and ownership for mongod user (who runs pbm-agent under systemd)
+          execSync(`chown mongod:mongod ${pbmConfigPath}`);
+          execSync(`chmod 600 ${pbmConfigPath}`);
+        }
+
+        // Setup PBM environment variable
+        const mongoUri = `mongodb://127.0.0.1:27017/?replicaSet=${replicaSetName || 'rs0'}`;
+        const pbmEnvFile = '/etc/default/pbm-agent';
+        fs.writeFileSync(pbmEnvFile, `PBM_MONGODB_URI="${mongoUri}"\n`, 'utf8');
+
+        // Allow time for service to pick up changes or ensuring env is set for CLI
+        // Apply config via pbm config CLI (needs env var)
+        // We do this AFTER service setup because pbm CLI needs to connect
+        
+        // Enable/Start or Disable/Stop service
+        const action = pbm.enabled ? 'enable --now' : 'disable --now';
+        exec(`systemctl ${action} pbm-agent`, (err) => {
+          if (err) console.error('PBM Service Error:', err);
+        });
+
+      } catch (pbmError) {
+        console.error('Failed to configure PBM:', pbmError);
+        // Don't fail the whole request, just log
+      }
+
+
     }
 
     res.json({ success: true, message: 'Configuration saved successfully' });
@@ -425,4 +618,266 @@ function parseMongoConfig(config) {
   return settings;
 }
 
+// ============================================================
+// MongoDB Instance Management (Multi-Instance Support)
+// ============================================================
+
+const INSTANCES_META_FILE = path.join(HESTIA_DIR, 'data/mongodb-instances.json');
+
+/**
+ * GET /api/mongodb/instances
+ * List all MongoDB instances
+ */
+router.get('/instances', async (req, res) => {
+  try {
+    const output = execSync(`${HESTIA_DIR}/bin/v-list-mongodb-instances json`, { 
+      encoding: 'utf8',
+      timeout: 30000 
+    });
+    const data = JSON.parse(output);
+    res.json(data);
+  } catch (error) {
+    console.error('List instances error:', error);
+    // Return empty array if no instances or script fails
+    res.json({ instances: [] });
+  }
+});
+
+/**
+ * POST /api/mongodb/instances
+ * Create a new MongoDB instance
+ */
+router.post('/instances', async (req, res) => {
+  try {
+    const { name, port, clusterMode = 'standalone', replicaSetName = 'rs0' } = req.body;
+
+    // Validate inputs
+    if (!name || !port) {
+      return res.status(400).json({ error: 'Instance name and port are required' });
+    }
+
+    // Validate name format
+    if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(name)) {
+      return res.status(400).json({ 
+        error: 'Instance name must start with a letter and contain only letters, numbers, dashes, and underscores' 
+      });
+    }
+
+    // Validate port
+    const portNum = parseInt(port, 10);
+    if (isNaN(portNum) || portNum < 1024 || portNum > 65535) {
+      return res.status(400).json({ error: 'Port must be a number between 1024 and 65535' });
+    }
+
+    // Execute create script
+    const cmd = `${HESTIA_DIR}/bin/v-add-mongodb-instance "${name}" ${portNum} "${clusterMode}" "${replicaSetName}"`;
+    
+    exec(cmd, { timeout: 60000 }, (error, stdout, stderr) => {
+      if (error) {
+        console.error('Create instance error:', stderr || error.message);
+        return res.status(500).json({ error: stderr || error.message || 'Failed to create instance' });
+      }
+      res.json({ success: true, message: `Instance '${name}' created successfully`, output: stdout });
+    });
+  } catch (error) {
+    console.error('Create instance error:', error);
+    res.status(500).json({ error: error.message || 'Failed to create instance' });
+  }
+});
+
+/**
+ * GET /api/mongodb/instances/:name
+ * Get instance details
+ */
+router.get('/instances/:name', async (req, res) => {
+  try {
+    const { name } = req.params;
+    
+    // Get all instances and find the specific one
+    const output = execSync(`${HESTIA_DIR}/bin/v-list-mongodb-instances json`, { 
+      encoding: 'utf8',
+      timeout: 30000 
+    });
+    const data = JSON.parse(output);
+    const instance = data.instances?.find(i => i.name === name);
+    
+    if (!instance) {
+      return res.status(404).json({ error: `Instance '${name}' not found` });
+    }
+    
+    // Get additional details like config content
+    let config = '';
+    if (instance.configPath && fs.existsSync(instance.configPath)) {
+      config = fs.readFileSync(instance.configPath, 'utf8');
+    }
+    
+    res.json({ ...instance, config });
+  } catch (error) {
+    console.error('Get instance error:', error);
+    res.status(500).json({ error: error.message || 'Failed to get instance details' });
+  }
+});
+
+/**
+ * PUT /api/mongodb/instances/:name
+ * Update instance configuration
+ */
+router.put('/instances/:name', async (req, res) => {
+  try {
+    const { name } = req.params;
+    const { config, restart = false } = req.body;
+    
+    const configPath = `/etc/mongodb-instances/${name}.conf`;
+    
+    if (!fs.existsSync(configPath)) {
+      return res.status(404).json({ error: `Instance '${name}' not found` });
+    }
+    
+    if (config) {
+      // Backup current config
+      const backupPath = `${configPath}.backup.${Date.now()}`;
+      fs.copyFileSync(configPath, backupPath);
+      
+      // Write new config
+      fs.writeFileSync(configPath, config, 'utf8');
+    }
+    
+    // Restart if requested
+    if (restart) {
+      exec(`${HESTIA_DIR}/bin/v-restart-mongodb-instance "${name}"`, (error) => {
+        if (error) {
+          console.error('Restart instance error:', error);
+        }
+      });
+    }
+    
+    res.json({ success: true, message: 'Instance configuration updated' });
+  } catch (error) {
+    console.error('Update instance error:', error);
+    res.status(500).json({ error: error.message || 'Failed to update instance' });
+  }
+});
+
+/**
+ * DELETE /api/mongodb/instances/:name
+ * Delete an instance
+ */
+router.delete('/instances/:name', async (req, res) => {
+  try {
+    const { name } = req.params;
+    const force = req.query.force === 'true';
+    
+    const cmd = force 
+      ? `${HESTIA_DIR}/bin/v-delete-mongodb-instance "${name}" --force`
+      : `${HESTIA_DIR}/bin/v-delete-mongodb-instance "${name}"`;
+    
+    exec(cmd, { timeout: 30000 }, (error, stdout, stderr) => {
+      if (error) {
+        console.error('Delete instance error:', stderr || error.message);
+        return res.status(500).json({ error: stderr || error.message || 'Failed to delete instance' });
+      }
+      res.json({ success: true, message: `Instance '${name}' deleted successfully` });
+    });
+  } catch (error) {
+    console.error('Delete instance error:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete instance' });
+  }
+});
+
+/**
+ * POST /api/mongodb/instances/:name/start
+ * Start an instance
+ */
+router.post('/instances/:name/start', async (req, res) => {
+  try {
+    const { name } = req.params;
+    
+    exec(`${HESTIA_DIR}/bin/v-start-mongodb-instance "${name}"`, { timeout: 30000 }, (error, stdout, stderr) => {
+      if (error) {
+        console.error('Start instance error:', stderr || error.message);
+        return res.status(500).json({ error: stderr || error.message || 'Failed to start instance' });
+      }
+      res.json({ success: true, message: `Instance '${name}' started successfully` });
+    });
+  } catch (error) {
+    console.error('Start instance error:', error);
+    res.status(500).json({ error: error.message || 'Failed to start instance' });
+  }
+});
+
+/**
+ * POST /api/mongodb/instances/:name/stop
+ * Stop an instance
+ */
+router.post('/instances/:name/stop', async (req, res) => {
+  try {
+    const { name } = req.params;
+    
+    exec(`${HESTIA_DIR}/bin/v-stop-mongodb-instance "${name}"`, { timeout: 30000 }, (error, stdout, stderr) => {
+      if (error) {
+        console.error('Stop instance error:', stderr || error.message);
+        return res.status(500).json({ error: stderr || error.message || 'Failed to stop instance' });
+      }
+      res.json({ success: true, message: `Instance '${name}' stopped successfully` });
+    });
+  } catch (error) {
+    console.error('Stop instance error:', error);
+    res.status(500).json({ error: error.message || 'Failed to stop instance' });
+  }
+});
+
+/**
+ * POST /api/mongodb/instances/:name/restart
+ * Restart an instance
+ */
+router.post('/instances/:name/restart', async (req, res) => {
+  try {
+    const { name } = req.params;
+    
+    exec(`${HESTIA_DIR}/bin/v-restart-mongodb-instance "${name}"`, { timeout: 30000 }, (error, stdout, stderr) => {
+      if (error) {
+        console.error('Restart instance error:', stderr || error.message);
+        return res.status(500).json({ error: stderr || error.message || 'Failed to restart instance' });
+      }
+      res.json({ success: true, message: `Instance '${name}' restarted successfully` });
+    });
+  } catch (error) {
+    console.error('Restart instance error:', error);
+    res.status(500).json({ error: error.message || 'Failed to restart instance' });
+  }
+});
+
+/**
+ * POST /api/mongodb/instances/check-port
+ * Check if a port is available
+ */
+router.post('/instances/check-port', async (req, res) => {
+  try {
+    const { port } = req.body;
+    
+    if (!port) {
+      return res.status(400).json({ error: 'Port is required' });
+    }
+    
+    const portNum = parseInt(port, 10);
+    if (isNaN(portNum) || portNum < 1024 || portNum > 65535) {
+      return res.status(400).json({ error: 'Port must be a number between 1024 and 65535', available: false });
+    }
+    
+    // Check if port is in use
+    try {
+      const output = execSync(`ss -tlnp 2>/dev/null | grep ":${portNum} " || true`, { encoding: 'utf8' });
+      const inUse = output.trim().length > 0;
+      res.json({ port: portNum, available: !inUse, inUse });
+    } catch {
+      // If ss fails, assume port is available
+      res.json({ port: portNum, available: true, inUse: false });
+    }
+  } catch (error) {
+    console.error('Check port error:', error);
+    res.status(500).json({ error: error.message || 'Failed to check port' });
+  }
+});
+
 export default router;
+

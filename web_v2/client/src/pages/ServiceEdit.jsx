@@ -263,7 +263,7 @@ export default function ServiceEdit() {
             <textarea
               value={config}
               onChange={(e) => setConfig(e.target.value)}
-              className="form-input w-full font-mono text-sm"
+              className="form-input w-full font-mono text-sm bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100"
               rows={25}
               spellCheck={false}
             />
@@ -283,7 +283,7 @@ export default function ServiceEdit() {
             <textarea
               value={data.options}
               readOnly
-              className="form-input w-full font-mono text-sm bg-gray-50 dark:bg-dark-border"
+              className="form-input w-full font-mono text-sm bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100"
               rows={10}
             />
           </div>

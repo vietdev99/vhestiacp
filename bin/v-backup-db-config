@@ -1,0 +1,167 @@
+#!/bin/bash
+# info: backup database configuration and data before uninstall
+# options: DB_TYPE
+#
+# example: v-backup-db-config mysql
+# example: v-backup-db-config mongodb
+#
+# This function creates a backup of database data, config, and service files
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+db_type=$1
+timestamp=$(date +%Y%m%d_%H%M%S)
+backup_dir="/backup/db-uninstall/${db_type}_${timestamp}"
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+if [ -z "$db_type" ]; then
+    echo "Error: Database type required (mysql, postgresql, mongodb)"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Creating backup directory: $backup_dir"
+mkdir -p "$backup_dir"
+
+case "$db_type" in
+    mysql|mariadb)
+        echo "Backing up MySQL/MariaDB..."
+        
+        # Dump all databases
+        if command -v mysqldump &> /dev/null; then
+            echo "Dumping all databases..."
+            mysqldump --all-databases --single-transaction > "$backup_dir/all_databases.sql" 2>/dev/null || true
+        fi
+        
+        # Backup config
+        if [ -d "/etc/mysql" ]; then
+            cp -r /etc/mysql "$backup_dir/config_mysql"
+        fi
+        if [ -f "/etc/my.cnf" ]; then
+            cp /etc/my.cnf "$backup_dir/my.cnf"
+        fi
+        
+        # Backup data directory info (not full data, too large)
+        echo "Data directory: /var/lib/mysql" > "$backup_dir/data_location.txt"
+        du -sh /var/lib/mysql >> "$backup_dir/data_location.txt" 2>/dev/null || true
+        
+        # Backup service file
+        if [ -f "/lib/systemd/system/mysql.service" ]; then
+            cp /lib/systemd/system/mysql.service "$backup_dir/"
+        fi
+        if [ -f "/lib/systemd/system/mariadb.service" ]; then
+            cp /lib/systemd/system/mariadb.service "$backup_dir/"
+        fi
+        ;;
+        
+    postgresql|pgsql)
+        echo "Backing up PostgreSQL..."
+        
+        # Dump all databases
+        if command -v pg_dumpall &> /dev/null; then
+            echo "Dumping all databases..."
+            sudo -u postgres pg_dumpall > "$backup_dir/all_databases.sql" 2>/dev/null || true
+        fi
+        
+        # Backup config
+        if [ -d "/etc/postgresql" ]; then
+            cp -r /etc/postgresql "$backup_dir/config_postgresql"
+        fi
+        
+        # Backup data directory info
+        echo "Data directory: /var/lib/postgresql" > "$backup_dir/data_location.txt"
+        du -sh /var/lib/postgresql >> "$backup_dir/data_location.txt" 2>/dev/null || true
+        
+        # Backup service file
+        if [ -f "/lib/systemd/system/postgresql.service" ]; then
+            cp /lib/systemd/system/postgresql.service "$backup_dir/"
+        fi
+        ;;
+        
+    mongodb|mongod)
+        echo "Backing up MongoDB..."
+        
+        # Dump all databases
+        if command -v mongodump &> /dev/null; then
+            echo "Dumping all databases..."
+            mongodump --out="$backup_dir/mongodump" 2>/dev/null || true
+        fi
+        
+        # Backup config
+        if [ -f "/etc/mongod.conf" ]; then
+            cp /etc/mongod.conf "$backup_dir/"
+        fi
+        
+        # Backup data directory info
+        echo "Data directory: /var/lib/mongodb" > "$backup_dir/data_location.txt"
+        du -sh /var/lib/mongodb >> "$backup_dir/data_location.txt" 2>/dev/null || true
+        
+        # Backup service file
+        if [ -f "/lib/systemd/system/mongod.service" ]; then
+            cp /lib/systemd/system/mongod.service "$backup_dir/"
+        fi
+        ;;
+        
+    redis)
+        echo "Backing up Redis..."
+        
+        # Backup RDB file
+        if [ -f "/var/lib/redis/dump.rdb" ]; then
+            cp /var/lib/redis/dump.rdb "$backup_dir/"
+        fi
+        
+        # Backup config
+        if [ -f "/etc/redis/redis.conf" ]; then
+            cp /etc/redis/redis.conf "$backup_dir/"
+        fi
+        
+        # Backup service file
+        if [ -f "/lib/systemd/system/redis-server.service" ]; then
+            cp /lib/systemd/system/redis-server.service "$backup_dir/"
+        fi
+        ;;
+        
+    *)
+        echo "Unknown database type: $db_type"
+        exit 1
+        ;;
+esac
+
+# Create info file
+cat > "$backup_dir/backup_info.txt" <<EOF
+Backup Type: Database Uninstall Backup
+Database: $db_type
+Timestamp: $timestamp
+Date: $(date)
+Hostname: $(hostname)
+EOF
+
+# Set permissions
+chmod -R 600 "$backup_dir"
+chown -R root:root "$backup_dir"
+
+echo "Backup completed: $backup_dir"
+echo "$backup_dir"
+
+# Log
+$BIN/v-log-action "system" "Info" "Database" "Created backup before uninstall: $db_type"
+
+exit 0

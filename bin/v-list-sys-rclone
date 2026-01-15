@@ -1,0 +1,54 @@
+#!/bin/bash
+
+# HELPER: JSON output wrapper
+json_output() {
+    echo "{\"remotes\": [$1]}"
+}
+
+# HELPER: Error handler
+error_handler() {
+    echo "{\"error\": \"$1\"}"
+    exit 1
+}
+
+# Check if rclone is installed
+if ! command -v rclone &> /dev/null; then
+    json_output ""
+    exit 0
+fi
+
+# Get list of remotes
+REMOTES=$(rclone listremotes 2>/dev/null)
+
+if [ -z "$REMOTES" ]; then
+    json_output ""
+    exit 0
+fi
+
+# Format as JSON objects
+JSON_ITEMS=""
+while IFS= read -r remote; do
+    # Remove trailing colon
+    NAME=${remote%:}
+    # Get type (this is expensive for many remotes, so maybe skip or optimize?)
+    # For now, let's just list names. If we need types, we might need to parse config file directly.
+    # Parsing config file directly is safer/faster for Hestia context.
+    
+    TYPE="unknown"
+    CONFIG_FILE=$(rclone config file | grep "Configuration file" | cut -d' ' -f4-)
+    if [ ! -z "$CONFIG_FILE" ] && [ -f "$CONFIG_FILE" ]; then
+         # Extract type from config block [name]
+         TYPE=$(awk -v section="[$NAME]" '$0==section{flag=1;next} /^\[/{flag=0} flag && /^type/{print $3}' "$CONFIG_FILE" | tr -d ' =')
+    fi
+
+    ITEM="{\"name\": \"$NAME\", \"type\": \"$TYPE\"}"
+    
+    if [ -z "$JSON_ITEMS" ]; then
+        JSON_ITEMS="$ITEM"
+    else
+        JSON_ITEMS="$JSON_ITEMS, $ITEM"
+    fi
+done <<< "$REMOTES"
+
+json_output "$JSON_ITEMS"
+exit 0

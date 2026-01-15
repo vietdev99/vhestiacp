@@ -109,6 +109,7 @@ export default function ServerConfigure() {
         backupMode: data?.backup?.mode || 'zstd',
         backupGzip: data?.backup?.gzip || '4',
         remoteBackup: !!data?.backup?.remote,
+        backupRemote: data?.backup?.remote || '', // Store the remote name
         incrementalBackup: data?.incrementalBackup ? 'yes' : 'no',
         // Security - API
         policyCsrfStrictness: data.config?.policyCsrfStrictness,
@@ -128,6 +129,16 @@ export default function ServerConfigure() {
         enforceSubdomainOwnership: data.config?.enforceSubdomainOwnership
       });
     }
+  });
+
+  // Fetch rclone remotes
+  const { data: rcloneRemotes, isLoading: rcloneLoading } = useQuery({
+    queryKey: ['rclone-remotes'],
+    queryFn: async () => {
+      const res = await api.get('/api/backups/rclone-remotes');
+      return res.data;
+    },
+    enabled: !!formData.remoteBackup // Only fetch if remote backup is enabled (or we can fetch always)
   });
 
   // Update config mutation
@@ -198,7 +209,7 @@ export default function ServerConfigure() {
         'webmailAlias', 'dbPmaAlias', 'dbPgaAlias', 'inactiveSessionTimeout', 'loginStyle',
         'api', 'apiSystem', 'policySystemPasswordReset', 'policyUserChangeTheme',
         'upgradeSendEmail', 'upgradeSendEmailLog',
-        'backupMode', 'backupGzip',
+        'backupMode', 'backupGzip', 'backupRemote',
         'policyCsrfStrictness',
         'policySystemProtectedAdmin', 'policySystemHideAdmin', 'policySystemHideServices',
         'policyUserEditDetails', 'policyUserEditWebTemplates', 'policyUserEditDnsTemplates',
@@ -254,15 +265,15 @@ export default function ServerConfigure() {
             <ArrowLeft className="w-4 h-4 mr-2" />
             Back
           </Link>
-          <Link to="/admin/ip" className="btn btn-secondary">
+          <Link to="/server-info" className="btn btn-secondary">
             <Network className="w-4 h-4 mr-2" />
             Network
           </Link>
-          <Link to="/admin/whitelabel" className="btn btn-secondary">
+          <button className="btn btn-secondary opacity-50 cursor-not-allowed" title="Coming soon">
             <PaintBucket className="w-4 h-4 mr-2" />
             White Label
-          </Link>
-          <Link to="/admin/panel-cronjobs" className="btn btn-secondary">
+          </button>
+          <Link to="/cron" className="btn btn-secondary">
             <Clock className="w-4 h-4 mr-2" />
             Panel Cronjobs
           </Link>
@@ -663,15 +674,51 @@ export default function ServerConfigure() {
               readOnly
             />
           </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="remoteBackup"
-              className="form-checkbox"
-              checked={formData.remoteBackup || false}
-              onChange={(e) => handleFieldChange('remoteBackup', e.target.checked)}
-            />
-            <label htmlFor="remoteBackup">Remote Backup</label>
+          
+          <div className="pt-2 border-t border-gray-100 dark:border-dark-border">
+            <h4 className="text-sm font-medium mb-2">Remote Backup</h4>
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="remoteBackup"
+                  className="form-checkbox"
+                  checked={formData.remoteBackup || false}
+                  onChange={(e) => handleFieldChange('remoteBackup', e.target.checked)}
+                />
+                <label htmlFor="remoteBackup">Enable Remote Backup</label>
+              </div>
+
+              {formData.remoteBackup && (
+                <div className="ml-6 p-3 bg-gray-50 dark:bg-dark-border rounded-lg space-y-2">
+                  <label className="form-label">Select Remote Destination</label>
+                  {rcloneLoading ? (
+                    <div className="flex items-center gap-2 text-sm text-gray-500">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Loading remotes...
+                    </div>
+                  ) : (
+                    <select
+                      className="form-select w-full"
+                      value={formData.backupRemote || ''}
+                      onChange={(e) => handleFieldChange('backupRemote', e.target.value)}
+                    >
+                      <option value="">Select a remote...</option>
+                      {rcloneRemotes?.remotes?.map(remote => (
+                        <option key={remote.name} value={remote.name}>
+                          {remote.name} ({remote.type})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  {(!rcloneRemotes?.remotes || rcloneRemotes.remotes.length === 0) && !rcloneLoading && (
+                    <p className="text-sm text-amber-600">
+                      No rclone remotes found. Please configure rclone first.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </AccordionSection>

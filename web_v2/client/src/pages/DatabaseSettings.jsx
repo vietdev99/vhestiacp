@@ -11,6 +11,18 @@ export default function DatabaseSettings() {
   const [searchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'mysql');
 
+  const { data: rcloneRemotes } = useQuery({
+    queryKey: ['rclone-remotes'],
+    queryFn: async () => {
+      try {
+        const res = await api.get('/api/rclone/remotes');
+        return res.data.remotes || [];
+      } catch (e) {
+        return [];
+      }
+    }
+  });
+
   const { data: systemInfo, isLoading } = useQuery({
     queryKey: ['system-info'],
     queryFn: async () => {
@@ -97,7 +109,7 @@ export default function DatabaseSettings() {
         <div className="p-6">
           {activeTab === 'mysql' && <MySQLSettings />}
           {activeTab === 'pgsql' && <PostgreSQLSettings />}
-          {activeTab === 'mongodb' && <MongoDBSettings />}
+          {activeTab === 'mongodb' && <MongoDBSettings rcloneRemotes={rcloneRemotes} />}
         </div>
       </div>
     </div>
@@ -701,7 +713,327 @@ function PostgreSQLSettings() {
   );
 }
 
-function MongoDBSettings() {
+// MongoDB Instance Manager Component with Tabs
+function MongoDBInstanceManager() {
+  const queryClient = useQueryClient();
+  const [showAddDialog, setShowAddDialog] = useState(false);
+  const [activeInstance, setActiveInstance] = useState(null);
+  const [newInstance, setNewInstance] = useState({ name: '', port: '27018', clusterMode: 'standalone', replicaSetName: 'rs0' });
+  const [portError, setPortError] = useState('');
+
+  // Fetch instances
+  const { data: instancesData, isLoading, refetch } = useQuery({
+    queryKey: ['mongodb-instances'],
+    queryFn: async () => {
+      const res = await api.get('/api/mongodb/instances');
+      return res.data;
+    },
+    refetchInterval: 10000
+  });
+
+  const instances = instancesData?.instances || [];
+  
+  // Set active instance to first one if not set
+  useEffect(() => {
+    if (instances.length > 0 && !activeInstance) {
+      setActiveInstance(instances[0].name);
+    }
+  }, [instances, activeInstance]);
+
+  // Check port availability
+  const checkPort = async (port) => {
+    try {
+      const res = await api.post('/api/mongodb/instances/check-port', { port });
+      if (!res.data.available) {
+        setPortError(`Port ${port} is already in use`);
+      } else {
+        setPortError('');
+      }
+    } catch {
+      setPortError('');
+    }
+  };
+
+  // Create instance mutation
+  const createMutation = useMutation({
+    mutationFn: async (data) => {
+      const res = await api.post('/api/mongodb/instances', data);
+      return res.data;
+    },
+    onSuccess: (_, variables) => {
+      setShowAddDialog(false);
+      setNewInstance({ name: '', port: '27018', clusterMode: 'standalone', replicaSetName: 'rs0' });
+      setActiveInstance(variables.name);
+      refetch();
+    }
+  });
+
+  // Instance action mutations
+  const startMutation = useMutation({
+    mutationFn: async (name) => api.post(`/api/mongodb/instances/${name}/start`),
+    onSuccess: () => refetch()
+  });
+
+  const stopMutation = useMutation({
+    mutationFn: async (name) => api.post(`/api/mongodb/instances/${name}/stop`),
+    onSuccess: () => refetch()
+  });
+
+  const restartMutation = useMutation({
+    mutationFn: async (name) => api.post(`/api/mongodb/instances/${name}/restart`),
+    onSuccess: () => refetch()
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async ({ name, force }) => api.delete(`/api/mongodb/instances/${name}?force=${force}`),
+    onSuccess: (_, { name }) => {
+      refetch();
+      if (activeInstance === name) {
+        setActiveInstance(instances.find(i => i.name !== name)?.name || null);
+      }
+    }
+  });
+
+  const handleAddInstance = () => {
+    if (!newInstance.name || !newInstance.port) return;
+    if (portError) return;
+    createMutation.mutate(newInstance);
+  };
+
+  const selectedInstance = instances.find(i => i.name === activeInstance);
+
+  return (
+    <div className="space-y-4">
+      {/* Instance Tabs */}
+      <div className="border-b border-gray-200 dark:border-dark-border">
+        <nav className="flex -mb-px overflow-x-auto">
+          {instances.map((instance) => (
+            <button
+              key={instance.name}
+              onClick={() => setActiveInstance(instance.name)}
+              className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 whitespace-nowrap transition-colors ${
+                activeInstance === instance.name
+                  ? 'border-primary-600 text-primary-600 dark:text-primary-400'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-dark-muted'
+              }`}
+            >
+              <div className={`w-2 h-2 rounded-full ${instance.status === 'running' ? 'bg-green-500' : 'bg-red-500'}`} />
+              {instance.name}
+              <span className="text-xs text-gray-400">:{instance.port}</span>
+            </button>
+          ))}
+          <button
+            onClick={() => setShowAddDialog(true)}
+            className="flex items-center gap-1 px-4 py-2 text-sm font-medium text-gray-400 hover:text-primary-600 border-b-2 border-transparent"
+            title="Add Instance"
+          >
+            <span className="text-lg">+</span>
+          </button>
+        </nav>
+      </div>
+
+      {/* Add Instance Dialog */}
+      {showAddDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="bg-white dark:bg-dark-card rounded-lg shadow-xl p-6 w-full max-w-md m-4">
+            <h4 className="text-lg font-medium mb-4">Add MongoDB Instance</h4>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium mb-1">Instance Name *</label>
+                <input
+                  type="text"
+                  value={newInstance.name}
+                  onChange={(e) => setNewInstance({...newInstance, name: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '')})}
+                  className="input"
+                  placeholder="my-prod-db"
+                />
+                <p className="text-xs text-gray-500 mt-1">Letters, numbers, dashes, underscores only</p>
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium mb-1">Port *</label>
+                <input
+                  type="number"
+                  value={newInstance.port}
+                  onChange={(e) => {
+                    setNewInstance({...newInstance, port: e.target.value});
+                    checkPort(e.target.value);
+                  }}
+                  className={`input ${portError ? 'border-red-500' : ''}`}
+                  placeholder="27018"
+                  min="1024"
+                  max="65535"
+                />
+                {portError && <p className="text-xs text-red-500 mt-1">{portError}</p>}
+              </div>
+              
+              <div>
+                <label className="block text-sm font-medium mb-1">Cluster Mode</label>
+                <select
+                  value={newInstance.clusterMode}
+                  onChange={(e) => setNewInstance({...newInstance, clusterMode: e.target.value})}
+                  className="input"
+                >
+                  <option value="standalone">Standalone</option>
+                  <option value="replicaset">ReplicaSet</option>
+                  <option value="sharding">Sharding</option>
+                </select>
+              </div>
+              
+              {newInstance.clusterMode !== 'standalone' && (
+                <div>
+                  <label className="block text-sm font-medium mb-1">Replica Set Name</label>
+                  <input
+                    type="text"
+                    value={newInstance.replicaSetName}
+                    onChange={(e) => setNewInstance({...newInstance, replicaSetName: e.target.value})}
+                    className="input"
+                    placeholder="rs0"
+                  />
+                </div>
+              )}
+            </div>
+            
+            <div className="flex justify-end gap-3 mt-6">
+              <button
+                onClick={() => setShowAddDialog(false)}
+                className="btn btn-secondary"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddInstance}
+                disabled={!newInstance.name || !newInstance.port || portError || createMutation.isPending}
+                className="btn btn-primary"
+              >
+                {createMutation.isPending ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Creating...</>
+                ) : (
+                  'Create Instance'
+                )}
+              </button>
+            </div>
+            
+            {createMutation.isError && (
+              <div className="mt-4 p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded text-red-700 dark:text-red-400 text-sm">
+                {createMutation.error?.response?.data?.error || 'Failed to create instance'}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Selected Instance Details */}
+      {isLoading ? (
+        <div className="flex items-center justify-center h-24">
+          <Loader2 className="w-6 h-6 animate-spin text-primary-600" />
+        </div>
+      ) : instances.length === 0 ? (
+        <div className="p-8 text-center bg-gray-50 dark:bg-dark-border rounded-lg">
+          <Database className="w-12 h-12 mx-auto text-gray-400 mb-3" />
+          <p className="text-gray-500 dark:text-dark-muted">No MongoDB instances created yet</p>
+          <button
+            onClick={() => setShowAddDialog(true)}
+            className="btn btn-primary mt-4"
+          >
+            + Create First Instance
+          </button>
+        </div>
+      ) : selectedInstance ? (
+        <div className="p-4 bg-gray-50 dark:bg-dark-border rounded-lg">
+          {/* Instance Header */}
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-3">
+              <div className={`w-3 h-3 rounded-full ${selectedInstance.status === 'running' ? 'bg-green-500' : 'bg-red-500'}`} />
+              <div>
+                <h4 className="font-medium text-lg">{selectedInstance.name}</h4>
+                <p className="text-sm text-gray-500 dark:text-dark-muted">
+                  Port: {selectedInstance.port} | Mode: {selectedInstance.clusterMode}
+                  {selectedInstance.replicaSetName && ` | RS: ${selectedInstance.replicaSetName}`}
+                </p>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-2">
+              {selectedInstance.status === 'running' ? (
+                <>
+                  <button
+                    onClick={() => restartMutation.mutate(selectedInstance.name)}
+                    disabled={restartMutation.isPending}
+                    className="btn btn-secondary btn-sm"
+                    title="Restart"
+                  >
+                    {restartMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : '🔄 Restart'}
+                  </button>
+                  <button
+                    onClick={() => stopMutation.mutate(selectedInstance.name)}
+                    disabled={stopMutation.isPending}
+                    className="btn btn-secondary btn-sm"
+                    title="Stop"
+                  >
+                    {stopMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : '⏹️ Stop'}
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={() => startMutation.mutate(selectedInstance.name)}
+                  disabled={startMutation.isPending}
+                  className="btn btn-primary btn-sm"
+                  title="Start"
+                >
+                  {startMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : '▶️ Start'}
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  if (confirm(`Delete instance "${selectedInstance.name}"?\n\nThis will stop the service and remove configuration.\nData directory will be preserved (use CLI with --force to delete data).`)) {
+                    deleteMutation.mutate({ name: selectedInstance.name, force: false });
+                  }
+                }}
+                disabled={deleteMutation.isPending}
+                className="btn btn-danger btn-sm"
+                title="Delete"
+              >
+                {deleteMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : '🗑️ Delete'}
+              </button>
+            </div>
+          </div>
+          
+          {/* Instance Stats */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-4">
+            <div className="p-3 bg-white dark:bg-dark-card rounded-lg">
+              <span className="text-xs text-gray-500 uppercase">Status</span>
+              <p className={`font-medium ${selectedInstance.status === 'running' ? 'text-green-600' : 'text-red-600'}`}>
+                {selectedInstance.status === 'running' ? 'Running' : 'Stopped'}
+              </p>
+            </div>
+            <div className="p-3 bg-white dark:bg-dark-card rounded-lg">
+              <span className="text-xs text-gray-500 uppercase">Memory</span>
+              <p className="font-medium">{selectedInstance.memory || 'N/A'}</p>
+            </div>
+            <div className="p-3 bg-white dark:bg-dark-card rounded-lg">
+              <span className="text-xs text-gray-500 uppercase">Data Size</span>
+              <p className="font-medium">{selectedInstance.dataSize || 'N/A'}</p>
+            </div>
+            <div className="p-3 bg-white dark:bg-dark-card rounded-lg">
+              <span className="text-xs text-gray-500 uppercase">Service</span>
+              <p className="font-medium text-sm">{selectedInstance.serviceName}</p>
+            </div>
+          </div>
+          
+          {/* Data Path */}
+          <div className="mt-4 p-3 bg-white dark:bg-dark-card rounded-lg">
+            <span className="text-xs text-gray-500 uppercase">Data Directory</span>
+            <p className="font-mono text-sm">{selectedInstance.dataDir}</p>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function MongoDBSettings({ rcloneRemotes }) {
   const queryClient = useQueryClient();
   const [config, setConfig] = useState('');
   const [clusterMode, setClusterMode] = useState('standalone');
@@ -712,6 +1044,7 @@ function MongoDBSettings() {
   const [dataDir, setDataDir] = useState('/var/lib/mongodb');
   const [restartAfterSave, setRestartAfterSave] = useState(true);
   const [keyfileStatus, setKeyfileStatus] = useState(null);
+  const [showConfig, setShowConfig] = useState(false);
 
   // PBM Settings
   const [pbmEnabled, setPbmEnabled] = useState(false);
@@ -732,6 +1065,8 @@ function MongoDBSettings() {
   const [pbmPitr, setPbmPitr] = useState(false);
   const [pitrInterval, setPitrInterval] = useState(10);
   const [pitrRetention, setPitrRetention] = useState(3);
+  const [pbmUsername, setPbmUsername] = useState('');
+  const [pbmPassword, setPbmPassword] = useState('');
 
   // Fetch MongoDB config
   const { data: mongoConfig, isLoading } = useQuery({
@@ -762,6 +1097,29 @@ function MongoDBSettings() {
         setShardRole(mongoConfig.settings.shardRole || 'shardsvr');
         setKeyfilePath(mongoConfig.settings.keyfilePath || '/var/lib/mongodb/keyfile');
         setDataDir(mongoConfig.settings.dataDir || '/var/lib/mongodb');
+        
+        // Load PBM settings
+        if (mongoConfig.settings.pbm) {
+          const pbm = mongoConfig.settings.pbm;
+          setPbmEnabled(pbm.enabled || false);
+          setPbmType(pbm.type || 'logical');
+          setPbmScheduleType(pbm.scheduleType || 'daily');
+          setPbmTime(pbm.time || '02:00');
+          setPbmWeekday(pbm.weekday || '0');
+          setPbmInterval(pbm.interval || '6');
+          setPbmCron(pbm.cron || '0 2 * * *');
+          setPbmRetention(pbm.retention || 7);
+          setPbmStorage(pbm.storage || 'filesystem');
+          setPbmPath(pbm.path || '/var/lib/pbm/backups');
+          setPbmS3Endpoint(pbm.s3Endpoint || '');
+          setPbmS3Bucket(pbm.s3Bucket || '');
+          setPbmS3Key(pbm.s3Key || '');
+          setPbmS3Secret(pbm.s3Secret || '');
+          setPbmCompression(pbm.compression !== false);
+          setPbmPitr(pbm.pitr || false);
+          setPitrInterval(pbm.pitrInterval || 10);
+          setPitrRetention(pbm.pitrRetention || 3);
+        }
       }
     }
   }, [mongoConfig]);
@@ -805,7 +1163,38 @@ function MongoDBSettings() {
 
   // Handle config save
   const handleSave = () => {
-    saveMutation.mutate({ config, restart: restartAfterSave });
+    saveMutation.mutate({ 
+      config, 
+      restart: restartAfterSave,
+      clusterMode,
+      replicaSetName,
+      nodeRole,
+      shardRole,
+      keyfilePath,
+      dataDir,
+      pbm: {
+        enabled: pbmEnabled,
+        type: pbmType,
+        scheduleType: pbmScheduleType,
+        time: pbmTime,
+        weekday: pbmWeekday,
+        interval: pbmInterval,
+        cron: pbmCron,
+        retention: pbmRetention,
+        storage: pbmStorage,
+        path: pbmPath,
+        s3Endpoint: pbmS3Endpoint,
+        s3Bucket: pbmS3Bucket,
+        s3Key: pbmS3Key,
+        s3Secret: pbmS3Secret,
+        compression: pbmCompression,
+        pitr: pbmPitr,
+        username: pbmUsername,
+        password: pbmPassword,
+        pitrInterval,
+        pitrRetention
+      }
+    });
   };
 
   // Handle keyfile download
@@ -823,39 +1212,51 @@ function MongoDBSettings() {
 
   return (
     <div className="space-y-6">
-      {/* Status Bar */}
-      <div className="flex items-center gap-4 p-4 bg-gray-50 dark:bg-dark-border rounded-lg">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-gray-600 dark:text-dark-muted">Status:</span>
-          {mongoConfig?.status === 'running' ? (
-            <span className="flex items-center gap-1 text-green-600">
-              <CheckCircle className="w-4 h-4" />
-              Running
-            </span>
-          ) : (
-            <span className="flex items-center gap-1 text-red-600">
-              <XCircle className="w-4 h-4" />
-              Stopped
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium text-gray-600 dark:text-dark-muted">Version:</span>
-          <span className="text-sm">{mongoConfig?.version || 'Unknown'}</span>
+      {/* MongoDB Instances Section */}
+      <MongoDBInstanceManager />
+
+      {/* Default Instance Status Bar */}
+      <div className="border-t border-gray-200 dark:border-dark-border pt-6">
+        <h3 className="text-lg font-medium mb-4">Default Instance (Legacy)</h3>
+        <div className="flex items-center gap-4 p-4 bg-gray-50 dark:bg-dark-border rounded-lg">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-600 dark:text-dark-muted">Status:</span>
+            {mongoConfig?.status === 'running' ? (
+              <span className="flex items-center gap-1 text-green-600">
+                <CheckCircle className="w-4 h-4" />
+                Running
+              </span>
+            ) : (
+              <span className="flex items-center gap-1 text-red-600">
+                <XCircle className="w-4 h-4" />
+                Stopped
+              </span>
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium text-gray-600 dark:text-dark-muted">Version:</span>
+            <span className="text-sm">{mongoConfig?.version || 'Unknown'}</span>
+          </div>
         </div>
       </div>
 
-      {/* Config Editor */}
+      {/* Config Editor - Collapsible */}
       <div>
-        <label className="block text-sm font-medium mb-2">
+        <button
+          onClick={() => setShowConfig(!showConfig)}
+          className="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-dark-muted hover:text-primary-600 mb-2"
+        >
+          <span className={`transform transition-transform ${showConfig ? 'rotate-90' : ''}`}>▶</span>
           Configuration File ({mongoConfig?.configPath || '/etc/mongod.conf'})
-        </label>
-        <textarea
-          value={config}
-          onChange={(e) => setConfig(e.target.value)}
-          className="w-full h-64 font-mono text-sm p-3 bg-gray-900 text-gray-100 rounded-lg border border-gray-700 focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
-          spellCheck={false}
-        />
+        </button>
+        {showConfig && (
+          <textarea
+            value={config}
+            onChange={(e) => setConfig(e.target.value)}
+            className="w-full h-64 font-mono text-sm p-3 bg-gray-900 text-gray-100 rounded-lg border border-gray-700 focus:border-primary-500 focus:ring-1 focus:ring-primary-500"
+            spellCheck={false}
+          />
+        )}
       </div>
 
       {/* Advanced Configuration */}
@@ -963,10 +1364,15 @@ function MongoDBSettings() {
               setPbmCompression={setPbmCompression}
               pbmPitr={pbmPitr}
               setPbmPitr={setPbmPitr}
+              pbmUsername={pbmUsername}
+              setPbmUsername={setPbmUsername}
+              pbmPassword={pbmPassword}
+              setPbmPassword={setPbmPassword}
               pitrInterval={pitrInterval}
               setPitrInterval={setPitrInterval}
               pitrRetention={pitrRetention}
               setPitrRetention={setPitrRetention}
+              rcloneRemotes={rcloneRemotes || []}
             />
           </div>
         )}
@@ -1221,7 +1627,12 @@ function PBMSection({
   pitrInterval,
   setPitrInterval,
   pitrRetention,
-  setPitrRetention
+  setPitrRetention,
+  pbmUsername,
+  setPbmUsername,
+  pbmPassword,
+  setPbmPassword,
+  rcloneRemotes
 }) {
   const backupTypeNotes = {
     logical: 'Slower but compatible across MongoDB versions. Good for migration.',
@@ -1285,11 +1696,12 @@ function PBMSection({
                 >
                   <option value="daily">Daily</option>
                   <option value="weekly">Weekly</option>
+                  <option value="monthly">Monthly</option>
                   <option value="interval">Every X hours</option>
                   <option value="custom">Custom cron</option>
                 </select>
 
-                {(pbmScheduleType === 'daily' || pbmScheduleType === 'weekly') && (
+                {(pbmScheduleType === 'daily' || pbmScheduleType === 'weekly' || pbmScheduleType === 'monthly') && (
                   <div className="flex items-center gap-2">
                     <span className="text-sm">at</span>
                     <input
@@ -1315,6 +1727,21 @@ function PBMSection({
                     <option value="5">Friday</option>
                     <option value="6">Saturday</option>
                   </select>
+                )}
+
+                 {pbmScheduleType === 'monthly' && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm">on day</span>
+                    <select
+                      value={pbmWeekday} // Reusing pbmWeekday for day of month (1-31)
+                      onChange={(e) => setPbmWeekday(e.target.value)}
+                      className="input w-auto"
+                    >
+                      {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
                 )}
 
                 {pbmScheduleType === 'interval' && (
@@ -1363,13 +1790,53 @@ function PBMSection({
               <div>
                 <label className="block text-sm font-medium mb-1">Base (Full) Backup Schedule</label>
                 <div className="flex flex-wrap gap-2 items-center">
-                  <select className="input w-auto">
+                  <select 
+                    value={pbmScheduleType} // Fixed binding
+                    onChange={(e) => setPbmScheduleType(e.target.value)} // Fixed handler
+                    className="input w-auto"
+                  >
+                    <option value="daily">Daily</option>
                     <option value="weekly">Weekly</option>
                     <option value="monthly">Monthly</option>
-                    <option value="daily">Daily</option>
                   </select>
                   <span className="text-sm">at</span>
-                  <input type="time" defaultValue="02:00" className="input w-auto" />
+                  <input 
+                    type="time" 
+                    value={pbmTime} // Fixed binding
+                    onChange={(e) => setPbmTime(e.target.value)} // Fixed handler
+                    className="input w-auto" 
+                  />
+
+                  {pbmScheduleType === 'weekly' && (
+                    <select
+                      value={pbmWeekday}
+                      onChange={(e) => setPbmWeekday(e.target.value)}
+                      className="input w-auto"
+                    >
+                      <option value="0">Sunday</option>
+                      <option value="1">Monday</option>
+                      <option value="2">Tuesday</option>
+                      <option value="3">Wednesday</option>
+                      <option value="4">Thursday</option>
+                      <option value="5">Friday</option>
+                      <option value="6">Saturday</option>
+                    </select>
+                  )}
+
+                  {pbmScheduleType === 'monthly' && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm">on day</span>
+                      <select
+                        value={pbmWeekday} // Reuse weekday for day of month (1-31)
+                        onChange={(e) => setPbmWeekday(e.target.value)}
+                        className="input w-auto"
+                      >
+                        {Array.from({ length: 31 }, (_, i) => i + 1).map(d => (
+                          <option key={d} value={d}>{d}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -1392,6 +1859,33 @@ function PBMSection({
               </div>
             </div>
           )}
+
+          {/* PBM Credentials (Optional) */}
+          <div className="pt-2 border-t border-gray-200 dark:border-dark-border mb-4">
+             <h4 className="font-medium text-sm mb-3">PBM Authentication</h4>
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-1">PBM Username</label>
+                  <input
+                    type="text"
+                    value={pbmUsername}
+                    onChange={(e) => setPbmUsername(e.target.value)}
+                    className="input"
+                    placeholder="Leave empty to use authentication keyfile"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-1">PBM Password</label>
+                  <input
+                    type="password"
+                    value={pbmPassword}
+                    onChange={(e) => setPbmPassword(e.target.value)}
+                    className="input"
+                    placeholder="Leave empty if not set"
+                  />
+                </div>
+             </div>
+          </div>
 
           {/* Retention */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -1425,16 +1919,31 @@ function PBMSection({
           <div>
             <label className="block text-sm font-medium mb-1">Storage</label>
             <select
-              value={pbmStorage}
-              onChange={(e) => setPbmStorage(e.target.value)}
+              value={pbmStorage} // This can now be 'filesystem', 's3', or 'rclone:<remote>'
+              onChange={(e) => {
+                const val = e.target.value;
+                setPbmStorage(val);
+                // Auto-set path for rclone
+                if (val.startsWith('rclone:')) {
+                  const remoteName = val.split(':')[1];
+                  setPbmPath(`/mnt/rclone/${remoteName}`);
+                }
+              }}
               className="input"
             >
               <option value="filesystem">Local Filesystem</option>
               <option value="s3">Amazon S3 / Compatible</option>
+              <optgroup label="Rclone Remotes">
+                {rcloneRemotes?.map(remote => (
+                  <option key={remote.Name} value={`rclone:${remote.Name}`}>
+                    Rclone: {remote.Name} ({remote.Type})
+                  </option>
+                ))}
+              </optgroup>
             </select>
           </div>
 
-          {pbmStorage === 'filesystem' && (
+          {(pbmStorage === 'filesystem' || pbmStorage.startsWith('rclone:')) && (
             <div>
               <label className="block text-sm font-medium mb-1">Backup Path</label>
               <input
@@ -1442,7 +1951,14 @@ function PBMSection({
                 value={pbmPath}
                 onChange={(e) => setPbmPath(e.target.value)}
                 className="input"
+                // Lock the path if it's an Rclone mount to prevent confusion, or let user edit?
+                // Let's leave it editable but suggest the default.
               />
+              {pbmStorage.startsWith('rclone:') && (
+                <p className="text-xs text-amber-600 mt-1">
+                  Ensure the Rclone remote is mounted at this path. System will attempt to mount it on save.
+                </p>
+              )}
             </div>
           )}
 

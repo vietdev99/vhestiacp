@@ -1,0 +1,119 @@
+#!/bin/bash
+# info: delete mongodb instance
+# options: INSTANCE_NAME [--force]
+#
+# example: v-delete-mongodb-instance my-test-db
+# example: v-delete-mongodb-instance my-test-db --force
+#
+# This function deletes a MongoDB instance, including its
+# systemd service and configuration. Use --force to also remove data.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+instance_name=$1
+force_flag=$2
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Directories
+INSTANCES_DATA_DIR="/var/lib/mongodb-instances"
+INSTANCES_CONF_DIR="/etc/mongodb-instances"
+INSTANCES_META_FILE="$HESTIA/data/mongodb-instances.json"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if running as root
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+# Check required arguments
+if [ -z "$instance_name" ]; then
+    echo "Error: Instance name is required"
+    echo "Usage: v-delete-mongodb-instance INSTANCE_NAME [--force]"
+    exit 1
+fi
+
+# Check if instance exists
+if [ ! -d "$INSTANCES_DATA_DIR/$instance_name" ] && [ ! -f "$INSTANCES_CONF_DIR/${instance_name}.conf" ]; then
+    echo "Error: Instance '$instance_name' does not exist"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+service_name="mongod-${instance_name}"
+config_file="$INSTANCES_CONF_DIR/${instance_name}.conf"
+data_dir="$INSTANCES_DATA_DIR/$instance_name"
+service_file="/etc/systemd/system/${service_name}.service"
+log_file="/var/log/mongodb-instances/${instance_name}.log"
+
+echo "Deleting MongoDB instance: $instance_name"
+
+# Stop and disable the service
+echo "Stopping service..."
+systemctl stop "$service_name" 2>/dev/null || true
+systemctl disable "$service_name" 2>/dev/null || true
+
+# Remove systemd service file
+echo "Removing systemd service..."
+rm -f "$service_file"
+systemctl daemon-reload
+
+# Remove configuration file
+echo "Removing configuration..."
+rm -f "$config_file"
+
+# Remove log file
+rm -f "$log_file"
+
+# Remove data directory if --force is specified
+if [ "$force_flag" == "--force" ]; then
+    echo "Removing data directory (--force specified)..."
+    rm -rf "$data_dir"
+else
+    echo "  ⚠️ Data directory preserved at: $data_dir"
+    echo "  Use --force to remove data as well"
+fi
+
+# Update metadata file
+echo "Updating metadata..."
+if [ -f "$INSTANCES_META_FILE" ] && command -v jq &>/dev/null; then
+    tmp_file=$(mktemp)
+    jq --arg name "$instance_name" '.instances = [.instances[] | select(.name != $name)]' \
+        "$INSTANCES_META_FILE" > "$tmp_file" && mv "$tmp_file" "$INSTANCES_META_FILE"
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo ""
+echo "════════════════════════════════════════════════════════════"
+echo "  MongoDB Instance Deleted!"
+echo "════════════════════════════════════════════════════════════"
+echo ""
+echo "  Instance Name:    $instance_name"
+if [ "$force_flag" != "--force" ]; then
+    echo ""
+    echo "  Note: Data directory preserved at:"
+    echo "        $data_dir"
+fi
+echo ""
+echo "════════════════════════════════════════════════════════════"
+
+# Logging
+$HESTIA/bin/v-log-action "system" "Info" "MongoDB" "Instance '$instance_name' deleted"
+
+exit 0

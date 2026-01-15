@@ -1,0 +1,59 @@
+#!/bin/bash
+# info: start mongodb instance
+# options: INSTANCE_NAME
+#
+# example: v-start-mongodb-instance my-prod-db
+#
+# This function starts a MongoDB instance.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+instance_name=$1
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+if [ -z "$instance_name" ]; then
+    echo "Error: Instance name is required"
+    echo "Usage: v-start-mongodb-instance INSTANCE_NAME"
+    exit 1
+fi
+
+service_name="mongod-${instance_name}"
+
+if ! systemctl list-unit-files | grep -q "$service_name"; then
+    echo "Error: Instance '$instance_name' does not exist"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Starting MongoDB instance: $instance_name"
+systemctl start "$service_name"
+
+sleep 2
+
+if systemctl is-active --quiet "$service_name"; then
+    echo "  ✅ Instance started successfully"
+    $HESTIA/bin/v-log-action "system" "Info" "MongoDB" "Instance '$instance_name' started"
+    exit 0
+else
+    echo "  ❌ Failed to start instance"
+    systemctl status "$service_name" --no-pager || true
+    exit 1
+fi
