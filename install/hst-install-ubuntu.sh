@@ -3805,8 +3805,19 @@ write_config_value "VHESTIACP_VERSION" "1.0.0"
 # Node.js is always required for VHestiaCP panel
 echo "[ * ] Deploying VHestiaCP Web Panel..."
 
+# Detect VHestiaCP source directory
+srcdir=""
+for try_path in "/tmp/vhestiacp" "$HOME/vhestiacp" "/root/vhestiacp" "$VHESTIA_INSTALL_DIR"; do
+	if [ -d "$try_path/web_v2" ]; then
+		srcdir="$try_path"
+		break
+	fi
+done
+
+echo "    - Source directory: $srcdir"
+
 # Check if web_v2 exists in source
-if [ -d "$srcdir/web_v2" ]; then
+if [ -n "$srcdir" ] && [ -d "$srcdir/web_v2" ]; then
 	# Create web_v2 directory
 	mkdir -p "$HESTIA/web_v2"
 
