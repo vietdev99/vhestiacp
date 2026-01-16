@@ -2628,8 +2628,10 @@ VHESTIA_SRC_EARLY="$(dirname "$SCRIPT_DIR")"
 
 if [ -d "$VHESTIA_SRC_EARLY/bin" ]; then
 	echo "[ * ] Applying VHestiaCP critical script overrides..."
-	# Scripts that reference hestia-nginx config (which doesn't exist in VHestiaCP)
-	for script in v-add-firewall-chain v-change-sys-port; do
+	# Scripts that need fixes for VHestiaCP:
+	# - v-add-firewall-chain, v-change-sys-port: reference hestia-nginx config
+	# - v-restart-web: use 'nginx -t' instead of 'service nginx configtest'
+	for script in v-add-firewall-chain v-change-sys-port v-restart-web; do
 		if [ -f "$VHESTIA_SRC_EARLY/bin/$script" ]; then
 			cp -f "$VHESTIA_SRC_EARLY/bin/$script" "$HESTIA/bin/"
 			chmod +x "$HESTIA/bin/$script"

@@ -27,6 +27,8 @@ send_email_report() {
 	subj="$(hostname): $WEB_SYSTEM restart failed"
 	if [ "$WEB_SYSTEM" = "apache2" ]; then
 		apache2ctl configtest >> "$tmpfile" 2>&1
+	elif [ "$WEB_SYSTEM" = "nginx" ]; then
+		nginx -t >> "$tmpfile" 2>&1
 	else
 		service $WEB_SYSTEM configtest >> "$tmpfile" 2>&1
 	fi
@@ -80,9 +82,9 @@ if [ $WEB_SYSTEM = 'nginx' ]; then
 	fi
 	if [ "$DEBUG_MODE" = "true" ]; then
 		echo "[  $date | $WEB_SYSTEM | WEB ]" >> /var/log/hestia/debug.log 2>&1
-		service $WEB_SYSTEM configtest >> /var/log/hestia/debug.log 2>&1
+		nginx -t >> /var/log/hestia/debug.log 2>&1
 	else
-		service $WEB_SYSTEM configtest > /dev/null 2>&1
+		nginx -t > /dev/null 2>&1
 	fi
 	if [ $? -ne 0 ]; then
 		send_email_report
