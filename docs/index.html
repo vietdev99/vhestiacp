@@ -717,12 +717,8 @@
                                 </div>
                                 <input type="password" class="input-field" id="password" placeholder="auto-generate" oninput="generateCommand()">
                             </div>
-                            <div class="option-item">
-                                <div class="option-info">
-                                    <span class="option-name">Port</span>
-                                </div>
-                                <input type="number" class="input-field small" id="port" value="8083" oninput="generateCommand()">
-                            </div>
+                            <!-- Port is hidden, always 8083 -->
+                            <input type="hidden" id="port" value="8083">
                             <div class="option-item">
                                 <div class="option-info">
                                     <span class="option-name">Language</span>
@@ -764,7 +760,7 @@
                             <div class="option-item">
                                 <div class="option-info">
                                     <span class="option-name">PHP-FPM</span>
-                                    <span class="option-desc">Optional</span>
+                                    <span class="option-desc">Optional - for PHP websites</span>
                                 </div>
                                 <label class="toggle-switch">
                                     <input type="checkbox" id="phpfpm" onchange="generateCommand()">
@@ -799,14 +795,14 @@
                             <div class="option-item highlight">
                                 <div class="option-info">
                                     <span class="option-name">Node.js + PM2</span>
-                                    <span class="option-desc">Required for Panel</span>
+                                    <span class="option-desc">Required for VHestiaCP Panel</span>
                                 </div>
                                 <label class="toggle-switch">
-                                    <input type="checkbox" id="nodejs" checked onchange="toggleNodejs()">
+                                    <input type="checkbox" id="nodejs" checked disabled>
                                     <span class="toggle-slider"></span>
                                 </label>
                             </div>
-                            <div class="sub-options hidden" id="nodejs-options">
+                            <div class="sub-options" id="nodejs-options">
                                 <div class="sub-label">Node.js Versions</div>
                                 <div class="checkbox-group" id="nodejs-versions">
                                     <label class="checkbox-item" onclick="toggleCheckbox(this)">
@@ -917,10 +913,11 @@
                                     <span class="toggle-slider"></span>
                                 </label>
                             </div>
-                            <div class="option-item">
+                            <!-- MySQL 8 temporarily disabled - will be developed later -->
+                            <div class="option-item disabled" style="display: none;">
                                 <span class="option-name">MySQL 8 (instead)</span>
                                 <label class="toggle-switch">
-                                    <input type="checkbox" id="mysql8" onchange="toggleMysql8()">
+                                    <input type="checkbox" id="mysql8" disabled>
                                     <span class="toggle-slider"></span>
                                 </label>
                             </div>
@@ -1061,13 +1058,8 @@
                             <span class="collapse-icon">&#9660;</span>
                         </div>
                         <div class="group-content">
-                            <div class="option-item">
-                                <span class="option-name">Hestia API</span>
-                                <label class="toggle-switch">
-                                    <input type="checkbox" id="api" checked onchange="generateCommand()">
-                                    <span class="toggle-slider"></span>
-                                </label>
-                            </div>
+                            <!-- Hestia API hidden - always disabled for VHestiaCP -->
+                            <input type="hidden" id="api" value="">
                             <div class="option-item">
                                 <span class="option-name">Interactive</span>
                                 <label class="toggle-switch">
@@ -1182,7 +1174,7 @@
             const fail2ban = document.getElementById('fail2ban').checked;
             const ftp = document.getElementById('ftp').value;
             const quota = document.getElementById('quota').checked;
-            const api = document.getElementById('api').checked;
+            const api = false; // Hestia API always disabled for VHestiaCP
             const interactive = document.getElementById('interactive').checked;
 
             let cmd = 'bash hst-install-ubuntu.sh';
@@ -1281,7 +1273,9 @@
         }
 
         function toggleNodejs() {
-            document.getElementById('nodejs-options').classList.toggle('hidden', !document.getElementById('nodejs').checked);
+            // Node.js is always enabled for VHestiaCP
+            document.getElementById('nodejs').checked = true;
+            document.getElementById('nodejs-options').classList.remove('hidden');
             generateCommand();
         }
 
@@ -1395,10 +1389,10 @@
             document.getElementById('port').value = '8083';
             document.getElementById('lang').value = 'en';
             document.getElementById('web-stack').value = 'haproxy-nginx';
-            document.getElementById('phpfpm').checked = true;
+            document.getElementById('phpfpm').checked = false; // PHP optional
             document.getElementById('haproxy-stats').checked = true;
-            document.getElementById('nodejs').checked = false;
-            document.getElementById('nodejs-options').classList.add('hidden');
+            document.getElementById('nodejs').checked = true; // Always enabled
+            document.getElementById('nodejs-options').classList.remove('hidden'); // Always visible
             document.getElementById('python').checked = false;
             document.getElementById('python-options').classList.add('hidden');
             document.getElementById('mysql').checked = true;
@@ -1421,7 +1415,7 @@
             document.getElementById('fail2ban').checked = true;
             document.getElementById('ftp').value = 'vsftpd';
             document.getElementById('quota').checked = false;
-            document.getElementById('api').checked = true;
+            // api is always disabled (hidden input)
             document.getElementById('interactive').checked = false;
 
             document.querySelectorAll('.checkbox-item').forEach(item => {
