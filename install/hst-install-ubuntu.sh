@@ -51,10 +51,11 @@ mariadb_v="11.4"
 node_v="20"
 
 # Defining software pack for all distros
-# VHestiaCP: Removed hestia-nginx and hestia-php - panel runs directly on PM2 with HTTPS
+# VHestiaCP: Removed hestia-nginx - panel runs directly on PM2 with HTTPS
+# hestia-php is still needed for core scripts like v-add-sys-filemanager, v-add-sys-dependencies
 software="acl apache2 apache2.2-common apache2-suexec-custom apache2-utils apparmor-utils at awstats bc bind9 bsdmainutils bsdutils
   clamav-daemon cron curl dnsutils dovecot-imapd dovecot-managesieved dovecot-pop3d dovecot-sieve e2fslibs e2fsprogs
-  exim4 exim4-daemon-heavy expect fail2ban flex ftp git hestia=${HESTIA_INSTALL_VER} hestia-web-terminal
+  exim4 exim4-daemon-heavy expect fail2ban flex ftp git hestia=${HESTIA_INSTALL_VER} hestia-php hestia-web-terminal
   idn2 imagemagick ipset jq libapache2-mod-fcgid libapache2-mod-php$fpm_v libapache2-mod-rpaf libonig5 libzip4 lsb-release
   lsof mariadb-client mariadb-common mariadb-server mc mysql-client mysql-common mysql-server nginx nodejs openssh-server
   php$fpm_v php$fpm_v-apcu php$fpm_v-bz2 php$fpm_v-cgi php$fpm_v-cli php$fpm_v-common php$fpm_v-curl php$fpm_v-gd
@@ -1196,8 +1197,8 @@ systemctl stop hestia > /dev/null 2>&1
 # Stop VHestiaCP PM2 panel if running
 pm2 stop vhestia-panel > /dev/null 2>&1 || true
 cp -r $HESTIA/* $hst_backups/hestia > /dev/null 2>&1
-# VHestiaCP: Only purge hestia core package (no hestia-nginx/hestia-php)
-apt-get -y purge hestia > /dev/null 2>&1
+# VHestiaCP: Only purge hestia core and hestia-php packages (no hestia-nginx - panel runs on PM2)
+apt-get -y purge hestia hestia-php > /dev/null 2>&1
 rm -rf $HESTIA > /dev/null 2>&1
 
 #----------------------------------------------------------#
@@ -1305,16 +1306,19 @@ if [ "$phpfpm" = 'yes' ]; then
 	software=$(echo "$software" | sed -e "s/libapache2-mod-ruid2//")
 	software=$(echo "$software" | sed -e "s/libapache2-mod-php$fpm_v//")
 fi
-# VHestiaCP: hestia-nginx and hestia-php already removed from software list
+# VHestiaCP: hestia-nginx already removed from software list (panel runs on PM2)
+# hestia-php is kept for core scripts like v-add-sys-filemanager, v-add-sys-dependencies
 # When using local debs or GitHub releases, exclude hestia packages from apt install
 if [ -d "$withdebs" ]; then
 	software=$(echo "$software" | sed -e "s/hestia-web-terminal//")
 	software=$(echo "$software" | sed -e "s/hestia=${HESTIA_INSTALL_VER}//")
+	software=$(echo "$software" | sed -e "s/hestia-php//")
 fi
 # VHestiaCP: Also remove hestia packages when using GitHub releases
 if [ "$USE_GITHUB_RELEASES" = "yes" ] && [ -n "$VHESTIACP_REPO" ]; then
 	software=$(echo "$software" | sed -e "s/hestia-web-terminal//")
 	software=$(echo "$software" | sed -e "s/hestia=${HESTIA_INSTALL_VER}//")
+	software=$(echo "$software" | sed -e "s/hestia-php//")
 fi
 if [ "$release" = '20.04' ]; then
 	software=$(echo "$software" | sed -e "s/libzip4/libzip5/")
@@ -1380,13 +1384,20 @@ echo "========================================================================"
 echo
 
 # Install Hestia packages from local folder
-# VHestiaCP: Only install hestia core package - panel runs on PM2 directly (no hestia-nginx/hestia-php)
+# VHestiaCP: Install hestia core and hestia-php packages - panel runs on PM2 directly (no hestia-nginx)
 if [ -n "$withdebs" ] && [ -d "$withdebs" ]; then
 	echo "[ * ] Installing local package files..."
 	echo "    - hestia core package"
 	dpkg -i $withdebs/hestia_*.deb > /dev/null 2>&1
 
-	# VHestiaCP: hestia-nginx and hestia-php removed - panel runs on PM2 with HTTPS directly
+	# VHestiaCP: Install hestia-php (needed for core scripts) - panel runs on PM2 with HTTPS
+	if [ -f $withdebs/hestia-php_*.deb ]; then
+		echo "    - hestia-php package"
+		dpkg -i $withdebs/hestia-php_*.deb > /dev/null 2>&1
+	else
+		echo "    - hestia-php package (from apt)"
+		apt-get -y install hestia-php > /dev/null 2>&1
+	fi
 
 	if [ "$webterminal" = "yes" ]; then
 		if [ -z $(ls $withdebs/hestia-web-terminal_*.deb 2> /dev/null) ]; then
@@ -1412,10 +1423,14 @@ elif [ "$USE_GITHUB_RELEASES" = "yes" ] && [ -n "$VHESTIACP_REPO" ]; then
 		echo "    - Latest release: $latest_release"
 		release_url="https://github.com/${VHESTIACP_REPO}/releases/download/${latest_release}"
 
-		# Download hestia core package only (no hestia-nginx/hestia-php for VHestiaCP)
+		# Download hestia core and hestia-php packages (no hestia-nginx for VHestiaCP - panel runs on PM2)
 		echo "    - Downloading hestia..."
 		wget -q "${release_url}/hestia_${latest_release#v}_amd64.deb" -O "$github_debs_dir/hestia.deb" 2>/dev/null || \
 		wget -q "${release_url}/hestia.deb" -O "$github_debs_dir/hestia.deb" 2>/dev/null || true
+
+		echo "    - Downloading hestia-php..."
+		wget -q "${release_url}/hestia-php_${latest_release#v}_amd64.deb" -O "$github_debs_dir/hestia-php.deb" 2>/dev/null || \
+		wget -q "${release_url}/hestia-php.deb" -O "$github_debs_dir/hestia-php.deb" 2>/dev/null || true
 
 		if [ "$webterminal" = "yes" ]; then
 			echo "    - Downloading hestia-web-terminal..."
@@ -1428,7 +1443,12 @@ elif [ "$USE_GITHUB_RELEASES" = "yes" ] && [ -n "$VHESTIACP_REPO" ]; then
 		if [ -f "$github_debs_dir/hestia.deb" ] && [ -s "$github_debs_dir/hestia.deb" ]; then
 			dpkg -i "$github_debs_dir/hestia.deb" > /dev/null 2>&1
 		fi
-		# VHestiaCP: hestia-nginx and hestia-php removed - panel runs on PM2 with HTTPS directly
+		# VHestiaCP: Install hestia-php (needed for core scripts)
+		if [ -f "$github_debs_dir/hestia-php.deb" ] && [ -s "$github_debs_dir/hestia-php.deb" ]; then
+			dpkg -i "$github_debs_dir/hestia-php.deb" > /dev/null 2>&1
+		else
+			apt-get -y install hestia-php > /dev/null 2>&1
+		fi
 		if [ "$webterminal" = "yes" ]; then
 			if [ -f "$github_debs_dir/hestia-web-terminal.deb" ] && [ -s "$github_debs_dir/hestia-web-terminal.deb" ]; then
 				dpkg -i "$github_debs_dir/hestia-web-terminal.deb" > /dev/null 2>&1
