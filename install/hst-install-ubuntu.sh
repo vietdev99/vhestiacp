@@ -1649,12 +1649,16 @@ if [ "$haproxy" = 'yes' ]; then
 		write_config_value "PROXY_SYSTEM" ""
 		write_config_value "STATS_SYSTEM" "awstats"
 	else
-		# HAProxy -> nginx
+		# HAProxy -> nginx (nginx as web server on 8080/8443)
 		write_config_value "WEB_SYSTEM" "nginx"
 		write_config_value "WEB_PORT" "8080"
 		write_config_value "WEB_SSL_PORT" "8443"
 		write_config_value "WEB_SSL" "openssl"
+		# PROXY_SYSTEM empty but set PROXY_PORT for nginx templates
+		# Templates use %proxy_port% which needs these values
 		write_config_value "PROXY_SYSTEM" ""
+		write_config_value "PROXY_PORT" "8080"
+		write_config_value "PROXY_SSL_PORT" "8443"
 		write_config_value "STATS_SYSTEM" "awstats"
 	fi
 	write_config_value "HAPROXY_SYSTEM" "yes"
