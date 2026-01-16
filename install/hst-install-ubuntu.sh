@@ -3825,12 +3825,17 @@ if [ -n "$srcdir" ] && [ -d "$srcdir/web_v2" ]; then
 	cp -r "$srcdir/web_v2/server" "$HESTIA/web_v2/"
 	cp "$srcdir/web_v2/ecosystem.config.cjs" "$HESTIA/web_v2/"
 
-	# Extract client dist
+	# Extract client dist (tar.gz contains files directly, need to extract into dist/ folder)
 	if [ -f "$srcdir/web_v2/client/dist.tar.gz" ]; then
-		mkdir -p "$HESTIA/web_v2/client"
-		tar -xzf "$srcdir/web_v2/client/dist.tar.gz" -C "$HESTIA/web_v2/client/"
+		mkdir -p "$HESTIA/web_v2/client/dist"
+		tar -xzf "$srcdir/web_v2/client/dist.tar.gz" -C "$HESTIA/web_v2/client/dist/"
+		echo "    - Extracted client dist from dist.tar.gz"
 	elif [ -d "$srcdir/web_v2/client/dist" ]; then
+		mkdir -p "$HESTIA/web_v2/client"
 		cp -r "$srcdir/web_v2/client/dist" "$HESTIA/web_v2/client/"
+		echo "    - Copied client dist folder"
+	else
+		echo "    - Warning: No client dist found, panel may not work correctly"
 	fi
 
 	# Install npm dependencies
