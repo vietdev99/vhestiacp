@@ -2766,9 +2766,13 @@ BACK_PID=$!
 echo
 
 # Starting Hestia service
-update-rc.d hestia defaults
-systemctl start hestia
-check_result $? "hestia start failed"
+# VHestiaCP: Skip hestia-nginx service start - panel runs on PM2 directly
+# The hestia service is from hestia-nginx package which is not installed
+if [ -f /etc/init.d/hestia ]; then
+	update-rc.d hestia defaults
+	systemctl start hestia
+	check_result $? "hestia start failed"
+fi
 chown hestiaweb:hestiaweb $HESTIA/data/sessions
 
 # Create backup folder and set correct permission
