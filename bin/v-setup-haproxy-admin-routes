@@ -1,5 +1,5 @@
 #!/bin/bash
-# info: setup admin tools routing for HAProxy (phpMyAdmin, Mongo Express, etc.)
+# info: setup admin tools routing for HAProxy (phpMyAdmin, Roundcube, etc.)
 # options: NONE
 #
 # example: v-setup-haproxy-admin-routes
@@ -70,16 +70,16 @@ else
         # Check if ACLs already exist
         if ! grep -q "is_phpmyadmin" "$HAPROXY_CFG"; then
             sed -i '/frontend http_front/,/default_backend/ {
-                /default_backend/i\    # Admin Tools - forward to Nginx\n    acl is_phpmyadmin path_beg /phpmyadmin /phpMyAdmin /pma /PMA\n    acl is_mongoexpress path_beg /mongo-express /mongoexpress /mongoadmin\n    acl is_roundcube path_beg /webmail /roundcube /mail\n    use_backend admin_tools_backend if is_phpmyadmin\n    use_backend admin_tools_backend if is_mongoexpress\n    use_backend admin_tools_backend if is_roundcube\n
+                /default_backend/i\    # Admin Tools - forward to Nginx\n    acl is_phpmyadmin path_beg /phpmyadmin /phpMyAdmin /pma /PMA\n    acl is_roundcube path_beg /webmail /roundcube /mail\n    use_backend admin_tools_backend if is_phpmyadmin\n    use_backend admin_tools_backend if is_roundcube\n
             }' "$HAPROXY_CFG"
         fi
     fi
-    
+
     # Add ACLs to HTTPS frontend
     if grep -q "frontend https_front" "$HAPROXY_CFG"; then
         if ! grep -q "is_phpmyadmin" "$HAPROXY_CFG" | grep -q "https_front"; then
             sed -i '/frontend https_front/,/default_backend/ {
-                /default_backend/i\    # Admin Tools - forward to Nginx\n    acl is_phpmyadmin path_beg /phpmyadmin /phpMyAdmin /pma /PMA\n    acl is_mongoexpress path_beg /mongo-express /mongoexpress /mongoadmin\n    acl is_roundcube path_beg /webmail /roundcube /mail\n    use_backend admin_tools_backend if is_phpmyadmin\n    use_backend admin_tools_backend if is_mongoexpress\n    use_backend admin_tools_backend if is_roundcube\n
+                /default_backend/i\    # Admin Tools - forward to Nginx\n    acl is_phpmyadmin path_beg /phpmyadmin /phpMyAdmin /pma /PMA\n    acl is_roundcube path_beg /webmail /roundcube /mail\n    use_backend admin_tools_backend if is_phpmyadmin\n    use_backend admin_tools_backend if is_roundcube\n
             }' "$HAPROXY_CFG"
         fi
     fi
@@ -90,7 +90,7 @@ else
 
 #---------------------------------------------------------------------
 # Admin Tools Backend (Nginx on $WEB_PORT)
-# Handles phpMyAdmin, Mongo Express, Roundcube when accessed via IP
+# Handles phpMyAdmin, Roundcube when accessed via IP
 #---------------------------------------------------------------------
 backend admin_tools_backend
     mode http
@@ -130,14 +130,14 @@ cat > "$ADMIN_TOOLS_INC" << 'EOF'
 location /phpmyadmin {
     alias /usr/share/phpmyadmin;
     index index.php index.html;
-    
+
     location ~ \.php$ {
         fastcgi_pass unix:/run/php/php-fpm.sock;
         fastcgi_index index.php;
         fastcgi_param SCRIPT_FILENAME $request_filename;
         include fastcgi_params;
     }
-    
+
     location ~* \.(js|css|png|jpg|jpeg|gif|ico)$ {
         expires max;
         log_not_found off;
@@ -149,32 +149,11 @@ location /phpMyAdmin { return 301 /phpmyadmin$request_uri; }
 location /pma { return 301 /phpmyadmin$request_uri; }
 location /PMA { return 301 /phpmyadmin$request_uri; }
 
-# Mongo Express (proxy to Node.js app on 8081)
-location /mongo-express {
-    proxy_pass http://127.0.0.1:8081;
-    proxy_http_version 1.1;
-    proxy_set_header Upgrade $http_upgrade;
-    proxy_set_header Connection 'upgrade';
-    proxy_set_header Host $host;
-    proxy_set_header X-Real-IP $remote_addr;
-    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_cache_bypass $http_upgrade;
-    
-    # Rewrite base URL for Mongo Express
-    sub_filter_once off;
-    sub_filter 'href="/' 'href="/mongo-express/';
-    sub_filter 'src="/' 'src="/mongo-express/';
-}
-
-location /mongoexpress { return 301 /mongo-express$request_uri; }
-location /mongoadmin { return 301 /mongo-express$request_uri; }
-
 # Roundcube Webmail
 location /webmail {
     alias /var/lib/roundcube;
     index index.php;
-    
+
     location ~ \.php$ {
         fastcgi_pass unix:/run/php/php-fpm.sock;
         fastcgi_index index.php;
@@ -203,7 +182,7 @@ IP_SERVER_CONF="/etc/nginx/conf.d/00-ip-admin.conf"
 
 cat > "$IP_SERVER_CONF" << EOF
 # VHestiaCP - IP-based Admin Tools Server
-# Handles requests to http://IP/phpMyAdmin, http://IP/mongo-express, etc.
+# Handles requests to http://IP/phpMyAdmin, http://IP/webmail, etc.
 # 
 # This server block catches requests by IP address and routes admin tools correctly.
 
@@ -281,7 +260,6 @@ echo ""
 echo "  You can now access admin tools via IP:"
 echo ""
 echo "    phpMyAdmin:    http://$SERVER_IP/phpmyadmin"
-echo "    Mongo Express: http://$SERVER_IP/mongo-express"
 echo "    Webmail:       http://$SERVER_IP/webmail"
 echo ""
 echo "  Files created/updated:"

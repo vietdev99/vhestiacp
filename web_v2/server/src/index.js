@@ -98,7 +98,7 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// Start HTTPS server
-https.createServer(sslOptions, app).listen(PORT, () => {
-  console.log(`VHestiaCP Panel v2 running on https://localhost:${PORT}`);
+// Start HTTPS server - listen on all interfaces (0.0.0.0)
+https.createServer(sslOptions, app).listen(PORT, '0.0.0.0', () => {
+  console.log(`VHestiaCP Panel v2 running on https://0.0.0.0:${PORT}`);
 });
