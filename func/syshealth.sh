@@ -285,7 +285,11 @@ function syshealth_repair_system_config() {
 
 	# Backend port
 	if [[ -z $(check_key_exists 'BACKEND_PORT') ]]; then
-		ORIGINAL_PORT=$(sed -ne "/listen/{s/.*listen[^0-9]*\([0-9][0-9]*\)[ \t]*ssl\;/\1/p;q}" "$HESTIA/nginx/conf/nginx.conf")
+		# VHestiaCP: hestia-nginx may not be installed when panel runs on PM2 directly
+		if [ -f "$HESTIA/nginx/conf/nginx.conf" ]; then
+			ORIGINAL_PORT=$(sed -ne "/listen/{s/.*listen[^0-9]*\([0-9][0-9]*\)[ \t]*ssl\;/\1/p;q}" "$HESTIA/nginx/conf/nginx.conf")
+		fi
+		ORIGINAL_PORT=${ORIGINAL_PORT:-8083}
 		echo "[ ! ] Adding missing variable to hestia.conf: BACKEND_PORT ('$ORIGINAL_PORT')"
 		$BIN/v-change-sys-config-value 'BACKEND_PORT' $ORIGINAL_PORT
 	fi
@@ -614,21 +618,26 @@ function syshealth_adapt_hestia_nginx_listen_ports() {
 	done
 
 	# Adapt port listing in nginx.conf depended on availability of IPV4 and IPV6 network interface
+	# VHestiaCP: hestia-nginx may not be installed when panel runs on PM2 directly
 	NGINX_CONF="/usr/local/hestia/nginx/conf/nginx.conf"
-	if [ -z "$ipv4_scope_global" ]; then
-		sed -i 's/^\([ \t]*listen[ \t]*[0-9]\{1,5\}.*\)/#\1/' "$NGINX_CONF"
-	else
-		sed -i 's/#\([ \t]*listen[ \t]*[0-9]\{1,5\}.*\)/\1/' "$NGINX_CONF"
-	fi
-	if [ -z "$ipv6_scope_global" ]; then
-		sed -i 's/^\([ \t]*listen[ \t]*\[\:\:\]\:[0-9]\{1,5\}.*\)/#\1/' "$NGINX_CONF"
-	else
-		sed -i 's/#\([ \t]*listen[ \t]*\[\:\:\]\:[0-9]\{1,5\}.*\)/\1/' "$NGINX_CONF"
+	if [ -f "$NGINX_CONF" ]; then
+		if [ -z "$ipv4_scope_global" ]; then
+			sed -i 's/^\([ \t]*listen[ \t]*[0-9]\{1,5\}.*\)/#\1/' "$NGINX_CONF"
+		else
+			sed -i 's/#\([ \t]*listen[ \t]*[0-9]\{1,5\}.*\)/\1/' "$NGINX_CONF"
+		fi
+		if [ -z "$ipv6_scope_global" ]; then
+			sed -i 's/^\([ \t]*listen[ \t]*\[\:\:\]\:[0-9]\{1,5\}.*\)/#\1/' "$NGINX_CONF"
+		else
+			sed -i 's/#\([ \t]*listen[ \t]*\[\:\:\]\:[0-9]\{1,5\}.*\)/\1/' "$NGINX_CONF"
+		fi
 	fi
 }
 
 syshealth_adapt_nginx_resolver() {
+	# VHestiaCP: hestia-nginx may not be installed when panel runs on PM2 directly
 	NGINX_CONF="/usr/local/hestia/nginx/conf/nginx.conf"
+	[ ! -f "$NGINX_CONF" ] && return
 	if grep -qw "1.0.0.1 8.8.4.4 1.1.1.1 8.8.8.8" "$NGINX_CONF"; then
 		for nameserver in $(grep -is '^nameserver' /etc/resolv.conf | cut -d' ' -f2 | tr '\r\n' ' ' | xargs); do
 			if echo "$nameserver" | grep -Pq "^(\d{1,3}\.){3}\d{1,3}$"; then

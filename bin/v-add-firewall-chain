@@ -31,10 +31,14 @@ source "$HESTIA/func/firewall.sh"
 # load config file
 source_conf "$HESTIA/conf/hestia.conf"
 
-# Get hestia port by reading nginx.conf
-hestiaport=$(sed -ne "/listen/{s/.*listen[^0-9]*\([0-9][0-9]*\)[ \t]*ssl\;/\1/p;q}" "$HESTIA/nginx/conf/nginx.conf")
+# Get hestia port by reading nginx.conf or from config
+# VHestiaCP: hestia-nginx may not be installed when panel runs on PM2 directly
+if [ -f "$HESTIA/nginx/conf/nginx.conf" ]; then
+	hestiaport=$(sed -ne "/listen/{s/.*listen[^0-9]*\([0-9][0-9]*\)[ \t]*ssl\;/\1/p;q}" "$HESTIA/nginx/conf/nginx.conf")
+fi
 if [ -z "$hestiaport" ]; then
-	hestiaport=8083
+	# Fallback to BACKEND_PORT from config or default 8083
+	hestiaport=${BACKEND_PORT:-8083}
 fi
 
 #----------------------------------------------------------#
