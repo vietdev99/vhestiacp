@@ -3360,17 +3360,17 @@ frontend http_front
     bind *:80
     mode http
 
-    # ACLs for Let's Encrypt
+    # ACLs (must be defined before use_backend)
     acl letsencrypt path_beg /.well-known/acme-challenge/
-    use_backend letsencrypt_backend if letsencrypt
 
-    # Forward headers
+    # Forward headers (must be before use_backend)
     option forwardfor
     http-request set-header X-Real-IP %[src]
     http-request set-header X-Forwarded-Proto http
     http-request set-header X-Forwarded-Port %[dst_port]
 
-    # Default backend
+    # Backend routing (after all ACLs and http-request rules)
+    use_backend letsencrypt_backend if letsencrypt
     default_backend web_backend
 
 #---------------------------------------------------------------------
@@ -3381,18 +3381,18 @@ frontend https_front
     bind *:443 ssl crt /etc/haproxy/certs/ alpn h2,http/1.1
     mode http
 
-    # ACLs for Let's Encrypt
+    # ACLs (must be defined before use_backend)
     acl letsencrypt path_beg /.well-known/acme-challenge/
-    use_backend letsencrypt_backend if letsencrypt
 
-    # Forward headers with SSL info
+    # Forward headers (must be before use_backend)
     option forwardfor
     http-request set-header X-Real-IP %[src]
     http-request set-header X-Forwarded-Proto https
     http-request set-header X-Forwarded-Port %[dst_port]
     http-request set-header X-Forwarded-SSL on
 
-    # Default backend (forward as HTTP to backend on 8080)
+    # Backend routing (after all ACLs and http-request rules)
+    use_backend letsencrypt_backend if letsencrypt
     default_backend web_backend
 
 #---------------------------------------------------------------------
@@ -3487,17 +3487,17 @@ frontend http_front
     bind *:80
     mode http
 
-    # ACLs for Let's Encrypt
+    # ACLs (must be defined before use_backend)
     acl letsencrypt path_beg /.well-known/acme-challenge/
-    use_backend letsencrypt_backend if letsencrypt
 
-    # Forward headers
+    # Forward headers (must be before use_backend)
     option forwardfor
     http-request set-header X-Real-IP %[src]
     http-request set-header X-Forwarded-Proto http
     http-request set-header X-Forwarded-Port %[dst_port]
 
-    # Default backend
+    # Backend routing (after all ACLs and http-request rules)
+    use_backend letsencrypt_backend if letsencrypt
     default_backend web_backend
 
 #---------------------------------------------------------------------
