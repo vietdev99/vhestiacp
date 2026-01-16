@@ -54,40 +54,49 @@ check_hestia_demo_mode
 #                       Action                             #
 #----------------------------------------------------------#
 
-# Get original port
-LISTEN_ROWS=$(cat "$NGINX_CONFIG" | grep -c "listen")
-ORIGINAL_PORT=$(sed -ne "/listen/{s/.*listen[^0-9]*\([0-9][0-9]*\)[ \t]*ssl\;/\1/p;q}" "$NGINX_CONFIG")
+# Set new port in config via v-change-sys-config-value
+"$BIN/v-change-sys-config-value" "BACKEND_PORT" "$PORT"
 
-# Check if port is different to nginx.conf
-if [ "$ORIGINAL_PORT" = "$PORT" ]; then
-	# Nothing to do, exit
-	exit
-else
-	# Set new port in config via v-change-sys-config-value
-	"$BIN/v-change-sys-config-value" "BACKEND_PORT" "$PORT"
-	# Replace port in config files.
-	sed -i "s/\(listen[ \t]*.*[: \t]\)[0-9][0-9]*\([^0-9]*ssl\;$\)/\1$PORT\2/" "$NGINX_CONFIG"
-	if [ -d /etc/roundcube/ ]; then
-		sed -i "/password_hestia_port/c\$rcmail_config['password_hestia_port'] = '$PORT';" /etc/roundcube/plugins/password/config.inc.php
-	fi
-	if [ -d /etc/snappymail/ ]; then
-		sed -i "/\"hestia_port\":/c\\\"hestia_host\": $PORT" /etc/snappymail/data/_data_/_default_/configs/plugin-change-password.json
-	fi
+# VHestiaCP: Only update hestia-nginx config if it exists
+# When running panel on PM2 directly, hestia-nginx is not installed
+if [ -f "$NGINX_CONFIG" ]; then
+	# Get original port
+	LISTEN_ROWS=$(cat "$NGINX_CONFIG" | grep -c "listen")
+	ORIGINAL_PORT=$(sed -ne "/listen/{s/.*listen[^0-9]*\([0-9][0-9]*\)[ \t]*ssl\;/\1/p;q}" "$NGINX_CONFIG")
 
-	if [ -f "$HESTIA/data/firewall/rules.conf" ]; then
-		sed -i "/COMMENT='HESTIA'/c\RULE='2' ACTION='ACCEPT' PROTOCOL='TCP' PORT='$PORT' IP='0.0.0.0/0' COMMENT='HESTIA' SUSPENDED='no' TIME='07:40:16' DATE='2014-05-25'" "$HESTIA/data/firewall/rules.conf"
+	# Check if port is different to nginx.conf
+	if [ "$ORIGINAL_PORT" != "$PORT" ]; then
+		# Replace port in config files.
+		sed -i "s/\(listen[ \t]*.*[: \t]\)[0-9][0-9]*\([^0-9]*ssl\;$\)/\1$PORT\2/" "$NGINX_CONFIG"
 	fi
+fi
 
-	if [ -f "$HESTIA/data/firewall/chains.conf" ]; then
-		sed -i "/CHAIN='HESTIA'/c\CHAIN='HESTIA' PORT='$PORT' PROTOCOL='TCP'" "$HESTIA/data/firewall/chains.conf"
-	fi
+# Update roundcube config if exists
+if [ -d /etc/roundcube/ ]; then
+	sed -i "/password_hestia_port/c\$rcmail_config['password_hestia_port'] = '$PORT';" /etc/roundcube/plugins/password/config.inc.php
+fi
 
-	# Restart services
-	if [ -n "$FIREWALL_SYSTEM" ] && [ "$FIREWALL_SYSTEM" != no ]; then
-		"$BIN/v-restart-service" iptables
-	fi
+# Update snappymail config if exists
+if [ -d /etc/snappymail/ ]; then
+	sed -i "/\"hestia_port\":/c\\\"hestia_host\": $PORT" /etc/snappymail/data/_data_/_default_/configs/plugin-change-password.json
+fi
 
-	# Check if Hestia is running
+# Update firewall rules if exists
+if [ -f "$HESTIA/data/firewall/rules.conf" ]; then
+	sed -i "/COMMENT='HESTIA'/c\RULE='2' ACTION='ACCEPT' PROTOCOL='TCP' PORT='$PORT' IP='0.0.0.0/0' COMMENT='HESTIA' SUSPENDED='no' TIME='07:40:16' DATE='2014-05-25'" "$HESTIA/data/firewall/rules.conf"
+fi
+
+if [ -f "$HESTIA/data/firewall/chains.conf" ]; then
+	sed -i "/CHAIN='HESTIA'/c\CHAIN='HESTIA' PORT='$PORT' PROTOCOL='TCP'" "$HESTIA/data/firewall/chains.conf"
+fi
+
+# Restart services
+if [ -n "$FIREWALL_SYSTEM" ] && [ "$FIREWALL_SYSTEM" != no ]; then
+	"$BIN/v-restart-service" iptables
+fi
+
+# Check if Hestia is running (legacy hestia-nginx service)
+if [ -f "$NGINX_CONFIG" ]; then
 	if [[ $(ps -eaf | grep -i hestia | sed '/^$/d' | wc -l) -gt 1 ]]; then
 		"$BIN/v-restart-service" hestia
 	fi
@@ -98,8 +107,8 @@ fi
 #----------------------------------------------------------#
 
 # Logging
-"$BIN/v-log-action" "system" "Warning" "System" "Hestia Control Panel backend port changed (New Value: $PORT, Old Value: $ORIGINAL_PORT)."
-if [ $LISTEN_ROWS -gt 1 ]; then
+"$BIN/v-log-action" "system" "Warning" "System" "Hestia Control Panel backend port changed (New Value: $PORT)."
+if [ -n "$LISTEN_ROWS" ] && [ "$LISTEN_ROWS" -gt 1 ] 2>/dev/null; then
 	"$BIN/v-log-action" "system" "Warning" "System" "Hestia Control Panel backend port: Use first of $LISTEN_ROWS listened ports in $NGINX_CONFIG"
 fi
 log_event "$OK" "$ARGUMENTS"
