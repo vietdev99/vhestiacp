@@ -1,0 +1,134 @@
+#!/bin/bash
+# info: install PHP-FPM
+# options: [VERSION]
+#
+# example: v-add-sys-phpfpm
+# example: v-add-sys-phpfpm 8.3
+#
+# This function installs PHP-FPM (FastCGI Process Manager) on the system.
+# If no version is specified, it will install the default PHP version.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+version=${1:-}
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check root permissions
+if [ "x$(id -u)" != 'x0' ]; then
+    echo "Error: Script must be run as root"
+    exit 1
+fi
+
+# Detect OS
+if [ -f /etc/os-release ]; then
+    . /etc/os-release
+    OS=$ID
+    VERSION_ID=$VERSION_ID
+else
+    echo "Error: Cannot detect OS"
+    exit 1
+fi
+
+# Determine default PHP version based on OS
+if [ -z "$version" ]; then
+    case "$VERSION_ID" in
+        "24.04") version="8.3" ;;
+        "22.04") version="8.1" ;;
+        "20.04") version="7.4" ;;
+        *) version="8.3" ;;
+    esac
+fi
+
+# Check if PHP-FPM is already installed
+if systemctl is-active --quiet "php${version}-fpm" 2>/dev/null; then
+    echo "PHP-FPM $version is already installed and running"
+    exit 0
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Installing PHP-FPM $version..."
+
+# Add PHP repository if needed (for non-default versions)
+if [ "$OS" = "ubuntu" ]; then
+    # Check if ondrej/php PPA is added
+    if ! grep -q "ondrej/php" /etc/apt/sources.list.d/*.list 2>/dev/null; then
+        echo "Adding PHP repository..."
+        apt-get -y install software-properties-common > /dev/null 2>&1
+        add-apt-repository -y ppa:ondrej/php > /dev/null 2>&1
+        apt-get -y update > /dev/null 2>&1
+    fi
+fi
+
+# Install PHP-FPM and common extensions
+echo "Installing PHP $version packages..."
+apt-get -y install \
+    php${version}-fpm \
+    php${version}-common \
+    php${version}-cli \
+    php${version}-mysql \
+    php${version}-curl \
+    php${version}-gd \
+    php${version}-mbstring \
+    php${version}-xml \
+    php${version}-zip \
+    php${version}-intl \
+    php${version}-bcmath \
+    php${version}-soap \
+    php${version}-opcache \
+    > /dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to install PHP packages"
+    exit 1
+fi
+
+# Start and enable PHP-FPM
+echo "Starting PHP-FPM service..."
+systemctl enable php${version}-fpm > /dev/null 2>&1
+systemctl start php${version}-fpm
+
+# Verify service is running
+if ! systemctl is-active --quiet "php${version}-fpm"; then
+    echo "Error: PHP-FPM failed to start"
+    exit 1
+fi
+
+# Update Hestia config
+if [ -z "$WEB_BACKEND" ]; then
+    echo "WEB_BACKEND='php-fpm'" >> $HESTIA/conf/hestia.conf
+fi
+
+# Set default PHP version in Hestia if not set
+if [ -z "$DEFAULT_PHP" ]; then
+    echo "DEFAULT_PHP='$version'" >> $HESTIA/conf/hestia.conf
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo "PHP-FPM $version installed successfully"
+echo "  Service: php${version}-fpm"
+echo "  Status: $(systemctl is-active php${version}-fpm)"
+
+# Log action
+$BIN/v-log-action "system" "Info" "System" "Installed PHP-FPM $version"
+
+exit 0

@@ -28,6 +28,13 @@ const AVAILABLE_SERVICES = {
     addCmd: null,
     deleteCmd: null
   },
+  phpfpm: {
+    name: 'PHP-FPM',
+    description: 'PHP FastCGI Process Manager',
+    category: 'web',
+    addCmd: 'v-add-sys-phpfpm',
+    deleteCmd: null
+  },
   // Databases
   mysql: {
     name: 'MariaDB/MySQL',
@@ -152,7 +159,8 @@ const SERVICE_ALIASES = {
   apache2: ['apache2', 'httpd', 'apache'],
   proftpd: ['proftpd', 'vsftpd', 'pure-ftpd'],
   clamav: ['clamav', 'clamav-daemon', 'clamd'],
-  spamd: ['spamd', 'spamassassin']
+  spamd: ['spamd', 'spamassassin'],
+  phpfpm: ['php-fpm', 'php8.3-fpm', 'php8.2-fpm', 'php8.1-fpm', 'php8.0-fpm', 'php7.4-fpm']
 };
 
 /**

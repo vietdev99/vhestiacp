@@ -51,9 +51,10 @@ mariadb_v="11.4"
 node_v="20"
 
 # Defining software pack for all distros
+# VHestiaCP: Removed hestia-nginx and hestia-php - panel runs directly on PM2 with HTTPS
 software="acl apache2 apache2.2-common apache2-suexec-custom apache2-utils apparmor-utils at awstats bc bind9 bsdmainutils bsdutils
   clamav-daemon cron curl dnsutils dovecot-imapd dovecot-managesieved dovecot-pop3d dovecot-sieve e2fslibs e2fsprogs
-  exim4 exim4-daemon-heavy expect fail2ban flex ftp git hestia=${HESTIA_INSTALL_VER} hestia-nginx hestia-php hestia-web-terminal
+  exim4 exim4-daemon-heavy expect fail2ban flex ftp git hestia=${HESTIA_INSTALL_VER} hestia-web-terminal
   idn2 imagemagick ipset jq libapache2-mod-fcgid libapache2-mod-php$fpm_v libapache2-mod-rpaf libonig5 libzip4 lsb-release
   lsof mariadb-client mariadb-common mariadb-server mc mysql-client mysql-common mysql-server nginx nodejs openssh-server
   php$fpm_v php$fpm_v-apcu php$fpm_v-bz2 php$fpm_v-cgi php$fpm_v-cli php$fpm_v-common php$fpm_v-curl php$fpm_v-gd
@@ -558,9 +559,11 @@ fi
 if [ "$iptables" = 'no' ]; then
 	fail2ban='no'
 fi
-if [ "$apache" = 'no' ]; then
-	phpfpm='yes'
-fi
+# VHestiaCP: PHP-FPM is now optional since web panel runs on Node.js
+# Only force phpfpm=yes if apache=yes (for apache+mod_php compatibility)
+# if [ "$apache" = 'no' ]; then
+# 	phpfpm='yes'
+# fi
 if [ "$mysql" = 'yes' ] && [ "$mysql8" = 'yes' ]; then
 	mysql='no'
 fi
@@ -1190,8 +1193,11 @@ mv -f /root/.my.cnf $hst_backups/mysql > /dev/null 2>&1
 
 # Backup Hestia
 systemctl stop hestia > /dev/null 2>&1
+# Stop VHestiaCP PM2 panel if running
+pm2 stop vhestia-panel > /dev/null 2>&1 || true
 cp -r $HESTIA/* $hst_backups/hestia > /dev/null 2>&1
-apt-get -y purge hestia hestia-nginx hestia-php > /dev/null 2>&1
+# VHestiaCP: Only purge hestia core package (no hestia-nginx/hestia-php)
+apt-get -y purge hestia > /dev/null 2>&1
 rm -rf $HESTIA > /dev/null 2>&1
 
 #----------------------------------------------------------#
@@ -1299,16 +1305,14 @@ if [ "$phpfpm" = 'yes' ]; then
 	software=$(echo "$software" | sed -e "s/libapache2-mod-ruid2//")
 	software=$(echo "$software" | sed -e "s/libapache2-mod-php$fpm_v//")
 fi
+# VHestiaCP: hestia-nginx and hestia-php already removed from software list
+# When using local debs or GitHub releases, exclude hestia packages from apt install
 if [ -d "$withdebs" ]; then
-	software=$(echo "$software" | sed -e "s/hestia-nginx//")
-	software=$(echo "$software" | sed -e "s/hestia-php//")
 	software=$(echo "$software" | sed -e "s/hestia-web-terminal//")
 	software=$(echo "$software" | sed -e "s/hestia=${HESTIA_INSTALL_VER}//")
 fi
 # VHestiaCP: Also remove hestia packages when using GitHub releases
 if [ "$USE_GITHUB_RELEASES" = "yes" ] && [ -n "$VHESTIACP_REPO" ]; then
-	software=$(echo "$software" | sed -e "s/hestia-nginx//")
-	software=$(echo "$software" | sed -e "s/hestia-php//")
 	software=$(echo "$software" | sed -e "s/hestia-web-terminal//")
 	software=$(echo "$software" | sed -e "s/hestia=${HESTIA_INSTALL_VER}//")
 fi
@@ -1376,26 +1380,13 @@ echo "========================================================================"
 echo
 
 # Install Hestia packages from local folder
+# VHestiaCP: Only install hestia core package - panel runs on PM2 directly (no hestia-nginx/hestia-php)
 if [ -n "$withdebs" ] && [ -d "$withdebs" ]; then
 	echo "[ * ] Installing local package files..."
 	echo "    - hestia core package"
 	dpkg -i $withdebs/hestia_*.deb > /dev/null 2>&1
 
-	if [ -z $(ls $withdebs/hestia-php_*.deb 2> /dev/null) ]; then
-		echo "    - hestia-php backend package (from apt)"
-		apt-get -y install hestia-php > /dev/null 2>&1
-	else
-		echo "    - hestia-php backend package"
-		dpkg -i $withdebs/hestia-php_*.deb > /dev/null 2>&1
-	fi
-
-	if [ -z $(ls $withdebs/hestia-nginx_*.deb 2> /dev/null) ]; then
-		echo "    - hestia-nginx backend package (from apt)"
-		apt-get -y install hestia-nginx > /dev/null 2>&1
-	else
-		echo "    - hestia-nginx backend package"
-		dpkg -i $withdebs/hestia-nginx_*.deb > /dev/null 2>&1
-	fi
+	# VHestiaCP: hestia-nginx and hestia-php removed - panel runs on PM2 with HTTPS directly
 
 	if [ "$webterminal" = "yes" ]; then
 		if [ -z $(ls $withdebs/hestia-web-terminal_*.deb 2> /dev/null) ]; then
@@ -1412,7 +1403,7 @@ elif [ "$USE_GITHUB_RELEASES" = "yes" ] && [ -n "$VHESTIACP_REPO" ]; then
 	echo "[ * ] Downloading packages from GitHub releases..."
 	github_debs_dir="/tmp/vhestiacp-debs"
 	mkdir -p "$github_debs_dir"
-	
+
 	# Get latest release tag
 	latest_release=$(curl -s "https://api.github.com/repos/${VHESTIACP_REPO}/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)
 	if [ -z "$latest_release" ]; then
@@ -1420,35 +1411,24 @@ elif [ "$USE_GITHUB_RELEASES" = "yes" ] && [ -n "$VHESTIACP_REPO" ]; then
 	else
 		echo "    - Latest release: $latest_release"
 		release_url="https://github.com/${VHESTIACP_REPO}/releases/download/${latest_release}"
-		
-		# Download packages
-		for pkg in hestia hestia-nginx hestia-php; do
-			echo "    - Downloading ${pkg}..."
-			wget -q "${release_url}/${pkg}_${latest_release#v}_amd64.deb" -O "$github_debs_dir/${pkg}.deb" 2>/dev/null || \
-			wget -q "${release_url}/${pkg}.deb" -O "$github_debs_dir/${pkg}.deb" 2>/dev/null || true
-		done
-		
+
+		# Download hestia core package only (no hestia-nginx/hestia-php for VHestiaCP)
+		echo "    - Downloading hestia..."
+		wget -q "${release_url}/hestia_${latest_release#v}_amd64.deb" -O "$github_debs_dir/hestia.deb" 2>/dev/null || \
+		wget -q "${release_url}/hestia.deb" -O "$github_debs_dir/hestia.deb" 2>/dev/null || true
+
 		if [ "$webterminal" = "yes" ]; then
 			echo "    - Downloading hestia-web-terminal..."
 			wget -q "${release_url}/hestia-web-terminal_${latest_release#v}_amd64.deb" -O "$github_debs_dir/hestia-web-terminal.deb" 2>/dev/null || \
 			wget -q "${release_url}/hestia-web-terminal.deb" -O "$github_debs_dir/hestia-web-terminal.deb" 2>/dev/null || true
 		fi
-		
+
 		# Install downloaded packages
 		echo "    - Installing packages..."
 		if [ -f "$github_debs_dir/hestia.deb" ] && [ -s "$github_debs_dir/hestia.deb" ]; then
 			dpkg -i "$github_debs_dir/hestia.deb" > /dev/null 2>&1
 		fi
-		if [ -f "$github_debs_dir/hestia-php.deb" ] && [ -s "$github_debs_dir/hestia-php.deb" ]; then
-			dpkg -i "$github_debs_dir/hestia-php.deb" > /dev/null 2>&1
-		else
-			apt-get -y install hestia-php > /dev/null 2>&1
-		fi
-		if [ -f "$github_debs_dir/hestia-nginx.deb" ] && [ -s "$github_debs_dir/hestia-nginx.deb" ]; then
-			dpkg -i "$github_debs_dir/hestia-nginx.deb" > /dev/null 2>&1
-		else
-			apt-get -y install hestia-nginx > /dev/null 2>&1
-		fi
+		# VHestiaCP: hestia-nginx and hestia-php removed - panel runs on PM2 with HTTPS directly
 		if [ "$webterminal" = "yes" ]; then
 			if [ -f "$github_debs_dir/hestia-web-terminal.deb" ] && [ -s "$github_debs_dir/hestia-web-terminal.deb" ]; then
 				dpkg -i "$github_debs_dir/hestia-web-terminal.deb" > /dev/null 2>&1
@@ -1456,7 +1436,7 @@ elif [ "$USE_GITHUB_RELEASES" = "yes" ] && [ -n "$VHESTIACP_REPO" ]; then
 				apt-get -y install hestia-web-terminal > /dev/null 2>&1
 			fi
 		fi
-		
+
 		# Cleanup
 		rm -rf "$github_debs_dir"
 	fi
@@ -2886,88 +2866,9 @@ if [ -n "$VHESTIA_SRC" ] && [ -d "$VHESTIA_SRC/install/deb/templates/web/nginx" 
 	cp -f $VHESTIA_SRC/install/deb/templates/web/nginx/*.stpl $HESTIA/data/templates/web/nginx/ 2>/dev/null
 fi
 
-# Install VHestiaCP web panel files
-if [ -n "$VHESTIA_SRC" ] && [ -d "$VHESTIA_SRC/web" ]; then
-	echo "[ * ] Installing VHestiaCP web panel files..."
-	
-	# Create directories
-	echo "    - Creating web directories..."
-	mkdir -p $HESTIA/web/list/{mongodb,nodejs,python,haproxy}
-	mkdir -p $HESTIA/web/add/{mongodb,nodejs,python}
-	mkdir -p $HESTIA/web/edit/{mongodb,nodejs,python,haproxy}
-	mkdir -p $HESTIA/web/delete/{mongodb,nodejs,python}
-	mkdir -p $HESTIA/web/{start,stop,restart}/{nodejs,python}
-	
-	# Copy list pages
-	echo "    - Copying list controllers..."
-	for dir in mongodb nodejs python haproxy; do
-		if [ -f "$VHESTIA_SRC/web/list/${dir}/index.php" ]; then
-			cp -f "$VHESTIA_SRC/web/list/${dir}/index.php" "$HESTIA/web/list/${dir}/"
-			echo "      ✓ list/${dir}/index.php"
-		fi
-	done
-	
-	# Copy action pages
-	echo "    - Copying action controllers..."
-	for action in start stop restart delete; do
-		for app in nodejs python mongodb; do
-			if [ -f "$VHESTIA_SRC/web/${action}/${app}/index.php" ]; then
-				mkdir -p "$HESTIA/web/${action}/${app}"
-				cp -f "$VHESTIA_SRC/web/${action}/${app}/index.php" "$HESTIA/web/${action}/${app}/"
-			fi
-		done
-	done
-	
-	# Copy add/edit controllers
-	echo "    - Copying add/edit controllers..."
-	for action in add edit; do
-		for app in mongodb nodejs python; do
-			if [ -f "$VHESTIA_SRC/web/${action}/${app}/index.php" ]; then
-				mkdir -p "$HESTIA/web/${action}/${app}"
-				cp -f "$VHESTIA_SRC/web/${action}/${app}/index.php" "$HESTIA/web/${action}/${app}/"
-				echo "      ✓ ${action}/${app}/index.php"
-			fi
-		done
-	done
-	
-	# Copy template pages (list, add, edit)
-	echo "    - Copying template pages..."
-	for page in list_mongodb list_nodejs list_python list_haproxy add_mongodb add_nodejs add_python edit_mongodb edit_nodejs edit_python; do
-		if [ -f "$VHESTIA_SRC/web/templates/pages/${page}.php" ]; then
-			cp -f "$VHESTIA_SRC/web/templates/pages/${page}.php" "$HESTIA/web/templates/pages/"
-			echo "      ✓ templates/pages/${page}.php"
-		fi
-	done
-	
-	# CRITICAL: Update panel.php with VHestiaCP navigation (contains MongoDB, Node.js, Python tabs)
-	echo "    - Updating panel.php (navigation tabs)..."
-	if [ -f "$VHESTIA_SRC/web/templates/includes/panel.php" ]; then
-		cp -f "$VHESTIA_SRC/web/templates/includes/panel.php" "$HESTIA/web/templates/includes/panel.php"
-		echo "      ✓ panel.php updated with VHestiaCP navigation"
-		
-		# Verify the file was copied correctly
-		if grep -q "MONGODB_SYSTEM" "$HESTIA/web/templates/includes/panel.php"; then
-			echo "      ✓ Verified: MongoDB tab present in panel.php"
-		else
-			echo "      ✗ Warning: MongoDB tab not found in panel.php!"
-		fi
-	else
-		echo "      ✗ ERROR: panel.php not found in $VHESTIA_SRC/web/templates/includes/"
-	fi
-	
-	# Update list_services.php with HAProxy button
-	echo "    - Updating list_services.php..."
-	if [ -f "$VHESTIA_SRC/web/templates/pages/list_services.php" ]; then
-		cp -f "$VHESTIA_SRC/web/templates/pages/list_services.php" "$HESTIA/web/templates/pages/list_services.php"
-		echo "      ✓ list_services.php updated with HAProxy button"
-	else
-		echo "      ✗ Warning: list_services.php not found"
-	fi
-	
-	echo "    ✅ Web panel files installed"
-else
-	echo "[ ! ] No VHestiaCP web files found"
-fi
+# VHestiaCP: Old PHP web panel files removed
+# The new Node.js panel (web_v2) is deployed separately in the PM2 section below
+echo "[ * ] VHestiaCP uses Node.js panel (no old PHP panel files to install)"
 
 # Debug: Show what options were selected
 echo ""
@@ -3058,38 +2959,8 @@ if [ -d "$VHESTIACP_SRC/func" ]; then
     done
 fi
 
-# Apply VHestiaCP web UI
-if [ -d "$VHESTIACP_SRC/web" ]; then
-    echo "    - Copying VHestiaCP web interface..."
-    
-    # Create directories
-    mkdir -p "$HESTIA/web"/{add,edit,delete,list,restart,start,stop,view,templates,inc}
-    mkdir -p "$HESTIA/web/list"/{haproxy,mongodb,nodejs,python}
-    mkdir -p "$HESTIA/web/add"/{mongodb,haproxy}
-    mkdir -p "$HESTIA/web/add/haproxy"/{frontend,backend}
-    mkdir -p "$HESTIA/web/edit"/{haproxy,mongodb}
-    mkdir -p "$HESTIA/web/delete"/{mongodb,haproxy}
-    mkdir -p "$HESTIA/web/delete/haproxy"/{frontend,backend,listen}
-    mkdir -p "$HESTIA/web"/{start,stop,restart,delete}/pm2
-    mkdir -p "$HESTIA/web/view/pm2-log"
-    
-    # Copy all web files recursively
-    for dir in add edit delete list restart start stop view templates inc; do
-        if [ -d "$VHESTIACP_SRC/web/$dir" ]; then
-            cp -rf "$VHESTIACP_SRC/web/$dir/"* "$HESTIA/web/$dir/" 2>/dev/null || true
-        fi
-    done
-    
-    # Verify critical web files
-    echo "    - Verifying web files..."
-    for webfile in "list/mongodb/index.php" "list/haproxy/index.php" "templates/pages/list_mongodb.php" "templates/pages/list_haproxy.php"; do
-        if [ -f "$HESTIA/web/$webfile" ]; then
-            echo "      ✓ $webfile"
-        else
-            echo "      ✗ MISSING: $webfile"
-        fi
-    done
-fi
+# VHestiaCP: Old PHP web UI removed - using Node.js panel (web_v2)
+# Web panel is deployed in the PM2 section below
 
 # Fix permissions
 echo "    - Setting permissions..."
@@ -3103,97 +2974,11 @@ chmod 644 "$HESTIA/conf/"*.conf 2>/dev/null || true
 echo "    ✅ VHestiaCP modifications applied"
 
 #----------------------------------------------------------#
-#              CRITICAL: Inline Fix for MongoDB Web        #
+#              VHestiaCP: Shell Scripts Fix                #
 #----------------------------------------------------------#
-# This ensures the fix is applied even if file copy fails
+# Create/update shell scripts for API (no PHP files needed - using Node.js panel)
 
-echo "    - Applying critical fixes inline..."
-
-# Fix MongoDB list controller - ensure $user comes from session
-mkdir -p "$HESTIA/web/list/mongodb"
-cat > "$HESTIA/web/list/mongodb/index.php" << 'MONGODB_PHP'
-<?php
-$TAB = "MONGODB";
-
-// Main include
-include $_SERVER["DOCUMENT_ROOT"] . "/inc/main.php";
-
-// CRITICAL FIX: Get user from session
-if (empty($user)) {
-    $user = $_SESSION['user'] ?? '';
-}
-if (empty($user)) {
-    $user = $_SESSION['userContext'] ?? '';
-}
-if (empty($user)) {
-    $user = 'admin';
-}
-
-// CRITICAL FIX: Remove any surrounding quotes from user variable
-// HestiaCP stores user with quotes like 'admin', which breaks escapeshellarg()
-$user = trim($user, "\"'");
-
-// Check if MongoDB is installed
-$hestia_conf = "/usr/local/hestia/conf/hestia.conf";
-$mongodb_installed = false;
-
-if (isset($_SESSION["MONGODB_SYSTEM"]) && $_SESSION["MONGODB_SYSTEM"] === "yes") {
-    $mongodb_installed = true;
-}
-
-if (!$mongodb_installed && file_exists($hestia_conf)) {
-    $conf_content = file_get_contents($hestia_conf);
-    if (preg_match("/MONGODB_SYSTEM='yes'/", $conf_content)) {
-        $mongodb_installed = true;
-    }
-}
-
-if (!$mongodb_installed) {
-    header("Location: /list/web/");
-    exit();
-}
-
-// Data - call v-list-database-mongo
-$output = [];
-$cmd = HESTIA_CMD . "v-list-database-mongo " . escapeshellarg($user) . " json 2>&1";
-exec($cmd, $output, $return_var);
-$json_output = implode("", $output);
-
-$data = json_decode($json_output, true);
-if (json_last_error() !== JSON_ERROR_NONE) {
-    error_log("MongoDB JSON error: " . json_last_error_msg() . " - " . $json_output);
-    $data = [];
-}
-if (empty($data)) {
-    $data = [];
-}
-
-// Check Mongo Express
-$mongo_express_installed = false;
-$mongo_express_url = "";
-
-if (file_exists($hestia_conf)) {
-    $conf_content = file_get_contents($hestia_conf);
-    if (preg_match("/MONGO_EXPRESS_SYSTEM='yes'/", $conf_content) || 
-        preg_match("/MONGOEXPRESS_SYSTEM='yes'/", $conf_content) ||
-        preg_match("/MONGO_EXPRESS='yes'/", $conf_content)) {
-        $mongo_express_installed = true;
-        $me_port = "8081";
-        if (preg_match("/MONGO_EXPRESS_PORT='(\d+)'/", $conf_content, $matches)) {
-            $me_port = $matches[1];
-        } elseif (preg_match("/MONGOEXPRESS_PORT='(\d+)'/", $conf_content, $matches)) {
-            $me_port = $matches[1];
-        }
-        $host = explode(":", $_SERVER['HTTP_HOST'])[0];
-        $mongo_express_url = "http://" . $host . ":" . $me_port;
-    }
-}
-
-render_page($user, $TAB, "list_mongodb", $data);
-$_SESSION["back"] = $_SERVER["REQUEST_URI"];
-MONGODB_PHP
-
-echo "      ✓ MongoDB list controller fixed"
+echo "    - Creating VHestiaCP shell scripts..."
 
 # Fix v-list-database-mongo script
 cat > "$HESTIA/bin/v-list-database-mongo" << 'MONGO_SCRIPT'
@@ -3960,6 +3745,61 @@ fi
 write_config_value "VHESTIACP_VERSION" "1.0.0"
 
 #----------------------------------------------------------#
+#           Deploy VHestiaCP Web Panel (Node.js)           #
+#----------------------------------------------------------#
+
+# Node.js is always required for VHestiaCP panel
+echo "[ * ] Deploying VHestiaCP Web Panel..."
+
+# Check if web_v2 exists in source
+if [ -d "$srcdir/web_v2" ]; then
+	# Create web_v2 directory
+	mkdir -p "$HESTIA/web_v2"
+
+	# Copy server files
+	cp -r "$srcdir/web_v2/server" "$HESTIA/web_v2/"
+	cp "$srcdir/web_v2/ecosystem.config.cjs" "$HESTIA/web_v2/"
+
+	# Extract client dist
+	if [ -f "$srcdir/web_v2/client/dist.tar.gz" ]; then
+		mkdir -p "$HESTIA/web_v2/client"
+		tar -xzf "$srcdir/web_v2/client/dist.tar.gz" -C "$HESTIA/web_v2/client/"
+	elif [ -d "$srcdir/web_v2/client/dist" ]; then
+		cp -r "$srcdir/web_v2/client/dist" "$HESTIA/web_v2/client/"
+	fi
+
+	# Install npm dependencies
+	echo "    - Installing Node.js dependencies..."
+	cd "$HESTIA/web_v2/server"
+
+	# Load NVM to ensure npm is available
+	export NVM_DIR="${NVM_DIR:-/opt/nvm}"
+	[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
+
+	npm install --production > /dev/null 2>&1
+
+	# Start PM2
+	echo "    - Starting VHestiaCP Panel with PM2..."
+	cd "$HESTIA/web_v2"
+	pm2 start ecosystem.config.cjs > /dev/null 2>&1
+	pm2 save > /dev/null 2>&1
+
+	# Setup PM2 startup on boot
+	pm2 startup systemd -u root --hp /root > /dev/null 2>&1
+
+	# Verify panel is running
+	sleep 2
+	if pm2 list | grep -q "vhestia-panel"; then
+		echo "    - VHestiaCP Panel started successfully"
+		echo "    - Panel URL: https://$ip:$port"
+	else
+		echo "    - Warning: Panel may not have started correctly"
+	fi
+else
+	echo "    - Warning: web_v2 directory not found in source"
+fi
+
+#----------------------------------------------------------#
 #              Set hestia.conf default values              #
 #----------------------------------------------------------#
 
@@ -4034,8 +3874,15 @@ VHestiaCP - Extended Control Panel
 Based on Hestia Control Panel
 " >> $tmpfile
 
-send_mail="$HESTIA/web/inc/mail-wrapper.php"
-cat $tmpfile | $send_mail -s "Hestia Control Panel" $email
+# Send email notification (use mail command if php wrapper not available)
+if [ -f "$HESTIA/web/inc/mail-wrapper.php" ]; then
+	send_mail="$HESTIA/web/inc/mail-wrapper.php"
+	cat $tmpfile | $send_mail -s "Hestia Control Panel" $email
+elif command -v mail &>/dev/null; then
+	cat $tmpfile | mail -s "Hestia Control Panel" $email
+else
+	echo "[ ! ] Warning: Could not send installation email (no mail command found)"
+fi
 
 # Congrats
 echo
