@@ -2623,11 +2623,21 @@ restic self-update > /dev/null 2>&1
 # IMPORTANT: These scripts must be copied BEFORE v-update-sys-ip
 # because they fix issues with missing hestia-nginx config file
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# Get script directory properly (works with both ./script.sh and bash script.sh)
+if [[ "$0" == /* ]]; then
+	SCRIPT_DIR="$(dirname "$0")"
+else
+	SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
+	# Fallback: if running as 'bash script.sh', use current dir
+	[ -z "$SCRIPT_DIR" ] || [ "$SCRIPT_DIR" = "." ] && SCRIPT_DIR="$(pwd)"
+fi
 VHESTIA_SRC_EARLY="$(dirname "$SCRIPT_DIR")"
 
+# Debug: show paths
+echo "[ * ] Applying VHestiaCP critical script overrides..."
+echo "    - Source directory: $VHESTIA_SRC_EARLY"
+
 if [ -d "$VHESTIA_SRC_EARLY/bin" ]; then
-	echo "[ * ] Applying VHestiaCP critical script overrides..."
 	# Scripts that need fixes for VHestiaCP:
 	# - v-add-firewall-chain, v-change-sys-port: reference hestia-nginx config
 	# - v-restart-web: use 'nginx -t' instead of 'service nginx configtest'
@@ -2643,6 +2653,8 @@ if [ -d "$VHESTIA_SRC_EARLY/bin" ]; then
 		cp -f "$VHESTIA_SRC_EARLY/func/syshealth.sh" "$HESTIA/func/"
 		echo "    - Applied override: func/syshealth.sh"
 	fi
+else
+	echo "    - Warning: Source bin directory not found at $VHESTIA_SRC_EARLY/bin"
 fi
 
 #----------------------------------------------------------#
