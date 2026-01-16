@@ -2623,38 +2623,38 @@ restic self-update > /dev/null 2>&1
 # IMPORTANT: These scripts must be copied BEFORE v-update-sys-ip
 # because they fix issues with missing hestia-nginx config file
 
-# Get script directory properly (works with both ./script.sh and bash script.sh)
-if [[ "$0" == /* ]]; then
-	SCRIPT_DIR="$(dirname "$0")"
-else
-	SCRIPT_DIR="$(cd "$(dirname "$0")" 2>/dev/null && pwd)"
-	# Fallback: if running as 'bash script.sh', use current dir
-	[ -z "$SCRIPT_DIR" ] || [ "$SCRIPT_DIR" = "." ] && SCRIPT_DIR="$(pwd)"
+# Use VHESTIA_INSTALL_DIR that was saved at script start
+# Fallback: try to detect from common install locations
+if [ -z "$VHESTIA_INSTALL_DIR" ]; then
+	for try_path in "/tmp/vhestiacp" "$HOME/vhestiacp" "/root/vhestiacp"; do
+		if [ -d "$try_path/bin" ] && [ -f "$try_path/bin/v-restart-web" ]; then
+			VHESTIA_INSTALL_DIR="$try_path"
+			break
+		fi
+	done
 fi
-VHESTIA_SRC_EARLY="$(dirname "$SCRIPT_DIR")"
 
-# Debug: show paths
 echo "[ * ] Applying VHestiaCP critical script overrides..."
-echo "    - Source directory: $VHESTIA_SRC_EARLY"
+echo "    - Source directory: $VHESTIA_INSTALL_DIR"
 
-if [ -d "$VHESTIA_SRC_EARLY/bin" ]; then
+if [ -n "$VHESTIA_INSTALL_DIR" ] && [ -d "$VHESTIA_INSTALL_DIR/bin" ]; then
 	# Scripts that need fixes for VHestiaCP:
 	# - v-add-firewall-chain, v-change-sys-port: reference hestia-nginx config
 	# - v-restart-web: use 'nginx -t' instead of 'service nginx configtest'
 	for script in v-add-firewall-chain v-change-sys-port v-restart-web; do
-		if [ -f "$VHESTIA_SRC_EARLY/bin/$script" ]; then
-			cp -f "$VHESTIA_SRC_EARLY/bin/$script" "$HESTIA/bin/"
+		if [ -f "$VHESTIA_INSTALL_DIR/bin/$script" ]; then
+			cp -f "$VHESTIA_INSTALL_DIR/bin/$script" "$HESTIA/bin/"
 			chmod +x "$HESTIA/bin/$script"
 			echo "    - Applied override: $script"
 		fi
 	done
 	# Also copy fixed syshealth.sh
-	if [ -f "$VHESTIA_SRC_EARLY/func/syshealth.sh" ]; then
-		cp -f "$VHESTIA_SRC_EARLY/func/syshealth.sh" "$HESTIA/func/"
+	if [ -f "$VHESTIA_INSTALL_DIR/func/syshealth.sh" ]; then
+		cp -f "$VHESTIA_INSTALL_DIR/func/syshealth.sh" "$HESTIA/func/"
 		echo "    - Applied override: func/syshealth.sh"
 	fi
 else
-	echo "    - Warning: Source bin directory not found at $VHESTIA_SRC_EARLY/bin"
+	echo "    - Warning: Source bin directory not found at $VHESTIA_INSTALL_DIR/bin"
 fi
 
 #----------------------------------------------------------#
