@@ -2818,9 +2818,12 @@ fi
 if [ -n "$VHESTIA_SRC" ] && [ -d "$VHESTIA_SRC/bin" ]; then
 	echo "[ * ] Installing VHestiaCP CLI scripts..."
 
-	# Whitelist of VHestiaCP-specific scripts that should be copied
-	# These are NEW scripts added by VHestiaCP, not modifications to existing HestiaCP scripts
+	# Whitelist of VHestiaCP scripts that should be copied
+	# Includes both NEW scripts and MODIFIED HestiaCP scripts
 	VHESTIA_SCRIPTS=(
+		# VHestiaCP overrides for HestiaCP scripts (hestia-nginx not installed)
+		"v-add-firewall-chain"
+		"v-change-sys-port"
 		# HAProxy
 		"v-add-sys-haproxy"
 		"v-delete-sys-haproxy"
