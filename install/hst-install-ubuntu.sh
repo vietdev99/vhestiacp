@@ -2878,8 +2878,6 @@ if [ -n "$VHESTIA_SRC" ] && [ -d "$VHESTIA_SRC/bin" ]; then
 		"v-update-sys-haproxy-config"
 		# MongoDB
 		"v-add-sys-mongodb"
-		"v-add-sys-mongo-express"
-		"v-delete-sys-mongo-express"
 		"v-add-database-mongo"
 		"v-delete-database-mongo"
 		"v-list-database-mongo"
@@ -3694,21 +3692,6 @@ if [ "$nodejs" = 'yes' ]; then
 			echo "    - ⚠ Warning: Some commands may not be available system-wide"
 		fi
 		
-		# Install mongo-express if MongoDB was also installed
-		if [ "$mongodb" = 'yes' ] && [ -f "$HESTIA/bin/v-add-sys-mongo-express" ]; then
-			echo "    - Installing mongo-express (MongoDB Web UI)..."
-			
-			# Load NVM to ensure npm is available
-			export NVM_DIR="${NVM_DIR:-/opt/nvm}"
-			[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
-			
-			$HESTIA/bin/v-add-sys-mongo-express 2>&1 | tee -a $LOG
-			if [ $? -eq 0 ]; then
-				echo "    - mongo-express installed successfully"
-			else
-				echo "    - mongo-express installation failed (optional)"
-			fi
-		fi
 	else
 		echo "    - ERROR: v-add-sys-nodejs script not found!"
 	fi
