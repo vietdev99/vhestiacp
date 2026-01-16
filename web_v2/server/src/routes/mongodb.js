@@ -591,9 +591,41 @@ router.post('/pbm/configure', async (req, res) => {
  */
 router.post('/pbm/backup', async (req, res) => {
   try {
-    const { type = 'logical' } = req.body;
+    const { type = 'logical', instance = 'default' } = req.body;
 
-    let cmd = 'pbm backup';
+    // Get MongoDB URI for PBM
+    let mongoPassword = '';
+    const hestiaConfPath = path.join(HESTIA_DIR, `conf/mongodb-${instance}.conf`);
+    if (fs.existsSync(hestiaConfPath)) {
+      try {
+        const confContent = fs.readFileSync(hestiaConfPath, 'utf8');
+        const match = confContent.match(/ROOT_PASSWORD='([^']+)'/);
+        if (match) mongoPassword = match[1];
+      } catch (e) {}
+    }
+    if (!mongoPassword) {
+      try {
+        const mainConf = fs.readFileSync(path.join(HESTIA_DIR, 'conf/hestia.conf'), 'utf8');
+        const match = mainConf.match(/MONGODB_ROOT_PASSWORD='([^']+)'/);
+        if (match) mongoPassword = match[1];
+      } catch (e) {}
+    }
+
+    // Get instance settings for replicaSetName
+    const instanceSettingsFile = path.join(HESTIA_DIR, `data/mongodb-instances/${instance}-settings.json`);
+    let replicaSetName = 'rs0';
+    if (fs.existsSync(instanceSettingsFile)) {
+      try {
+        const settings = JSON.parse(fs.readFileSync(instanceSettingsFile, 'utf8'));
+        replicaSetName = settings.replicaSetName || 'rs0';
+      } catch (e) {}
+    }
+
+    const mongoUri = mongoPassword
+      ? `mongodb://admin:${encodeURIComponent(mongoPassword)}@127.0.0.1:27017/?authSource=admin&replicaSet=${replicaSetName}`
+      : `mongodb://127.0.0.1:27017/?replicaSet=${replicaSetName}`;
+
+    let cmd = `PBM_MONGODB_URI="${mongoUri}" pbm backup`;
     if (type === 'physical') {
       cmd += ' --type=physical';
     } else if (type === 'incremental') {
@@ -1232,8 +1264,31 @@ router.post('/instances/:name/config', async (req, res) => {
 
             // Setup PBM environment and service
             const replicaSetName = settings.replicaSetName || 'rs0';
-            const mongoUri = `mongodb://127.0.0.1:${port}/?replicaSet=${replicaSetName}`;
-            
+
+            // Get MongoDB root password from Hestia conf
+            let mongoPassword = '';
+            const hestiaConfPath = path.join(HESTIA_DIR, `conf/mongodb-${name}.conf`);
+            if (fs.existsSync(hestiaConfPath)) {
+              try {
+                const confContent = fs.readFileSync(hestiaConfPath, 'utf8');
+                const match = confContent.match(/ROOT_PASSWORD='([^']+)'/);
+                if (match) mongoPassword = match[1];
+              } catch (e) {}
+            }
+            // Fallback to main hestia.conf
+            if (!mongoPassword) {
+              try {
+                const mainConf = fs.readFileSync(path.join(HESTIA_DIR, 'conf/hestia.conf'), 'utf8');
+                const match = mainConf.match(/MONGODB_ROOT_PASSWORD='([^']+)'/);
+                if (match) mongoPassword = match[1];
+              } catch (e) {}
+            }
+
+            // Build MongoDB URI with authentication
+            const mongoUri = mongoPassword
+              ? `mongodb://admin:${encodeURIComponent(mongoPassword)}@127.0.0.1:${port}/?authSource=admin&replicaSet=${replicaSetName}`
+              : `mongodb://127.0.0.1:${port}/?replicaSet=${replicaSetName}`;
+
             // Create systemd service for this instance's pbm-agent
             const serviceContent = `[Unit]
 Description=pbm-agent for MongoDB instance ${name}
@@ -1241,10 +1296,9 @@ After=network.target ${name === 'default' ? 'mongod' : `mongod-${name}`}.service
 
 [Service]
 Type=simple
-User=mongodb
-Group=mongodb
+User=root
+Group=root
 Environment="PBM_MONGODB_URI=${mongoUri}"
-Environment="PBM_AGENT_CONFIG=${pbmConfigPath}"
 ExecStart=/usr/bin/pbm-agent
 Restart=on-failure
 RestartSec=5s
@@ -1252,16 +1306,24 @@ RestartSec=5s
 [Install]
 WantedBy=multi-user.target
 `;
-            
+
             const serviceFile = `/etc/systemd/system/${pbmServiceName}.service`;
             fs.writeFileSync(serviceFile, serviceContent, 'utf8');
-            
+
             // Reload systemd and enable/start service
             execSync('systemctl daemon-reload', { encoding: 'utf8' });
             execSync(`systemctl enable ${pbmServiceName}`, { encoding: 'utf8' });
-            exec(`systemctl restart ${pbmServiceName}`, (error) => {
-              if (error) console.error(`Restart ${pbmServiceName} error:`, error);
-            });
+            execSync(`systemctl restart ${pbmServiceName}`, { encoding: 'utf8' });
+
+            // Wait a moment for service to start, then apply PBM config
+            setTimeout(() => {
+              try {
+                execSync(`PBM_MONGODB_URI="${mongoUri}" pbm config --file ${pbmConfigPath}`, { encoding: 'utf8' });
+                console.log('PBM config applied successfully');
+              } catch (e) {
+                console.error('Failed to apply PBM config:', e.message);
+              }
+            }, 3000);
           } else {
             // PBM disabled - stop and disable service
             try {
