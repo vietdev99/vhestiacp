@@ -1,14 +1,16 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useMutation } from '@tanstack/react-query';
 import api from '../utils/api';
 import { useAuth } from '../context/AuthContext';
-import { ArrowLeft, AlertCircle, Loader2, Eye, EyeOff, RefreshCw, Leaf } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Loader2, Eye, EyeOff, RefreshCw, Leaf, Server } from 'lucide-react';
 
 export default function MongoDBAdd() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const username = user?.username || '';
+  const [searchParams] = useSearchParams();
+  const instance = searchParams.get('instance') || 'default';
 
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -19,10 +21,11 @@ export default function MongoDBAdd() {
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
-      await api.post('/api/databases/mongodb', data);
+      // Include instance in API call
+      await api.post('/api/databases/mongodb', { ...data, instance });
     },
     onSuccess: () => {
-      navigate('/databases?type=mongodb');
+      navigate(`/databases?type=mongodb&instance=${encodeURIComponent(instance)}`);
     },
     onError: (err) => {
       setError(err.response?.data?.error || 'Failed to create MongoDB database');
@@ -55,7 +58,7 @@ export default function MongoDBAdd() {
     <div className="max-w-2xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-4 mb-6">
-        <Link to="/databases?type=mongodb" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-border">
+        <Link to={`/databases?type=mongodb&instance=${encodeURIComponent(instance)}`} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-border">
           <ArrowLeft className="w-5 h-5" />
         </Link>
         <div>
@@ -63,7 +66,13 @@ export default function MongoDBAdd() {
             <Leaf className="w-6 h-6 text-green-600" />
             Add MongoDB Database
           </h1>
-          <p className="text-gray-500 dark:text-dark-muted mt-1">Create a new MongoDB database</p>
+          <p className="text-gray-500 dark:text-dark-muted mt-1 flex items-center gap-2">
+            Creating in instance: 
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 rounded text-sm font-medium">
+              <Server className="w-3 h-3" />
+              {instance}
+            </span>
+          </p>
         </div>
       </div>
 
@@ -164,7 +173,7 @@ export default function MongoDBAdd() {
                 'Create Database'
               )}
             </button>
-            <Link to="/databases?type=mongodb" className="btn btn-secondary">
+            <Link to={`/databases?type=mongodb&instance=${encodeURIComponent(instance)}`} className="btn btn-secondary">
               Cancel
             </Link>
           </div>

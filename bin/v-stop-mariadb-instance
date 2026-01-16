@@ -1,0 +1,50 @@
+#!/bin/bash
+# info: stop mariadb instance
+# options: NAME
+#
+# example: v-stop-mariadb-instance myapp
+#
+# This function stops a MariaDB instance.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+name=$1
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ -z "$name" ]; then
+    echo "Error: Instance name is required"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+if [ "$name" = "default" ]; then
+    service_name="mariadb"
+    if ! systemctl list-unit-files mariadb.service &>/dev/null; then
+        service_name="mysql"
+    fi
+else
+    service_name="mariadb-$name"
+fi
+
+systemctl stop "$service_name"
+
+if [ $? -eq 0 ]; then
+    echo "Instance '$name' stopped successfully"
+    exit 0
+else
+    echo "Error: Failed to stop instance '$name'"
+    exit 1
+fi

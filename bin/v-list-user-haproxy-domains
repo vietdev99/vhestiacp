@@ -1,0 +1,76 @@
+#!/bin/bash
+# info: list user HAProxy domains
+# options: USER [FORMAT]
+#
+# example: v-list-user-haproxy-domains admin
+# example: v-list-user-haproxy-domains admin json
+#
+# This function lists all HAProxy domains configured for a user.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+format=${2:-shell}
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '1' "$#" 'USER [FORMAT]'
+is_format_valid 'user' 'format'
+is_object_valid 'user' 'USER' "$user"
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Define haproxy config file for user
+HAPROXY_JSON="$HESTIA/data/users/$user/haproxy.json"
+
+# Check if haproxy.json exists
+if [ ! -f "$HAPROXY_JSON" ]; then
+    # Return empty result
+    if [ "$format" = "json" ]; then
+        echo '{"domains":[]}'
+    else
+        echo "No HAProxy domains configured"
+    fi
+    exit 0
+fi
+
+# Read and output the JSON file
+if [ "$format" = "json" ]; then
+    cat "$HAPROXY_JSON"
+else
+    # Shell format - parse JSON and display
+    echo "HAProxy Domains for $user:"
+    echo "=========================="
+
+    # Use jq if available, otherwise basic parsing
+    if command -v jq &> /dev/null; then
+        jq -r '.domains[] | "\(.domain)\t\(.backend.host):\(.backend.port)\t\(.backend.type)\t\(.ssl.mode)\t\(if .enabled then "enabled" else "disabled" end)"' "$HAPROXY_JSON" 2>/dev/null | \
+        while IFS=$'\t' read -r domain backend type ssl status; do
+            printf "%-30s %-20s %-10s %-15s %s\n" "$domain" "$backend" "$type" "$ssl" "$status"
+        done
+    else
+        # Fallback: just show raw JSON
+        cat "$HAPROXY_JSON"
+    fi
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+exit 0

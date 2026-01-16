@@ -1,0 +1,109 @@
+#!/bin/bash
+# info: add database to postgresql instance
+# options: USER DATABASE DBUSER DBPASSWORD INSTANCE
+#
+# example: v-add-database-pgsql-instance admin mydb myuser password123 default
+#
+# This function creates a database on a specific PostgreSQL instance.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+database="${user}_${2}"
+dbuser="${user}_${3:-$2}"
+dbpassword=$4
+instance=${5:-default}
+
+# Convert to lowercase for PostgreSQL
+database=$(echo "$database" | tr '[:upper:]' '[:lower:]')
+dbuser=$(echo "$dbuser" | tr '[:upper:]' '[:lower:]')
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '4' "$#" 'USER DATABASE DBUSER DBPASSWORD [INSTANCE]'
+
+# Validate user
+is_object_valid 'user' 'USER' "$user"
+
+# Generate password if not provided
+if [ -z "$dbpassword" ]; then
+    dbpassword=$(generate_password)
+fi
+
+#----------------------------------------------------------#
+#                  Instance Configuration                  #
+#----------------------------------------------------------#
+
+# Determine port based on instance
+PGSQL_PORT=5432
+
+if [ "$instance" != "default" ]; then
+    # Load instance config from JSON
+    instance_file="$HESTIA/data/pgsql-instances.json"
+    if [ -f "$instance_file" ] && command -v jq &>/dev/null; then
+        inst_port=$(jq -r ".instances[] | select(.name==\"$instance\") | .port" "$instance_file" 2>/dev/null)
+        [ -n "$inst_port" ] && [ "$inst_port" != "null" ] && PGSQL_PORT="$inst_port"
+    fi
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Creating PostgreSQL database: $database on instance: $instance (port $PGSQL_PORT)..."
+
+# Create database
+sudo -u postgres psql -p $PGSQL_PORT -c "CREATE DATABASE \"$database\";" 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to create database"
+    exit 1
+fi
+
+# Create user with password
+sudo -u postgres psql -p $PGSQL_PORT -c "CREATE USER \"$dbuser\" WITH PASSWORD '$dbpassword';" 2>/dev/null
+if [ $? -ne 0 ]; then
+    echo "Warning: User may already exist"
+fi
+
+# Grant privileges
+sudo -u postgres psql -p $PGSQL_PORT -c "GRANT ALL PRIVILEGES ON DATABASE \"$database\" TO \"$dbuser\";" 2>/dev/null
+sudo -u postgres psql -p $PGSQL_PORT -d "$database" -c "GRANT ALL ON SCHEMA public TO \"$dbuser\";" 2>/dev/null
+
+# Store database info in user's config
+user_dir="$HESTIA/data/users/$user"
+user_db_conf="$user_dir/pgsql.conf"
+
+mkdir -p "$user_dir"
+touch "$user_db_conf"
+
+# Remove existing entry if any
+sed -i "/^DB='$database'/d" "$user_db_conf" 2>/dev/null || true
+
+# Add new entry with instance
+echo "DB='$database' USER='$dbuser' PASSWORD='$dbpassword' HOST='localhost' PORT='$PGSQL_PORT' INSTANCE='$instance' DATE='$(date +%Y-%m-%d)' TYPE='pgsql'" >> "$user_db_conf"
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo ""
+echo "PostgreSQL database created successfully!"
+echo ""
+echo "  Database:    $database"
+echo "  User:        $dbuser"
+echo "  Password:    $dbpassword"
+echo "  Instance:    $instance"
+echo "  Port:        $PGSQL_PORT"
+echo ""
+
+exit 0

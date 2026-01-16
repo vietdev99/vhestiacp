@@ -61,10 +61,43 @@ log_file="/var/log/mongodb-instances/${instance_name}.log"
 
 echo "Deleting MongoDB instance: $instance_name"
 
+# Create backup directory if it doesn't exist
+BACKUP_DIR="$HESTIA/data/backups/mongodb-instances"
+mkdir -p "$BACKUP_DIR"
+
 # Stop and disable the service
 echo "Stopping service..."
 systemctl stop "$service_name" 2>/dev/null || true
 systemctl disable "$service_name" 2>/dev/null || true
+
+# Create backup archive of configuration before deletion
+backup_timestamp=$(date +%Y%m%d_%H%M%S)
+backup_file="$BACKUP_DIR/${instance_name}_${backup_timestamp}.tar.gz"
+
+echo "Creating backup archive: $backup_file"
+backup_items=""
+
+# Add config file if exists
+if [ -f "$config_file" ]; then
+    backup_items="$backup_items $config_file"
+fi
+
+# Add keyfile if exists
+keyfile_path="$data_dir/keyfile"
+if [ -f "$keyfile_path" ]; then
+    backup_items="$backup_items $keyfile_path"
+fi
+
+# Add service file if exists
+if [ -f "$service_file" ]; then
+    backup_items="$backup_items $service_file"
+fi
+
+# Create the backup
+if [ -n "$backup_items" ]; then
+    tar -czvf "$backup_file" $backup_items 2>/dev/null || true
+    echo "  ✓ Backup created: $backup_file"
+fi
 
 # Remove systemd service file
 echo "Removing systemd service..."

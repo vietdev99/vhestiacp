@@ -19,6 +19,7 @@ import DNSRecordAdd from './pages/DNSRecordAdd';
 import DNSEdit from './pages/DNSEdit';
 import Mail from './pages/Mail';
 import MailAdd from './pages/MailAdd';
+import MailDomain from './pages/MailDomain';
 import Databases from './pages/Databases';
 import DatabaseAdd from './pages/DatabaseAdd';
 import MongoDBAdd from './pages/MongoDBAdd';
@@ -44,6 +45,9 @@ import HAProxyVisualize from './pages/HAProxyVisualize';
 import HAProxyConfig from './pages/HAProxyConfig';
 import HAProxyFrontendAdd from './pages/HAProxyFrontendAdd';
 import HAProxyBackendAdd from './pages/HAProxyBackendAdd';
+import HAProxyDomains from './pages/HAProxyDomains';
+import HAProxyDomainAdd from './pages/HAProxyDomainAdd';
+import HAProxyDomainEdit from './pages/HAProxyDomainEdit';
 import RcloneSettings from './pages/RcloneSettings';
 import Stats from './pages/Stats';
 import Statistics from './pages/Statistics';
@@ -51,6 +55,7 @@ import ServerInfo from './pages/ServerInfo';
 import PM2 from './pages/PM2';
 import Security from './pages/Security';
 import ServerConfigure from './pages/ServerConfigure';
+import HestiaConfig from './pages/HestiaConfig';
 
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, loading, isAdmin } = useAuth();
@@ -105,6 +110,7 @@ export default function App() {
         <Route path="dns/:domain/add-record" element={<DNSRecordAdd />} />
         <Route path="mail" element={<Mail />} />
         <Route path="mail/add" element={<MailAdd />} />
+        <Route path="mail/:domain" element={<MailDomain />} />
         <Route path="databases" element={<Databases />} />
         <Route path="databases/add" element={<DatabaseAdd />} />
         <Route path="databases/mongodb/add" element={<MongoDBAdd />} />
@@ -129,11 +135,16 @@ export default function App() {
         <Route path="haproxy/config" element={<ProtectedRoute adminOnly><HAProxyConfig /></ProtectedRoute>} />
         <Route path="haproxy/frontend/add" element={<ProtectedRoute adminOnly><HAProxyFrontendAdd /></ProtectedRoute>} />
         <Route path="haproxy/backend/add" element={<ProtectedRoute adminOnly><HAProxyBackendAdd /></ProtectedRoute>} />
+        {/* HAProxy User Domains - accessible by all users */}
+        <Route path="haproxy/domains" element={<HAProxyDomains />} />
+        <Route path="haproxy/domains/add" element={<HAProxyDomainAdd />} />
+        <Route path="haproxy/domains/:domain/edit" element={<HAProxyDomainEdit />} />
         <Route path="admin/rclone" element={<ProtectedRoute adminOnly><RcloneSettings /></ProtectedRoute>} />
         <Route path="stats" element={<Stats />} />
         <Route path="statistics" element={<ProtectedRoute adminOnly><Statistics /></ProtectedRoute>} />
         <Route path="server-info" element={<ProtectedRoute adminOnly><ServerInfo /></ProtectedRoute>} />
         <Route path="server/configure" element={<ProtectedRoute adminOnly><ServerConfigure /></ProtectedRoute>} />
+        <Route path="admin/hestia-config" element={<ProtectedRoute adminOnly><HestiaConfig /></ProtectedRoute>} />
         <Route path="pm2" element={<PM2 />} />
         <Route path="security" element={<Security />} />
       </Route>

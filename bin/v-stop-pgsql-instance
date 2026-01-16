@@ -1,0 +1,54 @@
+#!/bin/bash
+# info: stop postgresql instance
+# options: NAME
+#
+# example: v-stop-pgsql-instance myapp
+#
+# This function stops a PostgreSQL instance.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+name=$1
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ -z "$name" ]; then
+    echo "Error: Instance name is required"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+service_name="postgresql-$name"
+
+# Check if custom service exists, otherwise use pg_ctlcluster
+if systemctl list-unit-files "$service_name.service" &>/dev/null; then
+    systemctl stop "$service_name"
+else
+    # Use pg_ctlcluster for default clusters
+    pg_version=$(ls /usr/lib/postgresql/ 2>/dev/null | sort -V | tail -1)
+    if [ "$name" = "default" ]; then
+        pg_ctlcluster "$pg_version" main stop
+    else
+        pg_ctlcluster "$pg_version" "$name" stop
+    fi
+fi
+
+if [ $? -eq 0 ]; then
+    echo "Instance '$name' stopped successfully"
+    exit 0
+else
+    echo "Error: Failed to stop instance '$name'"
+    exit 1
+fi

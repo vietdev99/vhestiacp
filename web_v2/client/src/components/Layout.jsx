@@ -69,6 +69,7 @@ const adminItems = [
   { name: 'Database Settings', href: '/admin/database-settings', icon: Settings },
   { name: 'Cloud Storage', href: '/admin/rclone', icon: Cloud },
   { name: 'HAProxy', href: '/haproxy', icon: Network },
+  { name: 'Hestia Config', href: '/admin/hestia-config', icon: Settings },
   // File Manager is conditional - added dynamically based on system config
 ];
 
@@ -79,6 +80,7 @@ export default function Layout() {
   const navigate = useNavigate();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [webMenuOpen, setWebMenuOpen] = useState(false);
   const [dbMenuOpen, setDbMenuOpen] = useState(false);
   const [adminMenuOpen, setAdminMenuOpen] = useState(false);
 
@@ -94,19 +96,15 @@ export default function Layout() {
 
   // Filter navigation based on admin role and installed services
   const filteredNav = useMemo(() => {
-    // Get web server type for dynamic Web menu name
-    const webServer = systemInfo?.installedServices?.webServer || 'nginx';
-    const webServerName = webServer === 'apache' ? 'Web Apache' : 'Web Nginx';
-
-    // Build navigation with dynamic Web item
-    const navWithWeb = [
+    // Build navigation without Web (Web is now a submenu)
+    const navWithoutWeb = [
       { name: 'Dashboard', href: '/', icon: LayoutDashboard },
       { name: 'Users', href: '/users', icon: Users, adminOnly: true },
-      { name: webServerName, href: '/web', icon: Globe }, // Dynamic name based on web server
+      // Web is handled as submenu below
       ...navigationItems.filter(item => item.name !== 'Dashboard' && item.name !== 'Users')
     ];
 
-    return navWithWeb.filter(item => {
+    return navWithoutWeb.filter(item => {
       // Check admin-only items
       if (item.adminOnly && !isAdmin) return false;
       // Check if service is installed
@@ -116,6 +114,17 @@ export default function Layout() {
       return true;
     });
   }, [isAdmin, systemInfo]);
+
+  // Web submenu items - show Web Domains and HAProxy Domains
+  const webMenuItems = useMemo(() => {
+    const webServer = systemInfo?.installedServices?.webServer || 'nginx';
+    const webServerName = webServer === 'apache' ? 'Apache Domains' : 'Nginx Domains';
+
+    return [
+      { name: webServerName, href: '/web', icon: Globe },
+      { name: 'HAProxy Domains', href: '/haproxy/domains', icon: Network }
+    ];
+  }, [systemInfo]);
 
   // Filter database items based on installed services
   const filteredDbItems = useMemo(() => {
@@ -232,7 +241,71 @@ export default function Layout() {
 
         {/* Navigation */}
         <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-          {filteredNav.map((item) => {
+          {/* Dashboard and Users items */}
+          {filteredNav.filter(item => ['Dashboard', 'Users'].includes(item.name)).map((item) => {
+            const isActive = location.pathname === item.href ||
+              (item.href !== '/' && location.pathname.startsWith(item.href));
+            return (
+              <Link
+                key={item.name}
+                to={item.href}
+                className={clsx(
+                  'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                  isActive
+                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400'
+                    : 'text-gray-700 hover:bg-gray-100 dark:text-dark-text dark:hover:bg-dark-border'
+                )}
+                onClick={() => setSidebarOpen(false)}
+              >
+                <item.icon className="w-5 h-5" />
+                {item.name}
+              </Link>
+            );
+          })}
+
+          {/* Web submenu - Web Domains + HAProxy Domains */}
+          <div>
+            <button
+              onClick={() => setWebMenuOpen(!webMenuOpen)}
+              className={clsx(
+                'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                (location.pathname.startsWith('/web') || location.pathname.startsWith('/haproxy/domains'))
+                  ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400'
+                  : 'text-gray-700 hover:bg-gray-100 dark:text-dark-text dark:hover:bg-dark-border'
+              )}
+            >
+              <Globe className="w-5 h-5" />
+              <span className="flex-1 text-left">Web</span>
+              <ChevronRight className={clsx('w-4 h-4 transition-transform', webMenuOpen && 'rotate-90')} />
+            </button>
+            {webMenuOpen && (
+              <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-200 dark:border-dark-border pl-3">
+                {webMenuItems.map((item) => {
+                  const isActive = location.pathname === item.href ||
+                    (item.href !== '/' && location.pathname.startsWith(item.href));
+                  return (
+                    <Link
+                      key={item.name}
+                      to={item.href}
+                      className={clsx(
+                        'flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
+                        isActive
+                          ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400'
+                          : 'text-gray-600 hover:bg-gray-100 dark:text-dark-muted dark:hover:bg-dark-border'
+                      )}
+                      onClick={() => setSidebarOpen(false)}
+                    >
+                      <item.icon className="w-4 h-4" />
+                      {item.name}
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+
+          {/* Other navigation items (DNS, Mail, Cron, etc.) */}
+          {filteredNav.filter(item => !['Dashboard', 'Users'].includes(item.name)).map((item) => {
             const isActive = location.pathname === item.href ||
               (item.href !== '/' && location.pathname.startsWith(item.href));
             return (
@@ -296,6 +369,23 @@ export default function Layout() {
             </div>
           )}
 
+          {/* File Manager - available to all users when enabled */}
+          {systemInfo?.fileManager && (
+            <Link
+              to="/file-manager"
+              className={clsx(
+                'flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
+                location.pathname.startsWith('/file-manager')
+                  ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400'
+                  : 'text-gray-700 hover:bg-gray-100 dark:text-dark-text dark:hover:bg-dark-border'
+              )}
+              onClick={() => setSidebarOpen(false)}
+            >
+              <FolderOpen className="w-5 h-5" />
+              File Manager
+            </Link>
+          )}
+
           {/* Admin submenu */}
           {isAdmin && (
             <div className="mt-4 pt-4 border-t border-gray-200 dark:border-dark-border">
@@ -303,7 +393,7 @@ export default function Layout() {
                 onClick={() => setAdminMenuOpen(!adminMenuOpen)}
                 className={clsx(
                   'w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-                  (location.pathname.startsWith('/packages') || location.pathname.startsWith('/applications') || location.pathname.startsWith('/server-services') || location.pathname.startsWith('/statistics') || location.pathname.startsWith('/admin') || location.pathname.startsWith('/firewall') || location.pathname.startsWith('/haproxy') || location.pathname.startsWith('/file-manager'))
+                  (location.pathname.startsWith('/packages') || location.pathname.startsWith('/applications') || location.pathname.startsWith('/server-services') || location.pathname.startsWith('/statistics') || location.pathname.startsWith('/admin') || location.pathname.startsWith('/firewall') || location.pathname.startsWith('/haproxy'))
                     ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400'
                     : 'text-gray-700 hover:bg-gray-100 dark:text-dark-text dark:hover:bg-dark-border'
                 )}
@@ -334,22 +424,6 @@ export default function Layout() {
                       </Link>
                     );
                   })}
-                  {/* File Manager - conditional based on FILE_MANAGER setting */}
-                  {systemInfo?.fileManager && (
-                    <Link
-                      to="/file-manager"
-                      className={clsx(
-                        'flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors',
-                        location.pathname.startsWith('/file-manager')
-                          ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-400'
-                          : 'text-gray-600 hover:bg-gray-100 dark:text-dark-muted dark:hover:bg-dark-border'
-                      )}
-                      onClick={() => setSidebarOpen(false)}
-                    >
-                      <FolderOpen className="w-4 h-4" />
-                      File Manager
-                    </Link>
-                  )}
                 </div>
               )}
             </div>

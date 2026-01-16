@@ -104,6 +104,255 @@ router.get('/server', adminMiddleware, async (req, res) => {
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
 
+    // Add database instance services
+    const dbInstanceServices = [];
+
+    // MongoDB instances
+    try {
+      const mongoMetaFile = path.join(HESTIA_DIR, 'data/mongodb-instances.json');
+      if (fs.existsSync(mongoMetaFile)) {
+        const mongoData = JSON.parse(fs.readFileSync(mongoMetaFile, 'utf8'));
+        if (mongoData.instances && Array.isArray(mongoData.instances)) {
+          for (const instance of mongoData.instances) {
+            // Check service status
+            let state = 'stopped';
+            let cpu = '0.0';
+            let memory = 0;
+            let uptime = '0 minutes';
+            try {
+              const statusOutput = execSync(`systemctl is-active ${instance.serviceName} 2>/dev/null || true`, { encoding: 'utf8' }).trim();
+              if (statusOutput === 'active') {
+                state = 'running';
+                // Get process info
+                try {
+                  const pidOutput = execSync(`systemctl show ${instance.serviceName} -p MainPID --value 2>/dev/null || echo 0`, { encoding: 'utf8' }).trim();
+                  if (pidOutput && pidOutput !== '0') {
+                    const psOutput = execSync(`ps -p ${pidOutput} -o %cpu,%mem,etimes --no-headers 2>/dev/null || echo "0 0 0"`, { encoding: 'utf8' }).trim();
+                    const [cpuVal, memVal, etimes] = psOutput.split(/\s+/);
+                    cpu = (parseFloat(cpuVal) || 0).toFixed(1);
+                    memory = parseFloat(memVal) || 0;
+                    uptime = humanizeTime(parseInt(etimes) || 0);
+                  }
+                } catch (e) {}
+              }
+            } catch (e) {}
+
+            // Load settings from individual settings file to get accurate PBM and clusterMode info
+            let instanceSettings = {};
+            try {
+              const settingsFile = path.join(HESTIA_DIR, `data/mongodb-instances/${instance.name}-settings.json`);
+              if (fs.existsSync(settingsFile)) {
+                instanceSettings = JSON.parse(fs.readFileSync(settingsFile, 'utf8'));
+              }
+            } catch (e) {}
+
+            const clusterMode = instanceSettings.clusterMode || instance.clusterMode || 'standalone';
+
+            dbInstanceServices.push({
+              name: instance.serviceName,
+              state,
+              description: `MongoDB instance: ${instance.name} (port ${instance.port})`,
+              uptime,
+              uptimeSeconds: 0,
+              cpu,
+              memory,
+              isDbInstance: true,
+              dbType: 'mongodb',
+              instanceName: instance.name,
+              clusterMode
+            });
+
+            // Check for PBM agent service if PBM is enabled for this instance
+            // Check both instance.pbm and settings file for PBM config
+            const pbmEnabled = instanceSettings.pbm?.enabled || instance.pbm?.enabled;
+            if (pbmEnabled) {
+              const pbmServiceName = instance.name === 'default' ? 'pbm-agent' : `pbm-agent-${instance.name}`;
+              let pbmState = 'stopped';
+              let pbmCpu = '0.0';
+              let pbmMemory = 0;
+              let pbmUptime = '0 minutes';
+              try {
+                const pbmStatusOutput = execSync(`systemctl is-active ${pbmServiceName} 2>/dev/null || true`, { encoding: 'utf8' }).trim();
+                if (pbmStatusOutput === 'active') {
+                  pbmState = 'running';
+                  try {
+                    const pbmPidOutput = execSync(`systemctl show ${pbmServiceName} -p MainPID --value 2>/dev/null || echo 0`, { encoding: 'utf8' }).trim();
+                    if (pbmPidOutput && pbmPidOutput !== '0') {
+                      const pbmPsOutput = execSync(`ps -p ${pbmPidOutput} -o %cpu,%mem,etimes --no-headers 2>/dev/null || echo "0 0 0"`, { encoding: 'utf8' }).trim();
+                      const [pbmCpuVal, pbmMemVal, pbmEtimes] = pbmPsOutput.split(/\s+/);
+                      pbmCpu = (parseFloat(pbmCpuVal) || 0).toFixed(1);
+                      pbmMemory = parseFloat(pbmMemVal) || 0;
+                      pbmUptime = humanizeTime(parseInt(pbmEtimes) || 0);
+                    }
+                  } catch (e) {}
+                }
+              } catch (e) {}
+
+              dbInstanceServices.push({
+                name: pbmServiceName,
+                state: pbmState,
+                description: `PBM Agent for MongoDB: ${instance.name}`,
+                uptime: pbmUptime,
+                uptimeSeconds: 0,
+                cpu: pbmCpu,
+                memory: pbmMemory,
+                isDbInstance: true,
+                dbType: 'mongodb-pbm',
+                instanceName: instance.name,
+                parentService: instance.serviceName
+              });
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.error('Failed to get MongoDB instances:', e);
+    }
+
+    // MariaDB instances
+    try {
+      const mariadbConfDir = '/etc/mysql-instances';
+      if (fs.existsSync(mariadbConfDir)) {
+        const instanceConfigs = fs.readdirSync(mariadbConfDir).filter(f => f.endsWith('.cnf'));
+        for (const configFile of instanceConfigs) {
+          const instanceName = configFile.replace('.cnf', '');
+          const serviceName = `mariadb-${instanceName}`;
+
+          // Get port and instance type from config
+          let port = 'N/A';
+          let instanceType = 'standalone';
+          try {
+            const configContent = fs.readFileSync(path.join(mariadbConfDir, configFile), 'utf8');
+            const portMatch = configContent.match(/port\s*=\s*(\d+)/);
+            if (portMatch) port = portMatch[1];
+            // Check for replication settings
+            if (configContent.includes('log-bin') || configContent.includes('server-id')) {
+              if (configContent.includes('read_only') && configContent.match(/read_only\s*=\s*(1|ON|true)/i)) {
+                instanceType = 'slave';
+              } else {
+                instanceType = 'master';
+              }
+            }
+          } catch (e) {}
+
+          let state = 'stopped';
+          let cpu = '0.0';
+          let memory = 0;
+          let uptime = '0 minutes';
+          try {
+            const statusOutput = execSync(`systemctl is-active ${serviceName} 2>/dev/null || true`, { encoding: 'utf8' }).trim();
+            if (statusOutput === 'active') {
+              state = 'running';
+              try {
+                const pidOutput = execSync(`systemctl show ${serviceName} -p MainPID --value 2>/dev/null || echo 0`, { encoding: 'utf8' }).trim();
+                if (pidOutput && pidOutput !== '0') {
+                  const psOutput = execSync(`ps -p ${pidOutput} -o %cpu,%mem,etimes --no-headers 2>/dev/null || echo "0 0 0"`, { encoding: 'utf8' }).trim();
+                  const [cpuVal, memVal, etimes] = psOutput.split(/\s+/);
+                  cpu = (parseFloat(cpuVal) || 0).toFixed(1);
+                  memory = parseFloat(memVal) || 0;
+                  uptime = humanizeTime(parseInt(etimes) || 0);
+                }
+              } catch (e) {}
+            }
+          } catch (e) {}
+
+          dbInstanceServices.push({
+            name: serviceName,
+            state,
+            description: `MariaDB instance: ${instanceName} (port ${port})`,
+            uptime,
+            uptimeSeconds: 0,
+            cpu,
+            memory,
+            isDbInstance: true,
+            dbType: 'mariadb',
+            instanceName,
+            instanceType
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Failed to get MariaDB instances:', e);
+    }
+
+    // PostgreSQL instances
+    try {
+      const pgsqlConfDir = '/etc/postgresql-instances';
+      if (fs.existsSync(pgsqlConfDir)) {
+        const instanceDirs = fs.readdirSync(pgsqlConfDir).filter(f => {
+          const stat = fs.statSync(path.join(pgsqlConfDir, f));
+          return stat.isDirectory();
+        });
+        for (const instanceName of instanceDirs) {
+          const serviceName = `postgresql-${instanceName}`;
+
+          // Get port and instance type from config
+          let port = 'N/A';
+          let instanceType = 'standalone';
+          try {
+            const confFile = path.join(pgsqlConfDir, instanceName, 'postgresql.conf');
+            if (fs.existsSync(confFile)) {
+              const configContent = fs.readFileSync(confFile, 'utf8');
+              const portMatch = configContent.match(/^port\s*=\s*(\d+)/m);
+              if (portMatch) port = portMatch[1];
+              // Check for replication settings
+              if (configContent.includes('primary_conninfo') || configContent.includes('hot_standby')) {
+                instanceType = 'standby';
+              } else if (configContent.includes('wal_level') && configContent.match(/wal_level\s*=\s*('?replica'?|'?logical'?)/i)) {
+                instanceType = 'primary';
+              }
+            }
+            // Also check recovery.conf or standby.signal
+            const recoveryFile = path.join(pgsqlConfDir, instanceName, 'recovery.conf');
+            const standbySignal = path.join(pgsqlConfDir, instanceName, 'standby.signal');
+            if (fs.existsSync(recoveryFile) || fs.existsSync(standbySignal)) {
+              instanceType = 'standby';
+            }
+          } catch (e) {}
+
+          let state = 'stopped';
+          let cpu = '0.0';
+          let memory = 0;
+          let uptime = '0 minutes';
+          try {
+            const statusOutput = execSync(`systemctl is-active ${serviceName} 2>/dev/null || true`, { encoding: 'utf8' }).trim();
+            if (statusOutput === 'active') {
+              state = 'running';
+              try {
+                const pidOutput = execSync(`systemctl show ${serviceName} -p MainPID --value 2>/dev/null || echo 0`, { encoding: 'utf8' }).trim();
+                if (pidOutput && pidOutput !== '0') {
+                  const psOutput = execSync(`ps -p ${pidOutput} -o %cpu,%mem,etimes --no-headers 2>/dev/null || echo "0 0 0"`, { encoding: 'utf8' }).trim();
+                  const [cpuVal, memVal, etimes] = psOutput.split(/\s+/);
+                  cpu = (parseFloat(cpuVal) || 0).toFixed(1);
+                  memory = parseFloat(memVal) || 0;
+                  uptime = humanizeTime(parseInt(etimes) || 0);
+                }
+              } catch (e) {}
+            }
+          } catch (e) {}
+
+          dbInstanceServices.push({
+            name: serviceName,
+            state,
+            description: `PostgreSQL instance: ${instanceName} (port ${port})`,
+            uptime,
+            uptimeSeconds: 0,
+            cpu,
+            memory,
+            isDbInstance: true,
+            dbType: 'postgresql',
+            instanceName,
+            instanceType
+          });
+        }
+      }
+    } catch (e) {
+      console.error('Failed to get PostgreSQL instances:', e);
+    }
+
+    // Combine all services
+    const allServices = [...services, ...dbInstanceServices].sort((a, b) => a.name.localeCompare(b.name));
+
     res.json({
       system: {
         hostname: systemInfo.HOSTNAME || 'Unknown',
@@ -115,7 +364,7 @@ router.get('/server', adminMiddleware, async (req, res) => {
         uptimeSeconds: parseInt(systemInfo.UPTIME) || 0,
         hestiaVersion
       },
-      services
+      services: allServices
     });
   } catch (error) {
     console.error('Server info error:', error);
@@ -245,17 +494,22 @@ router.get('/info', async (req, res) => {
     };
 
     // Check if file manager is enabled
-    let fileManager = true; // Default to enabled for admin
+    let fileManager = false;
     try {
       const hestiaConf = path.join(HESTIA_DIR, 'conf/hestia.conf');
       if (fs.existsSync(hestiaConf)) {
         const conf = fs.readFileSync(hestiaConf, 'utf8');
-        const fmMatch = conf.match(/^FILE_MANAGER='?(yes|no)'?/m);
+        // Match FILE_MANAGER='yes' or FILE_MANAGER="yes" or FILE_MANAGER=yes (with or without quotes)
+        // The regex needs to handle any characters before line end
+        const fmMatch = conf.match(/^FILE_MANAGER=['"]?(yes|no|true|false)['"]?/mi);
         if (fmMatch) {
-          fileManager = fmMatch[1] === 'yes';
+          const val = fmMatch[1].toLowerCase();
+          fileManager = val === 'yes' || val === 'true';
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.error('Failed to read FILE_MANAGER config:', e);
+    }
 
     let dnsTemplates = ['default'];
     try {
@@ -611,38 +865,91 @@ router.post('/rrd/export', adminMiddleware, async (req, res) => {
  */
 router.get('/server/config', adminMiddleware, async (req, res) => {
   try {
-    const config = await execHestiaJson('v-list-sys-config', []);
-    
+    const configData = await execHestiaJson('v-list-sys-config', []);
+    const config = configData.config || configData; // Handle both {config: {...}} and flat structure
+
     // Get system info for hostname/timezone
-    const sysInfo = await execHestiaJson('v-list-sys-info', []);
+    const sysInfoData = await execHestiaJson('v-list-sys-info', []);
+    const sysInfo = sysInfoData.sysinfo || sysInfoData;
     
-    // Get PHP versions
+    // Get PHP versions - list all available versions and check if installed
     let phpVersions = [];
     try {
+      // All PHP versions that can be managed
+      const allPhpVersions = ['5.6', '7.0', '7.1', '7.2', '7.3', '7.4', '8.0', '8.1', '8.2', '8.3', '8.4'];
       const phpDir = '/etc/php';
-      if (fs.existsSync(phpDir)) {
-        phpVersions = fs.readdirSync(phpDir)
-          .filter(f => /^\d+\.\d+$/.test(f))
-          .map(v => {
-            // Check if installed (basic check)
-            const installed = true; 
-            // Check domains using this version requires iterating users, simplified for now
-            return { version: v, installed, domains: [] };
-          })
-          .sort();
-      }
-    } catch (e) {}
+      const installedVersions = new Set();
 
-    // Get timezones/themes/languages (mocked or fetched from system if possible)
-    // For now returning current values
-    
+      // Check which versions are installed by looking at /etc/php directory
+      if (fs.existsSync(phpDir)) {
+        const dirs = fs.readdirSync(phpDir).filter(f => /^\d+\.\d+$/.test(f));
+        dirs.forEach(v => installedVersions.add(v));
+      }
+
+      // Also check via dpkg for more accurate detection
+      try {
+        const dpkgOutput = execSync('dpkg -l | grep "php[0-9]" | awk \'{print $2}\' | grep -oP "[0-9]+\\.[0-9]+" | sort -u', { encoding: 'utf8' });
+        dpkgOutput.trim().split('\n').filter(v => v).forEach(v => installedVersions.add(v));
+      } catch (e) {}
+
+      phpVersions = allPhpVersions.map(v => {
+        const installed = installedVersions.has(v);
+        // Check domains using this version requires iterating users, simplified for now
+        return { version: v, installed, domains: [] };
+      });
+    } catch (e) {
+      console.error('Error getting PHP versions:', e);
+    }
+
+    // Get timezones
+    let timezones = [];
+    try {
+      const tzOutput = execSync('timedatectl list-timezones 2>/dev/null || cat /usr/share/zoneinfo/zone.tab | awk \'{print $3}\' | grep -v "^#" | sort', { encoding: 'utf8' });
+      timezones = tzOutput.trim().split('\n').filter(tz => tz && !tz.startsWith('#'));
+    } catch (e) {
+      // Fallback to common timezones
+      timezones = ['UTC', 'America/New_York', 'America/Los_Angeles', 'Europe/London', 'Europe/Paris', 'Asia/Tokyo', 'Asia/Shanghai', 'Asia/Singapore', 'Asia/Ho_Chi_Minh', 'Australia/Sydney'];
+    }
+
+    // Helper to check if a value is truthy (handles "yes", "true", "1", true)
+    const isTruthy = (val) => {
+      const strVal = String(val).toLowerCase().trim();
+      return strVal === 'yes' || strVal === 'true' || strVal === '1';
+    };
+
+    // Check database systems
+    const dbSystem = config.DB_SYSTEM || '';
+    const mysqlEnabled = dbSystem.includes('mysql') || dbSystem.includes('mariadb');
+    const pgsqlEnabled = dbSystem.includes('pgsql') || dbSystem.includes('postgres');
+    const mongodbEnabled = config.MONGODB_SYSTEM === 'yes' || isTruthy(config.MONGODB_SYSTEM);
+
+    // Get SSL certificate info
+    let sslInfo = {};
+    try {
+      const sslData = await execHestiaJson('v-list-sys-hestia-ssl', []);
+      sslInfo = sslData || {};
+    } catch (e) {
+      console.error('Failed to get SSL info:', e);
+    }
+
     res.json({
-      hostname: sysInfo.sysinfo?.HOSTNAME || sysInfo?.HOSTNAME || 'Unknown',
-      timezone: sysInfo.sysinfo?.TIMEZONE || sysInfo?.TIMEZONE || 'UTC',
+      hostname: sysInfo?.HOSTNAME || 'Unknown',
+      timezone: sysInfo?.TIMEZONE || 'UTC',
+      timezones: timezones,
       config: {
+        version: config.VERSION,
+        releaseBranch: config.RELEASE_BRANCH,
         theme: config.THEME,
         language: config.LANGUAGE,
-        debugMode: config.DEBUG_MODE === 'yes',
+        debugMode: isTruthy(config.DEBUG_MODE),
+        webSystem: config.WEB_SYSTEM,
+        webBackend: config.WEB_BACKEND,
+        dnsSystem: config.DNS_SYSTEM,
+        mailSystem: config.MAIL_SYSTEM,
+        antivirusSystem: config.ANTIVIRUS_SYSTEM,
+        antispamSystem: config.ANTISPAM_SYSTEM,
+        webmailSystem: config.WEBMAIL_SYSTEM,
+        ftpSystem: config.FTP_SYSTEM,
         webmailAlias: config.WEBMAIL_ALIAS,
         dbPmaAlias: config.DB_PMA_ALIAS,
         dbPgaAlias: config.DB_PGA_ALIAS,
@@ -652,15 +959,15 @@ router.get('/server/config', adminMiddleware, async (req, res) => {
         apiSystem: config.API_SYSTEM,
         policySystemPasswordReset: config.POLICY_SYSTEM_PASSWORD_RESET,
         policyUserChangeTheme: config.POLICY_USER_CHANGE_THEME,
-        fileManager: config.FILE_MANAGER,
-        webTerminal: config.WEB_TERMINAL,
-        pluginAppInstaller: config.PLUGIN_APP_INSTALLER,
+        fileManager: isTruthy(config.FILE_MANAGER),
+        webTerminal: isTruthy(config.WEB_TERMINAL),
+        pluginAppInstaller: isTruthy(config.PLUGIN_APP_INSTALLER),
         diskQuota: config.DISK_QUOTA,
         resourcesLimit: config.RESOURCES_LIMIT,
         firewallSystem: config.FIREWALL_SYSTEM,
-        upgradeSendEmail: config.UPGRADE_SEND_EMAIL === 'yes',
-        upgradeSendEmailLog: config.UPGRADE_SEND_EMAIL_LOG === 'yes',
-        smtpRelay: config.SMTP_RELAY === 'yes',
+        upgradeSendEmail: isTruthy(config.UPGRADE_SEND_EMAIL),
+        upgradeSendEmailLog: isTruthy(config.UPGRADE_SEND_EMAIL_LOG),
+        smtpRelay: isTruthy(config.SMTP_RELAY),
         smtpRelayHost: config.SMTP_RELAY_HOST,
         smtpRelayPort: config.SMTP_RELAY_PORT,
         smtpRelayUser: config.SMTP_RELAY_USER,
@@ -686,17 +993,18 @@ router.get('/server/config', adminMiddleware, async (req, res) => {
         directory: config.BACKUP
       },
       incrementalBackup: config.BACKUP_INCREMENTAL === 'yes',
-      mysql: { enabled: !!config.DB_SYSTEM?.includes('mysql') },
-      pgsql: { enabled: !!config.DB_SYSTEM?.includes('pgsql') },
+      mysql: { enabled: mysqlEnabled },
+      pgsql: { enabled: pgsqlEnabled },
+      mongodb: { enabled: mongodbEnabled },
       ssl: {
-        CRT: config.SSL_CRT || '',
-        KEY: config.SSL_KEY || '',
-        SUBJECT: config.SSL_SUBJECT,
-        NOT_BEFORE: config.SSL_NOT_BEFORE,
-        NOT_AFTER: config.SSL_NOT_AFTER,
-        SIGNATURE: config.SSL_SIGNATURE,
-        KEY_SIZE: config.SSL_KEY_SIZE,
-        ISSUER: config.SSL_ISSUER
+        CRT: sslInfo.CRT || '',
+        KEY: sslInfo.KEY || '',
+        SUBJECT: sslInfo.SUBJECT,
+        NOT_BEFORE: sslInfo.NOT_BEFORE,
+        NOT_AFTER: sslInfo.NOT_AFTER,
+        SIGNATURE: sslInfo.SIGNATURE,
+        KEY_SIZE: sslInfo.PUB_KEY,
+        ISSUER: sslInfo.ISSUER
       },
       phpVersions: phpVersions,
       systemPhp: config.WEB_BACKEND
@@ -795,8 +1103,52 @@ router.put('/server/config', adminMiddleware, async (req, res) => {
 });
 
 router.post('/server/config/feature', adminMiddleware, async (req, res) => {
-  // Placeholder for feature toggling if needed
-  res.json({ success: true });
+  try {
+    const { feature, enabled } = req.body;
+
+    // Map feature names to hestia commands
+    const featureCommands = {
+      'filemanager': enabled ? 'v-add-sys-filemanager' : 'v-delete-sys-filemanager',
+      'webTerminal': enabled ? 'v-add-sys-web-terminal' : 'v-delete-sys-web-terminal',
+      'appInstaller': enabled ? 'v-add-sys-quick-install' : 'v-delete-sys-quick-install',
+      'firewall': enabled ? 'v-add-sys-firewall' : 'v-delete-sys-firewall',
+      'quota': enabled ? 'v-add-sys-quota' : 'v-delete-sys-quota',
+      'cgroups': enabled ? 'v-add-sys-cgroups' : 'v-delete-sys-cgroups',
+    };
+
+    const cmd = featureCommands[feature];
+    if (!cmd) {
+      return res.status(400).json({ error: `Unknown feature: ${feature}` });
+    }
+
+    try {
+      await execHestia(cmd, []);
+    } catch (cmdError) {
+      // Some commands return non-zero exit code if the component is already in the desired state
+      // e.g., "File Manager components are not installed." when trying to delete
+      // or "already installed" when trying to add
+      // Treat these as success since the end state matches what user wanted
+      const errorMsg = cmdError.message.toLowerCase();
+      const isAlreadyInState =
+        errorMsg.includes('not installed') ||
+        errorMsg.includes('already installed') ||
+        errorMsg.includes('already enabled') ||
+        errorMsg.includes('already disabled') ||
+        errorMsg.includes('is not') ||
+        errorMsg.includes('already');
+
+      if (!isAlreadyInState) {
+        throw cmdError;
+      }
+      // Otherwise, it's already in the desired state, treat as success
+      console.log(`Feature ${feature} toggle: already in desired state (${enabled ? 'enabled' : 'disabled'})`);
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Toggle feature error:', error);
+    res.status(500).json({ error: error.message || 'Failed to toggle feature' });
+  }
 });
 
 router.post('/server/config/php', adminMiddleware, async (req, res) => {
@@ -811,6 +1163,250 @@ router.post('/server/config/default-php', adminMiddleware, async (req, res) => {
      res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /api/system/hestia-config
+ * Read hestia.conf file
+ */
+router.get('/hestia-config', adminMiddleware, async (req, res) => {
+  try {
+    const configPath = path.join(HESTIA_DIR, 'conf/hestia.conf');
+
+    if (!fs.existsSync(configPath)) {
+      return res.status(404).json({ error: 'Configuration file not found' });
+    }
+
+    const content = fs.readFileSync(configPath, 'utf8');
+    res.json({ content, path: configPath });
+  } catch (error) {
+    console.error('Read hestia.conf error:', error);
+    res.status(500).json({ error: error.message || 'Failed to read configuration' });
+  }
+});
+
+/**
+ * POST /api/system/hestia-config
+ * Write hestia.conf file
+ */
+router.post('/hestia-config', adminMiddleware, async (req, res) => {
+  try {
+    const { content } = req.body;
+
+    if (typeof content !== 'string') {
+      return res.status(400).json({ error: 'Content is required' });
+    }
+
+    const configPath = path.join(HESTIA_DIR, 'conf/hestia.conf');
+
+    // Create backup
+    const backupPath = `${configPath}.backup.${Date.now()}`;
+    if (fs.existsSync(configPath)) {
+      fs.copyFileSync(configPath, backupPath);
+    }
+
+    // Write new config
+    fs.writeFileSync(configPath, content, 'utf8');
+
+    res.json({ success: true, backup: backupPath });
+  } catch (error) {
+    console.error('Write hestia.conf error:', error);
+    res.status(500).json({ error: error.message || 'Failed to save configuration' });
+  }
+});
+
+/**
+ * POST /api/system/restart-hestia
+ * Restart HestiaCP services
+ */
+router.post('/restart-hestia', adminMiddleware, async (req, res) => {
+  try {
+    // Restart Hestia backend service
+    exec('systemctl restart hestia', (error) => {
+      if (error) {
+        console.error('Restart hestia error:', error);
+      }
+    });
+
+    res.json({ success: true, message: 'HestiaCP restart initiated' });
+  } catch (error) {
+    console.error('Restart hestia error:', error);
+    res.status(500).json({ error: error.message || 'Failed to restart HestiaCP' });
+  }
+});
+
+/**
+ * GET /api/system/user-stats
+ * Get stats for current user (or admin overview)
+ */
+router.get('/user-stats', async (req, res) => {
+  try {
+    const username = req.user?.user;
+    if (!username) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const isAdmin = req.user?.role === 'admin';
+    const userDataDir = path.join(HESTIA_DIR, 'data/users', username);
+
+    // Parse user.conf to get quota info
+    let userConf = {};
+    try {
+      const userConfPath = path.join(userDataDir, 'user.conf');
+      if (fs.existsSync(userConfPath)) {
+        const content = fs.readFileSync(userConfPath, 'utf8');
+        content.split('\n').forEach(line => {
+          const match = line.match(/^([A-Z_]+)='?([^']*)'?$/);
+          if (match) {
+            userConf[match[1]] = match[2];
+          }
+        });
+      }
+    } catch (e) {
+      console.error('Error reading user.conf:', e);
+    }
+
+    // Count web domains from web.conf
+    let webDomains = 0;
+    try {
+      const webConfPath = path.join(userDataDir, 'web.conf');
+      if (fs.existsSync(webConfPath)) {
+        const content = fs.readFileSync(webConfPath, 'utf8');
+        const matches = content.match(/^DOMAIN=/gm);
+        webDomains = matches ? matches.length : 0;
+      }
+    } catch (e) {}
+
+    // Count HAProxy domains from haproxy.json
+    let haproxyDomains = 0;
+    try {
+      const haproxyJsonPath = path.join(userDataDir, 'haproxy.json');
+      if (fs.existsSync(haproxyJsonPath)) {
+        const haproxyData = JSON.parse(fs.readFileSync(haproxyJsonPath, 'utf8'));
+        haproxyDomains = (haproxyData.domains || []).length;
+      }
+    } catch (e) {}
+
+    // Count databases - need to count from all instances
+    let databases = {
+      mysql: 0,
+      pgsql: 0,
+      mongo: 0,
+      total: 0
+    };
+    try {
+      // MySQL/MariaDB databases from db.conf
+      const dbConfPath = path.join(userDataDir, 'db.conf');
+      if (fs.existsSync(dbConfPath)) {
+        const content = fs.readFileSync(dbConfPath, 'utf8');
+        const matches = content.match(/^DB=/gm);
+        databases.mysql = matches ? matches.length : 0;
+      }
+
+      // PostgreSQL databases from pgsql.conf
+      const pgsqlConfPath = path.join(userDataDir, 'pgsql.conf');
+      if (fs.existsSync(pgsqlConfPath)) {
+        const content = fs.readFileSync(pgsqlConfPath, 'utf8');
+        const matches = content.match(/^DB=/gm);
+        databases.pgsql = matches ? matches.length : 0;
+      }
+
+      // MongoDB databases - check mongo.conf or similar
+      const mongoConfPath = path.join(userDataDir, 'mongo.conf');
+      if (fs.existsSync(mongoConfPath)) {
+        const content = fs.readFileSync(mongoConfPath, 'utf8');
+        const matches = content.match(/^DB=/gm);
+        databases.mongo = matches ? matches.length : 0;
+      }
+
+      databases.total = databases.mysql + databases.pgsql + databases.mongo;
+    } catch (e) {}
+
+    // Count mail domains from mail.conf
+    let mailDomains = 0;
+    try {
+      const mailConfPath = path.join(userDataDir, 'mail.conf');
+      if (fs.existsSync(mailConfPath)) {
+        const content = fs.readFileSync(mailConfPath, 'utf8');
+        const matches = content.match(/^DOMAIN=/gm);
+        mailDomains = matches ? matches.length : 0;
+      }
+    } catch (e) {}
+
+    // Count DNS domains from dns.conf
+    let dnsDomains = 0;
+    try {
+      const dnsConfPath = path.join(userDataDir, 'dns.conf');
+      if (fs.existsSync(dnsConfPath)) {
+        const content = fs.readFileSync(dnsConfPath, 'utf8');
+        const matches = content.match(/^DOMAIN=/gm);
+        dnsDomains = matches ? matches.length : 0;
+      }
+    } catch (e) {}
+
+    // Count cron jobs from cron.conf
+    let cronJobs = 0;
+    try {
+      const cronConfPath = path.join(userDataDir, 'cron.conf');
+      if (fs.existsSync(cronConfPath)) {
+        const content = fs.readFileSync(cronConfPath, 'utf8');
+        const matches = content.match(/^JOB=/gm);
+        cronJobs = matches ? matches.length : 0;
+      }
+    } catch (e) {}
+
+    // Count backups
+    let backups = 0;
+    try {
+      const backupDir = path.join('/backup', username);
+      if (fs.existsSync(backupDir)) {
+        const files = fs.readdirSync(backupDir).filter(f => f.endsWith('.tar') || f.endsWith('.tar.gz'));
+        backups = files.length;
+      }
+    } catch (e) {}
+
+    // Get total users count (admin only)
+    let totalUsers = 0;
+    if (isAdmin) {
+      try {
+        const usersDir = path.join(HESTIA_DIR, 'data/users');
+        const users = fs.readdirSync(usersDir).filter(f => {
+          const stat = fs.statSync(path.join(usersDir, f));
+          return stat.isDirectory() && fs.existsSync(path.join(usersDir, f, 'user.conf'));
+        });
+        totalUsers = users.length;
+      } catch (e) {}
+    }
+
+    // Disk and bandwidth usage from user.conf
+    const diskUsed = userConf.U_DISK || '0';
+    const diskQuota = userConf.DISK_QUOTA || 'unlimited';
+    const bandwidthUsed = userConf.U_BANDWIDTH || '0';
+    const bandwidthQuota = userConf.BANDWIDTH || 'unlimited';
+
+    res.json({
+      webDomains,
+      haproxyDomains,
+      databases,
+      mailDomains,
+      dnsDomains,
+      cronJobs,
+      backups,
+      totalUsers,
+      isAdmin,
+      disk: {
+        used: diskUsed,
+        quota: diskQuota
+      },
+      bandwidth: {
+        used: bandwidthUsed,
+        quota: bandwidthQuota
+      }
+    });
+  } catch (error) {
+    console.error('User stats error:', error);
+    res.status(500).json({ error: 'Failed to get user stats' });
   }
 });
 

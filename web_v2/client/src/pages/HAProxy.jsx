@@ -287,6 +287,28 @@ export default function HAProxy() {
                         </code>
                       </div>
                     )}
+                    {/* ACLs */}
+                    {data.acls?.length > 0 && (
+                      <div className="flex gap-3">
+                        <span className="text-gray-500 dark:text-dark-muted w-28">ACLs</span>
+                        <div className="space-y-1 flex-1">
+                          {data.acls.map((acl, i) => {
+                            // Parse ACL: name condition
+                            const parts = acl.match(/^(\S+)\s+(.+)$/);
+                            const aclName = parts ? parts[1] : acl;
+                            const aclCondition = parts ? parts[2] : '';
+                            return (
+                              <div key={i} className="text-xs flex items-start gap-2">
+                                <code className="px-2 py-0.5 bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300 rounded whitespace-nowrap">
+                                  {aclName}
+                                </code>
+                                <span className="text-gray-500 dark:text-dark-muted break-all">{aclCondition}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                     {/* Use Backends */}
                     {data.use_backends?.length > 0 && (
                       <div className="flex gap-3">

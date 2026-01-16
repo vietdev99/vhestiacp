@@ -451,24 +451,48 @@ router.post('/keyfile/upload', upload.single('keyfile'), async (req, res) => {
 router.get('/pbm/status', async (req, res) => {
   try {
     let installed = false;
-    let status = 'not_installed';
+    let running = false;
+    let version = null;
     let backups = [];
 
     // Check if PBM is installed
     try {
       execSync('which pbm', { encoding: 'utf8' });
       installed = true;
+      // Get version
+      try {
+        const versionOutput = execSync('pbm version --short 2>/dev/null || true', { encoding: 'utf8' }).trim();
+        if (versionOutput && !versionOutput.includes('error')) {
+          version = versionOutput;
+        }
+      } catch {}
     } catch {
       installed = false;
     }
 
     if (installed) {
-      // Check PBM agent status
+      // Check for any running pbm-agent service (including instance-specific ones)
+      // Try multiple service name patterns:
+      // 1. pbm-agent (legacy/single instance)
+      // 2. pbm-agent-default (default instance)
+      // 3. pbm-agent-* (any instance-specific)
       try {
-        execSync('systemctl is-active pbm-agent', { encoding: 'utf8' });
-        status = 'running';
-      } catch {
-        status = 'stopped';
+        // First check for generic pbm-agent
+        const genericCheck = execSync('systemctl is-active pbm-agent 2>/dev/null || true', { encoding: 'utf8' }).trim();
+        if (genericCheck === 'active') {
+          running = true;
+        }
+      } catch {}
+
+      // If not running, check for instance-specific services
+      if (!running) {
+        try {
+          // List all pbm-agent-* services that are active
+          const instanceCheck = execSync('systemctl list-units --type=service --state=active --no-pager 2>/dev/null | grep "pbm-agent" || true', { encoding: 'utf8' }).trim();
+          if (instanceCheck && instanceCheck.includes('pbm-agent')) {
+            running = true;
+          }
+        } catch {}
       }
 
       // Get backup list
@@ -482,7 +506,8 @@ router.get('/pbm/status', async (req, res) => {
 
     res.json({
       installed,
-      status,
+      running,
+      version,
       backups
     });
   } catch (error) {

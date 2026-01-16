@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../utils/api';
@@ -72,13 +72,16 @@ export default function ServerConfigure() {
     queryFn: async () => {
       const res = await api.get('/api/system/server/config');
       return res.data;
-    },
-    onSuccess: (data) => {
-      // Find first installed PHP as default
+    }
+  });
+
+  // Initialize formData when data is loaded
+  useEffect(() => {
+    if (data) {
       const installedPhp = data?.phpVersions?.find(p => p.installed);
       setFormData({
-        hostname: data.hostname,
-        timezone: data.timezone,
+        hostname: data.hostname || '',
+        timezone: data.timezone || '',
         theme: data.config?.theme,
         language: data.config?.language,
         debugMode: data.config?.debugMode,
@@ -104,20 +107,16 @@ export default function ServerConfigure() {
         smtpRelayPort: data.config?.smtpRelayPort,
         smtpRelayUser: data.config?.smtpRelayUser,
         defaultPhp: installedPhp?.version || '',
-        // Backup settings
         backupEnabled: data?.backup?.local ? 'yes' : 'no',
         backupMode: data?.backup?.mode || 'zstd',
         backupGzip: data?.backup?.gzip || '4',
         remoteBackup: !!data?.backup?.remote,
-        backupRemote: data?.backup?.remote || '', // Store the remote name
+        backupRemote: data?.backup?.remote || '',
         incrementalBackup: data?.incrementalBackup ? 'yes' : 'no',
-        // Security - API
         policyCsrfStrictness: data.config?.policyCsrfStrictness,
-        // Security - System Protection
         policySystemProtectedAdmin: data.config?.policySystemProtectedAdmin,
         policySystemHideAdmin: data.config?.policySystemHideAdmin,
         policySystemHideServices: data.config?.policySystemHideServices,
-        // Security - Policies
         policyUserEditDetails: data.config?.policyUserEditDetails,
         policyUserEditWebTemplates: data.config?.policyUserEditWebTemplates,
         policyUserEditDnsTemplates: data.config?.policyUserEditDnsTemplates,
@@ -129,7 +128,7 @@ export default function ServerConfigure() {
         enforceSubdomainOwnership: data.config?.enforceSubdomainOwnership
       });
     }
-  });
+  }, [data]);
 
   // Fetch rclone remotes
   const { data: rcloneRemotes, isLoading: rcloneLoading } = useQuery({
@@ -591,14 +590,24 @@ export default function ServerConfigure() {
       {/* Databases */}
       <AccordionSection icon={Database} title="Databases">
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div>
-              <span className="text-gray-500 text-sm">MySQL:</span>
-              <p className="font-medium">{data?.mysql?.enabled ? 'Enabled' : 'Disabled'}</p>
+              <span className="text-gray-500 text-sm">MySQL/MariaDB:</span>
+              <p className={`font-medium ${data?.mysql?.enabled ? 'text-green-600' : 'text-gray-400'}`}>
+                {data?.mysql?.enabled ? 'Enabled' : 'Disabled'}
+              </p>
             </div>
             <div>
               <span className="text-gray-500 text-sm">PostgreSQL:</span>
-              <p className="font-medium">{data?.pgsql?.enabled ? 'Enabled' : 'Disabled'}</p>
+              <p className={`font-medium ${data?.pgsql?.enabled ? 'text-green-600' : 'text-gray-400'}`}>
+                {data?.pgsql?.enabled ? 'Enabled' : 'Disabled'}
+              </p>
+            </div>
+            <div>
+              <span className="text-gray-500 text-sm">MongoDB:</span>
+              <p className={`font-medium ${data?.mongodb?.enabled ? 'text-green-600' : 'text-gray-400'}`}>
+                {data?.mongodb?.enabled ? 'Enabled' : 'Disabled'}
+              </p>
             </div>
           </div>
           {data?.mysql?.enabled && (
@@ -1046,8 +1055,9 @@ export default function ServerConfigure() {
             <label className="form-label">Quick App Installer</label>
             <select
               className="form-select w-full"
-              value={config.pluginAppInstaller ? 'yes' : 'no'}
-              onChange={(e) => handleFieldChange('pluginAppInstaller', e.target.value === 'yes')}
+              value={data?.config?.pluginAppInstaller ? 'yes' : 'no'}
+              onChange={(e) => toggleFeatureMutation.mutate({ feature: 'appInstaller', enabled: e.target.value === 'yes' })}
+              disabled={toggleFeatureMutation.isPending}
             >
               <option value="yes">Yes</option>
               <option value="no">No</option>
@@ -1057,7 +1067,7 @@ export default function ServerConfigure() {
             <label className="form-label">File Manager</label>
             <select
               className="form-select w-full"
-              value={config.fileManager ? 'yes' : 'no'}
+              value={data?.config?.fileManager ? 'yes' : 'no'}
               onChange={(e) => toggleFeatureMutation.mutate({ feature: 'filemanager', enabled: e.target.value === 'yes' })}
               disabled={toggleFeatureMutation.isPending}
             >
@@ -1069,7 +1079,7 @@ export default function ServerConfigure() {
             <label className="form-label">Web Terminal</label>
             <select
               className="form-select w-full"
-              value={config.webTerminal ? 'yes' : 'no'}
+              value={data?.config?.webTerminal ? 'yes' : 'no'}
               onChange={(e) => toggleFeatureMutation.mutate({ feature: 'webTerminal', enabled: e.target.value === 'yes' })}
               disabled={toggleFeatureMutation.isPending}
             >
@@ -1081,7 +1091,7 @@ export default function ServerConfigure() {
             <label className="form-label">Limit System Resources</label>
             <select
               className="form-select w-full"
-              value={config.resourcesLimit === 'yes' ? 'yes' : 'no'}
+              value={data?.config?.resourcesLimit === 'yes' ? 'yes' : 'no'}
               onChange={(e) => toggleFeatureMutation.mutate({ feature: 'cgroups', enabled: e.target.value === 'yes' })}
               disabled={toggleFeatureMutation.isPending}
             >
@@ -1093,7 +1103,7 @@ export default function ServerConfigure() {
             <label className="form-label">File System Disk Quota</label>
             <select
               className="form-select w-full"
-              value={config.diskQuota === 'yes' ? 'yes' : 'no'}
+              value={data?.config?.diskQuota === 'yes' ? 'yes' : 'no'}
               onChange={(e) => toggleFeatureMutation.mutate({ feature: 'quota', enabled: e.target.value === 'yes' })}
               disabled={toggleFeatureMutation.isPending}
             >
@@ -1105,7 +1115,7 @@ export default function ServerConfigure() {
             <label className="form-label">Firewall</label>
             <select
               className="form-select w-full"
-              value={config.firewallSystem === 'iptables' ? 'yes' : 'no'}
+              value={data?.config?.firewallSystem ? 'yes' : 'no'}
               onChange={(e) => toggleFeatureMutation.mutate({ feature: 'firewall', enabled: e.target.value === 'yes' })}
               disabled={toggleFeatureMutation.isPending}
             >

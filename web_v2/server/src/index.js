@@ -22,10 +22,12 @@ import firewallRoutes from './routes/firewall.js';
 import haproxyRoutes from './routes/haproxy.js';
 import rcloneRoutes from './routes/rclone.js';
 import mariadbRoutes from './routes/mariadb.js';
+import pgsqlRoutes from './routes/pgsql.js';
 import filesRoutes from './routes/files.js';
 import statsRoutes from './routes/stats.js';
 import pm2Routes from './routes/pm2.js';
 import backupsRoutes from './routes/backups.js';
+import mailRoutes from './routes/mail.js';
 import { authMiddleware } from './middleware/auth.js';
 
 const app = express();
@@ -74,10 +76,12 @@ app.use('/api/firewall', authMiddleware, firewallRoutes);
 app.use('/api/haproxy', authMiddleware, haproxyRoutes);
 app.use('/api/rclone', authMiddleware, rcloneRoutes);
 app.use('/api/mariadb', authMiddleware, mariadbRoutes);
+app.use('/api/pgsql', authMiddleware, pgsqlRoutes);
 app.use('/api/files', authMiddleware, filesRoutes);
 app.use('/api/stats', authMiddleware, statsRoutes);
 app.use('/api/pm2', authMiddleware, pm2Routes);
 app.use('/api/backups', authMiddleware, backupsRoutes);
+app.use('/api/mail', authMiddleware, mailRoutes);
 
 // Serve React static files in production
 const clientPath = path.join(path.dirname(new URL(import.meta.url).pathname), '../../client/dist');

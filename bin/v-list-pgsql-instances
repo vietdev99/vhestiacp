@@ -1,0 +1,207 @@
+#!/bin/bash
+# info: list postgresql instances
+# options: [FORMAT]
+#
+# example: v-list-pgsql-instances
+# example: v-list-pgsql-instances json
+#
+# This function lists all PostgreSQL instances and their status.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+format=${1:-json}
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Directories
+INSTANCES_DATA_DIR="/var/lib/postgresql-instances"
+INSTANCES_CONF_DIR="/etc/postgresql-instances"
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Build JSON output
+output='{"instances":['
+first=true
+
+# First, add the default PostgreSQL instances
+for pg_version_dir in /etc/postgresql/*/; do
+    if [ -d "$pg_version_dir" ]; then
+        pg_version=$(basename "$pg_version_dir")
+        
+        for cluster_dir in "$pg_version_dir"*/; do
+            if [ -d "$cluster_dir" ]; then
+                cluster_name=$(basename "$cluster_dir")
+                
+                # Full instance name
+                if [ "$cluster_name" = "main" ]; then
+                    instance_name="default"
+                    is_default=true
+                else
+                    instance_name="$cluster_name"
+                    is_default=false
+                fi
+                
+                # Get service status
+                if pg_isready -q 2>/dev/null; then
+                    status="running"
+                else
+                    status="stopped"
+                fi
+                
+                # Try to determine status more precisely
+                if systemctl is-active --quiet "postgresql@${pg_version}-${cluster_name}" 2>/dev/null; then
+                    status="running"
+                elif systemctl is-active --quiet postgresql 2>/dev/null; then
+                    status="running"
+                fi
+                
+                # Get version
+                version="$pg_version"
+                
+                # Read port from config
+                port=5432
+                config_file="${cluster_dir}postgresql.conf"
+                if [ -f "$config_file" ]; then
+                    port_from_config=$(grep -E "^port\s*=" "$config_file" 2>/dev/null | head -1 | sed 's/#.*//' | awk -F'=' '{print $2}' | tr -d " '\t")
+                    # Extract just the number
+                    port_from_config=$(echo "$port_from_config" | grep -oE '^[0-9]+' | head -1)
+                    [ -n "$port_from_config" ] && port=$port_from_config
+                fi
+                
+                # Get data directory
+                data_dir="/var/lib/postgresql/${pg_version}/${cluster_name}"
+                
+                # Get memory usage
+                pid=$(pgrep -f "postgres.*${cluster_name}" 2>/dev/null | head -1)
+                if [ -n "$pid" ]; then
+                    mem=$(ps -o rss= -p "$pid" 2>/dev/null | awk '{printf "%.1f MB", $1/1024}')
+                else
+                    mem="0 MB"
+                fi
+                
+                # Get data size
+                data_size=$(du -sh "$data_dir" 2>/dev/null | awk '{print $1}')
+                [ -z "$data_size" ] && data_size="0"
+                
+                # Service name
+                service_name="postgresql@${pg_version}-${cluster_name}"
+                
+                # Add to JSON
+                if [ "$first" = true ]; then
+                    first=false
+                else
+                    output+=','
+                fi
+                
+                output+='{'
+                output+="\"name\":\"$instance_name\","
+                output+="\"port\":$port,"
+                output+="\"status\":\"$status\","
+                output+="\"version\":\"$version\","
+                output+="\"dataDir\":\"$data_dir\","
+                output+="\"configPath\":\"$config_file\","
+                output+="\"serviceName\":\"$service_name\","
+                output+="\"clusterName\":\"$cluster_name\","
+                output+="\"memory\":\"$mem\","
+                output+="\"dataSize\":\"$data_size\","
+                output+="\"isDefault\":$is_default"
+                output+='}'
+            fi
+        done
+    fi
+done
+
+# Scan for custom instance directories
+if [ -d "$INSTANCES_DATA_DIR" ]; then
+    for instance_dir in "$INSTANCES_DATA_DIR"/*/; do
+        if [ -d "$instance_dir" ]; then
+            instance_name=$(basename "$instance_dir")
+            config_file="$INSTANCES_CONF_DIR/${instance_name}/postgresql.conf"
+            
+            # Skip if no config
+            [ ! -f "$config_file" ] && continue
+            
+            # Get port from config
+            port=$(grep -E "^port\s*=" "$config_file" 2>/dev/null | head -1 | sed 's/#.*//' | awk -F'=' '{print $2}' | tr -d " '\t")
+            port=$(echo "$port" | grep -oE '^[0-9]+' | head -1)
+            [ -z "$port" ] && port="5432"
+            
+            # Get data directory
+            data_dir="${instance_dir}"
+            
+            # Get service status
+            service_name="postgresql-${instance_name}"
+            if systemctl is-active --quiet "$service_name" 2>/dev/null; then
+                status="running"
+            else
+                status="stopped"
+            fi
+            
+            # Get version from data dir
+            version=$(cat "${data_dir}/PG_VERSION" 2>/dev/null || echo "Unknown")
+            
+            # Get memory usage
+            pid=$(systemctl show "$service_name" --property=MainPID --value 2>/dev/null)
+            if [ -n "$pid" ] && [ "$pid" != "0" ]; then
+                mem=$(ps -o rss= -p "$pid" 2>/dev/null | awk '{printf "%.1f MB", $1/1024}')
+            else
+                mem="0 MB"
+            fi
+            
+            # Get data size
+            data_size=$(du -sh "$data_dir" 2>/dev/null | awk '{print $1}')
+            [ -z "$data_size" ] && data_size="0"
+            
+            # Add to JSON
+            if [ "$first" = true ]; then
+                first=false
+            else
+                output+=','
+            fi
+            
+            output+='{'
+            output+="\"name\":\"$instance_name\","
+            output+="\"port\":$port,"
+            output+="\"status\":\"$status\","
+            output+="\"version\":\"$version\","
+            output+="\"dataDir\":\"$data_dir\","
+            output+="\"configPath\":\"$config_file\","
+            output+="\"serviceName\":\"$service_name\","
+            output+="\"clusterName\":\"$instance_name\","
+            output+="\"memory\":\"$mem\","
+            output+="\"dataSize\":\"$data_size\","
+            output+='"isDefault":false'
+            output+='}'
+        fi
+    done
+fi
+
+output+=']}'
+
+# Output
+if [ "$format" = "json" ]; then
+    if command -v jq &>/dev/null; then
+        echo "$output" | jq .
+    else
+        echo "$output"
+    fi
+elif [ "$format" = "plain" ]; then
+    echo "PostgreSQL Instances:"
+    echo ""
+    if command -v jq &>/dev/null; then
+        echo "$output" | jq -r '.instances[] | "  \(.name): port=\(.port), status=\(.status)"'
+    else
+        echo "$output"
+    fi
+else
+    echo "$output"
+fi
+
+exit 0

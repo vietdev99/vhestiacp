@@ -1,0 +1,6 @@
+[Unit]
+Description=VHestia Panel Watchdog Check
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/hestia/bin/v-check-vhestia-panel

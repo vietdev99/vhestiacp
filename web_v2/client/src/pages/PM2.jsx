@@ -5,9 +5,15 @@ import { useAuth } from '../context/AuthContext';
 import {
   Box, RefreshCw, Play, Square, RotateCcw, Trash2,
   Cpu, HardDrive, Clock, AlertTriangle, CheckCircle,
-  XCircle, Loader2, FileText, User, ChevronDown, ChevronRight
+  XCircle, Loader2, FileText, User, ChevronDown, ChevronRight, Shield
 } from 'lucide-react';
 import clsx from 'clsx';
+
+// Check if process is the webpanel (protected, no actions allowed)
+const isWebpanelProcess = (name) => {
+  const protectedNames = ['vhestia-panel', 'hestia-web-v2', 'hestia-panel', 'vhestia-web'];
+  return protectedNames.includes(name?.toLowerCase());
+};
 
 export default function PM2() {
   const { user, isAdmin } = useAuth();
@@ -86,10 +92,12 @@ export default function PM2() {
     );
   };
 
-  // Select all processes for a user
+  // Select all processes for a user (excluding protected webpanel process)
   const selectAllForUser = (username, processes) => {
-    const userProcessKeys = processes.map(p => `${username}:${p.pm_id}`);
-    const allSelected = userProcessKeys.every(key => selectedProcesses.includes(key));
+    // Filter out protected webpanel processes
+    const selectableProcesses = processes.filter(p => !isWebpanelProcess(p.name));
+    const userProcessKeys = selectableProcesses.map(p => `${username}:${p.pm_id}`);
+    const allSelected = userProcessKeys.length > 0 && userProcessKeys.every(key => selectedProcesses.includes(key));
 
     if (allSelected) {
       setSelectedProcesses(prev => prev.filter(p => !userProcessKeys.includes(p)));
@@ -305,6 +313,7 @@ export default function PM2() {
                       const processKey = `${username}:${pmId}`;
                       const isSelected = selectedProcesses.includes(processKey);
                       const isOnline = status === 'online';
+                      const isProtected = isWebpanelProcess(name);
 
                       return (
                         <tr
@@ -315,12 +324,16 @@ export default function PM2() {
                           )}
                         >
                           <td className="px-4 py-3">
-                            <input
-                              type="checkbox"
-                              checked={isSelected}
-                              onChange={() => toggleProcess(processKey)}
-                              className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                            />
+                            {isProtected ? (
+                              <Shield className="w-4 h-4 text-blue-500" title="Protected system process" />
+                            ) : (
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleProcess(processKey)}
+                                className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                              />
+                            )}
                           </td>
                           <td className="px-4 py-3 font-mono text-sm">{pmId}</td>
                           <td className="px-4 py-3">
@@ -331,7 +344,14 @@ export default function PM2() {
                                 <XCircle className="w-4 h-4 text-red-500" />
                               )}
                               <div>
-                                <div className="font-medium">{name}</div>
+                                <div className="font-medium flex items-center gap-2">
+                                  {name}
+                                  {isProtected && (
+                                    <span className="inline-flex px-1.5 py-0.5 text-[10px] font-semibold rounded bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
+                                      System
+                                    </span>
+                                  )}
+                                </div>
                                 <div className="text-xs text-gray-500 truncate max-w-xs">
                                   {script.split('/').pop()}
                                 </div>
@@ -361,54 +381,68 @@ export default function PM2() {
                             {restarts}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              <button
-                                onClick={() => setLogsModal({ username, id: pmId, name })}
-                                className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-dark-border text-blue-600"
-                                title="View Logs"
-                              >
-                                <FileText className="w-4 h-4" />
-                              </button>
-                              <button
-                                onClick={() => actionMutation.mutate({ action: 'restart', id: pmId, username })}
-                                className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-dark-border text-green-600"
-                                title="Restart"
-                                disabled={actionMutation.isPending}
-                              >
-                                <RotateCcw className="w-4 h-4" />
-                              </button>
-                              {isOnline ? (
+                            {isProtected ? (
+                              <div className="flex items-center justify-end gap-1">
+                                {/* Only allow viewing logs for protected processes */}
                                 <button
-                                  onClick={() => actionMutation.mutate({ action: 'stop', id: pmId, username })}
-                                  className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-dark-border text-orange-600"
-                                  title="Stop"
-                                  disabled={actionMutation.isPending}
+                                  onClick={() => setLogsModal({ username, id: pmId, name })}
+                                  className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-dark-border text-blue-600"
+                                  title="View Logs"
                                 >
-                                  <Square className="w-4 h-4" />
+                                  <FileText className="w-4 h-4" />
                                 </button>
-                              ) : (
+                                <span className="text-xs text-gray-400 ml-2">Protected</span>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-end gap-1">
                                 <button
-                                  onClick={() => actionMutation.mutate({ action: 'start', id: pmId, username })}
+                                  onClick={() => setLogsModal({ username, id: pmId, name })}
+                                  className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-dark-border text-blue-600"
+                                  title="View Logs"
+                                >
+                                  <FileText className="w-4 h-4" />
+                                </button>
+                                <button
+                                  onClick={() => actionMutation.mutate({ action: 'restart', id: pmId, username })}
                                   className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-dark-border text-green-600"
-                                  title="Start"
+                                  title="Restart"
                                   disabled={actionMutation.isPending}
                                 >
-                                  <Play className="w-4 h-4" />
+                                  <RotateCcw className="w-4 h-4" />
                                 </button>
-                              )}
-                              <button
-                                onClick={() => {
-                                  if (confirm(`Delete process "${name}"? This cannot be undone.`)) {
-                                    actionMutation.mutate({ action: 'delete', id: pmId, username });
-                                  }
-                                }}
-                                className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-dark-border text-red-600"
-                                title="Delete"
-                                disabled={actionMutation.isPending}
-                              >
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
+                                {isOnline ? (
+                                  <button
+                                    onClick={() => actionMutation.mutate({ action: 'stop', id: pmId, username })}
+                                    className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-dark-border text-orange-600"
+                                    title="Stop"
+                                    disabled={actionMutation.isPending}
+                                  >
+                                    <Square className="w-4 h-4" />
+                                  </button>
+                                ) : (
+                                  <button
+                                    onClick={() => actionMutation.mutate({ action: 'start', id: pmId, username })}
+                                    className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-dark-border text-green-600"
+                                    title="Start"
+                                    disabled={actionMutation.isPending}
+                                  >
+                                    <Play className="w-4 h-4" />
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    if (confirm(`Delete process "${name}"? This cannot be undone.`)) {
+                                      actionMutation.mutate({ action: 'delete', id: pmId, username });
+                                    }
+                                  }}
+                                  className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-dark-border text-red-600"
+                                  title="Delete"
+                                  disabled={actionMutation.isPending}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            )}
                           </td>
                         </tr>
                       );

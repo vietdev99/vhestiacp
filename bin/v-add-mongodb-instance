@@ -247,6 +247,7 @@ systemctl start "$service_name"
 sleep 3
 
 # Check status
+if systemctl is-active --quiet "$service_name"; then
     echo "  ✅ Instance started successfully"
 else
     echo "  ⚠️ Instance failed to start"

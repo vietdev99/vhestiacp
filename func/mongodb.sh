@@ -55,6 +55,9 @@ generate_mongodb_password() {
 mongo_exec() {
     local command="$1"
     local admin_password="${MONGODB_ROOT_PASSWORD:-}"
+    local port="${MONGODB_PORT:-27017}"
+    local host="${MONGODB_HOST:-127.0.0.1}"
+    local service="${MONGODB_SERVICE:-mongod}"
     
     # Check which shell is available
     local mongo_shell=""
@@ -67,9 +70,9 @@ mongo_exec() {
         return 1
     fi
     
-    # Check if MongoDB is running
-    if ! systemctl is-active --quiet mongod 2>/dev/null; then
-        echo "Error: MongoDB is not running" >&2
+    # Check if MongoDB instance is running
+    if ! systemctl is-active --quiet $service 2>/dev/null; then
+        echo "Error: MongoDB service '$service' is not running" >&2
         return 1
     fi
     
@@ -80,19 +83,26 @@ mongo_exec() {
         admin_password="${ROOT_PASSWORD:-}"
     fi
     
-    # Check if auth is enabled in mongod.conf
+    # Check if auth is enabled in mongod.conf (check instance config first)
     local auth_enabled="no"
-    if grep -q "authorization: enabled" /etc/mongod.conf 2>/dev/null; then
+    local config_file="/etc/mongod.conf"
+    if [ "$service" != "mongod" ] && [ -f "/etc/mongodb-instances/${service#mongod-}.conf" ]; then
+        config_file="/etc/mongodb-instances/${service#mongod-}.conf"
+    fi
+    
+    if grep -q "authorization: enabled" "$config_file" 2>/dev/null; then
         auth_enabled="yes"
     fi
     
     local result=""
     local exit_code=1
+    local port_option="--port $port"
+    local host_option="--host $host"
     
     # Try with authentication if password is set and auth is enabled
     if [ -n "$admin_password" ] && [ "$auth_enabled" = "yes" ]; then
         # Try 1: Without specifying mechanism (let MongoDB decide)
-        result=$($mongo_shell --quiet --eval "$command" \
+        result=$($mongo_shell $host_option $port_option --quiet --eval "$command" \
             -u admin -p "$admin_password" \
             --authenticationDatabase admin 2>&1)
         exit_code=$?
@@ -102,7 +112,7 @@ mongo_exec() {
         fi
         
         # Try 2: SCRAM-SHA-256 (MongoDB 4.0+ default)
-        result=$($mongo_shell --quiet --eval "$command" \
+        result=$($mongo_shell $host_option $port_option --quiet --eval "$command" \
             -u admin -p "$admin_password" \
             --authenticationDatabase admin \
             --authenticationMechanism "SCRAM-SHA-256" 2>&1)
@@ -113,7 +123,7 @@ mongo_exec() {
         fi
         
         # Try 3: SCRAM-SHA-1 (older mechanism)
-        result=$($mongo_shell --quiet --eval "$command" \
+        result=$($mongo_shell $host_option $port_option --quiet --eval "$command" \
             -u admin -p "$admin_password" \
             --authenticationDatabase admin \
             --authenticationMechanism "SCRAM-SHA-1" 2>&1)
@@ -126,7 +136,7 @@ mongo_exec() {
     
     # Try without authentication (no auth mode or auth not yet enabled)
     if [ "$auth_enabled" != "yes" ]; then
-        result=$($mongo_shell --quiet --eval "$command" 2>&1)
+        result=$($mongo_shell $host_option $port_option --quiet --eval "$command" 2>&1)
         exit_code=$?
         
         if [ $exit_code -eq 0 ]; then

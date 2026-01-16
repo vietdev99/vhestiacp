@@ -95,6 +95,31 @@ export default function QuickInstall() {
     });
   };
 
+  const getAppImage = (appName) => {
+    if (!appName) return '';
+    const name = appName.toLowerCase();
+    const imageMap = {
+      'nextcloud': 'nextcloud.png',
+      'prestashop': 'prestashop.png',
+      'opencart': 'opencart.png',
+      'mediawiki': 'mediawiki.png',
+      'dokuwiki': 'dokuwiki.png',
+      'grav': 'grav.png',
+      'flarum': 'flarum.png',
+      'dolibarr': 'dolibarr.png',
+      'namelessmc': 'namelessmc.png',
+      'thirtybees': 'thirtybees.png',
+      'vvveb': 'vvveb.png',
+      'wordpress': 'wordpress.png',
+      'joomla': 'joomla.png',
+      'drupal': 'drupal.png',
+      'laravel': 'laravel.png',
+      'symfony': 'symfony.png'
+    };
+    const filename = imageMap[name] || `${name}.png`;
+    return `https://raw.githubusercontent.com/hestiacp/hestiacp/main/web/images/${filename}`;
+  };
+
   const getAppIcon = (appName) => {
     const icons = {
       'WordPress': '📝',
@@ -191,23 +216,42 @@ export default function QuickInstall() {
 
       {/* Step 1: Select App */}
       {step === 1 && (
-        <div className="card p-6">
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+        <div className="card p-6 bg-gray-50 dark:bg-dark-bg">
+          <h2 className="text-lg font-semibold mb-6 flex items-center gap-2">
             <Package className="w-5 h-5" />
-            Choose an Application
+            Quick Install App
           </h2>
 
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
             {apps?.map((app) => (
-              <button
+              <div
                 key={app.name}
-                onClick={() => handleSelectApp(app)}
-                className="flex flex-col items-center gap-2 p-4 rounded-lg border border-gray-200 dark:border-dark-border hover:border-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/10 transition-colors text-center"
+                className="flex flex-col items-center p-6 bg-white dark:bg-dark-card rounded shadow-sm border border-gray-200 dark:border-dark-border hover:shadow-md transition-shadow text-center group"
               >
-                <span className="text-3xl">{getAppIcon(app.name)}</span>
-                <span className="font-medium">{app.name}</span>
-                <span className="text-xs text-gray-500 dark:text-dark-muted">{app.version}</span>
-              </button>
+                <div className="w-24 h-24 mb-4 flex items-center justify-center">
+                  <img 
+                    src={getAppImage(app.name)} 
+                    alt={app.name} 
+                    className="max-w-full max-h-full object-contain grayscale group-hover:grayscale-0 transition-all duration-300"
+                    onError={(e) => {
+                      e.target.onerror = null;
+                      e.target.style.display = 'none';
+                      e.target.nextSibling.style.display = 'block';
+                    }}
+                  />
+                  <span className="text-4xl hidden">{getAppIcon(app.name)}</span>
+                </div>
+                
+                <h3 className="font-bold text-lg mb-1">{app.name}</h3>
+                <p className="text-xs text-gray-500 dark:text-dark-muted mb-4">Version: {app.version}</p>
+                
+                <button
+                  onClick={() => handleSelectApp(app)}
+                  className="mt-auto px-6 py-1.5 bg-gray-600 hover:bg-gray-700 text-white text-sm font-medium rounded transition-colors uppercase tracking-wide w-full"
+                >
+                  Setup
+                </button>
+              </div>
             ))}
           </div>
         </div>
@@ -216,11 +260,22 @@ export default function QuickInstall() {
       {/* Step 2: Configure */}
       {step === 2 && (
         <div className="card p-6">
-          <div className="flex items-center gap-3 mb-6">
-            <span className="text-4xl">{getAppIcon(selectedApp)}</span>
+          <div className="flex items-center gap-4 mb-8 pb-6 border-b border-gray-100 dark:border-dark-border">
+            <div className="w-16 h-16 flex items-center justify-center bg-gray-50 dark:bg-dark-bg rounded p-2 border border-gray-100 dark:border-dark-border">
+               <img 
+                  src={getAppImage(selectedApp)} 
+                  alt={selectedApp}
+                  className="max-w-full max-h-full object-contain"
+                  onError={(e) => {
+                    e.target.style.display = 'none';
+                    e.target.nextSibling.style.display = 'block';
+                  }}
+                />
+               <span className="text-4xl hidden">{getAppIcon(selectedApp)}</span>
+            </div>
             <div>
-              <h2 className="text-xl font-semibold">{selectedApp}</h2>
-              <p className="text-sm text-gray-500 dark:text-dark-muted">
+              <h2 className="text-2xl font-bold">{selectedApp}</h2>
+              <p className="text-gray-500 dark:text-dark-muted">
                 Configure installation options
               </p>
             </div>

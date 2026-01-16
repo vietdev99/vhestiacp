@@ -1,0 +1,165 @@
+#!/bin/bash
+# info: add HAProxy domain for user
+# options: USER DOMAIN BACKEND_HOST BACKEND_PORT [BACKEND_TYPE] [SSL_MODE] [ALIASES] [HEALTH_CHECK]
+#
+# example: v-add-user-haproxy-domain admin example.com 127.0.0.1 3000 pm2 termination "www.example.com" yes
+#
+# This function adds a domain to user's HAProxy configuration.
+# The domain must exist in user's web.conf (nginx/apache).
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+domain=$2
+backend_host=$3
+backend_port=$4
+backend_type=${5:-pm2}
+ssl_mode=${6:-termination}
+aliases=${7:-}
+health_check=${8:-yes}
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '4' "$#" 'USER DOMAIN BACKEND_HOST BACKEND_PORT [BACKEND_TYPE] [SSL_MODE] [ALIASES] [HEALTH_CHECK]'
+is_format_valid 'user' 'domain'
+is_object_valid 'user' 'USER' "$user"
+
+# Check if domain already exists in any user's nginx/apache web.conf
+for user_dir in $HESTIA/data/users/*/; do
+    u=$(basename "$user_dir")
+    if [ -f "$user_dir/web.conf" ]; then
+        if grep -q "DOMAIN='$domain'" "$user_dir/web.conf" 2>/dev/null; then
+            echo "Error: Domain $domain already exists in web configuration (user: $u)"
+            exit 1
+        fi
+    fi
+done
+
+# Check if domain already exists in any user's HAProxy configuration
+for user_dir in $HESTIA/data/users/*/; do
+    u=$(basename "$user_dir")
+    haproxy_file="$user_dir/haproxy.json"
+    if [ -f "$haproxy_file" ] && command -v jq &> /dev/null; then
+        existing=$(jq -r ".domains[] | select(.domain == \"$domain\") | .domain" "$haproxy_file" 2>/dev/null)
+        if [ -n "$existing" ]; then
+            echo "Error: Domain $domain already exists in HAProxy configuration (user: $u)"
+            exit 1
+        fi
+    fi
+done
+
+# Validate backend_port is numeric
+if ! [[ "$backend_port" =~ ^[0-9]+$ ]]; then
+    echo "Error: Backend port must be numeric"
+    exit 1
+fi
+
+# Validate port range
+if [ "$backend_port" -lt 1 ] || [ "$backend_port" -gt 65535 ]; then
+    echo "Error: Backend port must be between 1 and 65535"
+    exit 1
+fi
+
+# Validate backend_type
+case "$backend_type" in
+    pm2|static|php|nginx|custom) ;;
+    *)
+        echo "Error: Invalid backend type. Must be: pm2, static, php, nginx, or custom"
+        exit 1
+        ;;
+esac
+
+# Validate ssl_mode
+case "$ssl_mode" in
+    termination|passthrough|none) ;;
+    *)
+        echo "Error: Invalid SSL mode. Must be: termination, passthrough, or none"
+        exit 1
+        ;;
+esac
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Define paths - only haproxy.json needed
+HAPROXY_JSON="$HESTIA/data/users/$user/haproxy.json"
+
+# Initialize haproxy.json if it doesn't exist
+if [ ! -f "$HAPROXY_JSON" ]; then
+    echo '{"enabled":true,"domains":[]}' > "$HAPROXY_JSON"
+    chown root:root "$HAPROXY_JSON"
+    chmod 644 "$HAPROXY_JSON"
+fi
+
+# Generate backend name (sanitize domain for HAProxy identifier)
+backend_name="${user}_$(echo "$domain" | tr '.' '_' | tr '-' '_')"
+
+# Parse aliases into JSON array
+aliases_json="[]"
+if [ -n "$aliases" ]; then
+    # Convert space-separated aliases to JSON array
+    aliases_json=$(echo "$aliases" | tr ' ' '\n' | jq -R . | jq -s .)
+fi
+
+# Get current timestamp
+timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+
+# Add domain to haproxy.json
+if command -v jq &> /dev/null; then
+    # Create new domain entry
+    new_domain=$(cat <<EOF
+{
+    "domain": "$domain",
+    "aliases": $aliases_json,
+    "backend": {
+        "name": "$backend_name",
+        "host": "$backend_host",
+        "port": $backend_port,
+        "type": "$backend_type"
+    },
+    "ssl": {
+        "mode": "$ssl_mode",
+        "cert": "auto"
+    },
+    "options": {
+        "healthCheck": $([ "$health_check" = "yes" ] && echo "true" || echo "false"),
+        "customConfig": ""
+    },
+    "enabled": true,
+    "createdAt": "$timestamp"
+}
+EOF
+)
+
+    # Add to domains array
+    jq ".domains += [$new_domain]" "$HAPROXY_JSON" > "$HAPROXY_JSON.tmp" && mv "$HAPROXY_JSON.tmp" "$HAPROXY_JSON"
+else
+    echo "Error: jq is required for JSON manipulation"
+    exit 1
+fi
+
+# Rebuild HAProxy configuration (generates backends from all users' haproxy.json)
+$HESTIA/bin/v-rebuild-haproxy-conf yes
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+$HESTIA/bin/v-log-action "user" "Info" "HAProxy" "Added HAProxy domain (User: $user, Domain: $domain, Backend: $backend_host:$backend_port)."
+
+echo "HAProxy domain $domain added successfully"
+exit 0

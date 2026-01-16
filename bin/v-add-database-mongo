@@ -1,8 +1,8 @@
 #!/bin/bash
 # info: add mongodb database
-# options: USER DATABASE [DBUSER] [DBPASSWORD] [HOST]
+# options: USER DATABASE [DBPASSWORD] [INSTANCE]
 #
-# example: v-add-database-mongo admin myapp_db myapp_user password123
+# example: v-add-database-mongo admin myapp_db password123 vtest2
 #
 # This function creates a new MongoDB database and user.
 
@@ -13,9 +13,8 @@
 # Argument definition
 user=$1
 database=$2
-dbuser=${3:-${user}_${database}}
-dbpassword=$4
-host=${5:-localhost}
+dbpassword=$3
+instance=${4:-default}
 
 # Includes
 source /etc/hestiacp/hestia.conf
@@ -23,17 +22,42 @@ source $HESTIA/func/main.sh
 source $HESTIA/func/mongodb.sh
 source_conf "$HESTIA/conf/hestia.conf"
 
+# Determine MongoDB port based on instance
+MONGODB_PORT=27017
+MONGODB_SERVICE="mongod"
+MONGODB_HOST="127.0.0.1"
+
+if [ "$instance" != "default" ]; then
+    # Load instance config from JSON
+    instance_file="$HESTIA/data/mongodb-instances.json"
+    if [ -f "$instance_file" ] && command -v jq &>/dev/null; then
+        inst_port=$(jq -r ".instances[] | select(.name==\"$instance\") | .port" "$instance_file" 2>/dev/null)
+        if [ -n "$inst_port" ] && [ "$inst_port" != "null" ]; then
+            MONGODB_PORT="$inst_port"
+        fi
+        MONGODB_SERVICE="mongod-$instance"
+    fi
+fi
+
+# Export port for mongodb.sh functions
+export MONGODB_PORT
+export MONGODB_HOST
+export MONGODB_INSTANCE="$instance"
+
 # Load MongoDB root password
 if [ -f "$HESTIA/conf/mongodb.conf" ]; then
     source "$HESTIA/conf/mongodb.conf"
     export MONGODB_ROOT_PASSWORD="$ROOT_PASSWORD"
 fi
 
+# Set dbuser to same as database
+dbuser="${user}_${database}"
+
 #----------------------------------------------------------#
 #                    Verifications                         #
 #----------------------------------------------------------#
 
-check_args '2' "$#" 'USER DATABASE [DBUSER] [DBPASSWORD] [HOST]'
+check_args '2' "$#" 'USER DATABASE [DBPASSWORD] [INSTANCE]'
 
 # Check if MongoDB is installed
 if [ "$MONGODB_SYSTEM" != "yes" ]; then
@@ -52,11 +76,7 @@ fi
 # Sanitize database name (prepend username)
 if [[ ! "$database" =~ ^${user}_ ]]; then
     database="${user}_${database}"
-fi
-
-# Sanitize dbuser name
-if [[ ! "$dbuser" =~ ^${user}_ ]]; then
-    dbuser="${user}_$(echo $dbuser | sed "s/^${user}_//")"
+    dbuser="${user}_$(echo ${2} | sed "s/^${user}_//")"
 fi
 
 # Check if database already exists
@@ -69,12 +89,12 @@ fi
 #                       Action                             #
 #----------------------------------------------------------#
 
-echo "Creating MongoDB database: $database..."
+echo "Creating MongoDB database: $database on instance: $instance (port $MONGODB_PORT)..."
 
-# Debug: Check MongoDB status
-if ! systemctl is-active --quiet mongod; then
-    echo "Error: MongoDB service is not running"
-    echo "Try: sudo systemctl start mongod"
+# Debug: Check MongoDB instance status
+if ! systemctl is-active --quiet $MONGODB_SERVICE; then
+    echo "Error: MongoDB service '$MONGODB_SERVICE' is not running"
+    echo "Try: sudo systemctl start $MONGODB_SERVICE"
     exit 1
 fi
 
@@ -93,20 +113,22 @@ if [ $exit_code -ne 0 ]; then
     echo "Details: $result"
     echo ""
     echo "Debug info:"
-    echo "  - MongoDB status: $(systemctl is-active mongod)"
-    echo "  - Auth enabled: $(grep -q 'authorization: enabled' /etc/mongod.conf && echo 'yes' || echo 'no')"
-    echo "  - Password file: $([ -f "$HESTIA/conf/mongodb.conf" ] && echo 'exists' || echo 'missing')"
+    echo "  - Instance: $instance"
+    echo "  - Port: $MONGODB_PORT"
+    echo "  - Service: $MONGODB_SERVICE"
+    echo "  - MongoDB status: $(systemctl is-active $MONGODB_SERVICE)"
     
     # Check for auth issues
     if echo "$result" | grep -qi "auth\|unauthorized\|Authentication"; then
         echo ""
-        echo ">>> Authentication failed! The password in $HESTIA/conf/mongodb.conf"
-        echo ">>> does not match the MongoDB admin password."
+        echo ">>> Authentication failed! Check the MongoDB password."
+    fi
+    
+    # Check for replicaset issues  
+    if echo "$result" | grep -qi "primary\|recovering\|replicaset"; then
         echo ""
-        echo "To fix this, run:"
-        echo "  sudo bash /path/to/vhestiacp-full/reset-mongodb-password.sh"
-        echo ""
-        echo "Or manually update $HESTIA/conf/mongodb.conf with the correct password."
+        echo ">>> ReplicaSet issue detected. Instance may not be primary or properly initialized."
+        echo ">>> If this is a standalone instance, ensure replication is disabled in config."
     fi
     exit 1
 fi
@@ -132,17 +154,17 @@ touch "$user_db_conf"
 # Remove existing entry if any
 sed -i "/^DB='$database'/d" "$user_db_conf" 2>/dev/null || true
 
-# Add new entry with date
-echo "DB='$database' USER='$dbuser' PASSWORD='$dbpassword' HOST='$host' DATE='$(date +%Y-%m-%d)' TYPE='mongodb'" >> "$user_db_conf"
+# Add new entry with date and instance
+echo "DB='$database' USER='$dbuser' PASSWORD='$dbpassword' HOST='$MONGODB_HOST' PORT='$MONGODB_PORT' INSTANCE='$instance' DATE='$(date +%Y-%m-%d)' TYPE='mongodb'" >> "$user_db_conf"
 echo "  - Database info stored in $user_db_conf"
 
-# Also call the function if available
-if type store_mongodb_user_db &>/dev/null; then
-    store_mongodb_user_db "$user" "$database" "$dbuser" "$dbpassword" "$host" 2>/dev/null || true
-fi
+# Note: store_mongodb_user_db removed - it doesn't save INSTANCE field and overwrites the entry above
+# if type store_mongodb_user_db &>/dev/null; then
+#     store_mongodb_user_db "$user" "$database" "$dbuser" "$dbpassword" "$MONGODB_HOST" 2>/dev/null || true
+# fi
 
 # Log event
-log_mongodb_event "INFO" "Database created: $database (user: $user)" 2>/dev/null || true
+log_mongodb_event "INFO" "Database created: $database (user: $user, instance: $instance)" 2>/dev/null || true
 
 #----------------------------------------------------------#
 #                       Result                             #
@@ -154,14 +176,15 @@ echo ""
 echo "  Database:    $database"
 echo "  User:        $dbuser"
 echo "  Password:    $dbpassword"
-echo "  Host:        $host"
-echo "  Port:        27017"
+echo "  Instance:    $instance"
+echo "  Host:        $MONGODB_HOST"
+echo "  Port:        $MONGODB_PORT"
 echo ""
 echo "  Connection String:"
-echo "  $(get_mongodb_connection_string "$dbuser" "$dbpassword" "$database" "$host" "27017")"
+echo "  $(get_mongodb_connection_string "$dbuser" "$dbpassword" "$database" "$MONGODB_HOST" "$MONGODB_PORT")"
 echo ""
 
 # Logging
-$HESTIA/bin/v-log-action "$user" "Info" "MongoDB" "Database $database created"
+$HESTIA/bin/v-log-action "$user" "Info" "MongoDB" "Database $database created on instance $instance"
 
 exit 0

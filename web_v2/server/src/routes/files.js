@@ -76,7 +76,18 @@ const getFileInfo = (filePath, name) => {
  */
 router.get('/list', async (req, res) => {
   try {
-    const { path: dirPath = '/' } = req.query;
+    let { path: dirPath = '~' } = req.query;
+
+    // Get home path for current user (from session or default to admin)
+    const username = req.session?.user?.username || 'admin';
+    const homePath = `/home/${username}`;
+
+    // Handle ~ (home directory)
+    if (dirPath === '~' || dirPath === '~/' || !dirPath) {
+      dirPath = homePath;
+    } else if (dirPath.startsWith('~/')) {
+      dirPath = homePath + dirPath.substring(1);
+    }
 
     // Security check
     if (!isPathSafe(dirPath)) {
@@ -114,7 +125,7 @@ router.get('/list', async (req, res) => {
       // Ignore
     }
 
-    res.json({ files, freeSpace, path: resolvedPath });
+    res.json({ files, freeSpace, path: resolvedPath, homePath });
   } catch (error) {
     console.error('List directory error:', error);
     res.status(500).json({ error: error.message || 'Failed to list directory' });

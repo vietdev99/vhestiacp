@@ -1,0 +1,275 @@
+#!/bin/bash
+# info: add postgresql instance
+# options: NAME PORT [TYPE] [PRIMARY_HOST] [PRIMARY_PORT]
+#
+# example: v-add-pgsql-instance myapp 5433
+# example: v-add-pgsql-instance myprimary 5433 primary
+# example: v-add-pgsql-instance mystandby 5434 standby 192.168.0.1 5433
+#
+# TYPE: standalone (default), primary, standby
+# This function creates a new PostgreSQL instance with its own port and data directory.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+name=$1
+port=$2
+instance_type=${3:-standalone}    # standalone, primary, standby
+primary_host=$4
+primary_port=${5:-5432}
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Directories
+INSTANCES_DATA_DIR="/var/lib/postgresql-instances"
+INSTANCES_CONF_DIR="/etc/postgresql-instances"
+PG_VERSION=$(ls /usr/lib/postgresql/ 2>/dev/null | sort -V | tail -1)
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if name is provided
+if [ -z "$name" ]; then
+    echo "Error: Instance name is required"
+    echo "Usage: v-add-pgsql-instance NAME PORT [DATADIR]"
+    exit 1
+fi
+
+# Check if port is provided
+if [ -z "$port" ]; then
+    echo "Error: Port is required"
+    echo "Usage: v-add-pgsql-instance NAME PORT [DATADIR]"
+    exit 1
+fi
+
+# Validate name format
+if ! [[ "$name" =~ ^[a-zA-Z][a-zA-Z0-9_-]*$ ]]; then
+    echo "Error: Instance name must start with a letter and contain only letters, numbers, dashes, and underscores"
+    exit 1
+fi
+
+# Validate port
+if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1024 ] || [ "$port" -gt 65535 ]; then
+    echo "Error: Port must be a number between 1024 and 65535"
+    exit 1
+fi
+
+# Check if port is in use
+if ss -tlnp 2>/dev/null | grep -q ":$port "; then
+    echo "Error: Port $port is already in use"
+    exit 1
+fi
+
+# Validate instance type
+case "$instance_type" in
+    standalone|primary|standby) ;;
+    *)
+        echo "Error: Invalid instance type. Use: standalone, primary, standby"
+        exit 1
+        ;;
+esac
+
+# For standby, require primary_host
+if [ "$instance_type" = "standby" ] && [ -z "$primary_host" ]; then
+    echo "Error: Standby instance requires primary host"
+    echo "Usage: v-add-pgsql-instance NAME PORT standby PRIMARY_HOST [PRIMARY_PORT]"
+    exit 1
+fi
+
+# Check if instance already exists
+if [ -d "$INSTANCES_DATA_DIR/$name" ] || [ -d "$INSTANCES_CONF_DIR/$name" ]; then
+    echo "Error: Instance '$name' already exists"
+    exit 1
+fi
+
+# Set datadir
+datadir="$INSTANCES_DATA_DIR/$name"
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Creating PostgreSQL instance: $name on port $port"
+
+# Create directories
+mkdir -p "$INSTANCES_DATA_DIR"
+mkdir -p "$INSTANCES_CONF_DIR/$name"
+mkdir -p "$datadir"
+
+# Set ownership
+chown -R postgres:postgres "$datadir"
+chmod 700 "$datadir"
+
+# Initialize the database
+echo "Initializing database..."
+sudo -u postgres /usr/lib/postgresql/$PG_VERSION/bin/initdb -D "$datadir" > /dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to initialize database"
+    exit 1
+fi
+
+# Create config file
+config_file="$INSTANCES_CONF_DIR/$name/postgresql.conf"
+cat > "$config_file" << EOF
+# PostgreSQL instance: $name
+# Created by VHestiaCP
+# Instance Type: $instance_type
+
+# Connection settings
+listen_addresses = '*'
+port = $port
+
+# Data directory
+data_directory = '$datadir'
+
+# Logging
+logging_collector = on
+log_directory = 'log'
+log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log'
+log_rotation_age = 1d
+log_rotation_size = 100MB
+
+# Memory settings
+shared_buffers = 128MB
+effective_cache_size = 256MB
+work_mem = 4MB
+maintenance_work_mem = 64MB
+
+# Connections
+max_connections = 100
+
+# WAL settings
+wal_level = replica
+max_wal_senders = 3
+EOF
+
+# Add primary replication config
+if [ "$instance_type" = "primary" ]; then
+    cat >> "$config_file" << EOF
+
+# Primary Replication Settings
+wal_keep_size = 1GB
+synchronous_commit = on
+hot_standby = on
+archive_mode = on
+archive_command = '/bin/true'
+EOF
+fi
+
+# Add standby replication config
+if [ "$instance_type" = "standby" ]; then
+    cat >> "$config_file" << EOF
+
+# Standby Replication Settings
+hot_standby = on
+primary_conninfo = 'host=$primary_host port=$primary_port user=replicator password=replicator_password application_name=$name'
+EOF
+    
+    # Create standby.signal file to enable standby mode
+    touch "$datadir/standby.signal"
+    chown postgres:postgres "$datadir/standby.signal"
+    echo "Created standby.signal file"
+fi
+
+echo "Created config file: $config_file (type: $instance_type)"
+
+# Create pg_hba.conf
+hba_file="$INSTANCES_CONF_DIR/$name/pg_hba.conf"
+cat > "$hba_file" << EOF
+# PostgreSQL Client Authentication Configuration File
+# TYPE  DATABASE        USER            ADDRESS                 METHOD
+
+local   all             postgres                                peer
+local   all             all                                     peer
+host    all             all             127.0.0.1/32            md5
+host    all             all             ::1/128                 md5
+host    all             all             0.0.0.0/0               md5
+host    replication     all             0.0.0.0/0               md5
+EOF
+
+# Link config files to data directory
+ln -sf "$config_file" "$datadir/postgresql.conf"
+ln -sf "$hba_file" "$datadir/pg_hba.conf"
+
+# Set ownership
+chown -R postgres:postgres "$INSTANCES_CONF_DIR/$name"
+chown -R postgres:postgres "$datadir"
+
+echo "Created config files"
+
+# Create systemd service file
+service_file="/etc/systemd/system/postgresql-$name.service"
+cat > "$service_file" << EOF
+[Unit]
+Description=PostgreSQL $name database server
+After=network.target
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+Type=forking
+User=postgres
+Group=postgres
+
+# Data directory
+Environment=PGDATA=$datadir
+
+# Start command
+ExecStart=/usr/lib/postgresql/$PG_VERSION/bin/pg_ctl start -D $datadir -l $datadir/log/startup.log -o "-c config_file=$config_file"
+ExecStop=/usr/lib/postgresql/$PG_VERSION/bin/pg_ctl stop -D $datadir -m fast
+ExecReload=/usr/lib/postgresql/$PG_VERSION/bin/pg_ctl reload -D $datadir
+
+# Timeouts
+TimeoutSec=300
+
+# Runtime directory
+RuntimeDirectory=postgresql-$name
+RuntimeDirectoryMode=755
+EOF
+
+echo "Created systemd service: postgresql-$name.service"
+
+# Create log directory
+mkdir -p "$datadir/log"
+chown postgres:postgres "$datadir/log"
+
+# Reload systemd
+systemctl daemon-reload
+
+# Enable and start the service
+systemctl enable "postgresql-$name" > /dev/null 2>&1
+systemctl start "postgresql-$name"
+
+if [ $? -eq 0 ]; then
+    # Generate random password
+    ROOT_PASSWORD=$(generate_password)
+    
+    # Wait for PostgreSQL to be ready
+    sleep 2
+    
+    # Set postgres user password
+    sudo -u postgres /usr/lib/postgresql/$PG_VERSION/bin/psql -p $port -c "ALTER USER postgres WITH PASSWORD '$ROOT_PASSWORD';" > /dev/null 2>&1
+    
+    # Save password to Hestia config file
+    echo "ROOT_PASSWORD='$ROOT_PASSWORD'" > "$HESTIA/conf/pgsql-$name.conf"
+    chmod 600 "$HESTIA/conf/pgsql-$name.conf"
+    
+    echo "Instance '$name' started successfully on port $port"
+    echo "Root Password set successfully"
+    echo ""
+    echo "Connection info:"
+    echo "  psql -h 127.0.0.1 -p $port -U postgres"
+else
+    echo "Warning: Instance created but failed to start. Check logs:"
+    echo "  journalctl -u postgresql-$name -n 50"
+fi
+
+exit 0

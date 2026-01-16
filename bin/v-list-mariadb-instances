@@ -1,0 +1,199 @@
+#!/bin/bash
+# info: list mariadb instances
+# options: [FORMAT]
+#
+# example: v-list-mariadb-instances
+# example: v-list-mariadb-instances json
+#
+# This function lists all MariaDB instances and their status.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+format=${1:-json}
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Directories
+INSTANCES_DATA_DIR="/var/lib/mysql-instances"
+INSTANCES_CONF_DIR="/etc/mysql-instances"
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Build JSON output
+output='{"instances":['
+first=true
+
+# First, add the default MariaDB instance if it exists
+if systemctl list-unit-files mariadb.service &>/dev/null || systemctl list-unit-files mysql.service &>/dev/null; then
+    # Get service status
+    if systemctl is-active --quiet mariadb 2>/dev/null || systemctl is-active --quiet mysql 2>/dev/null; then
+        status="running"
+    else
+        status="stopped"
+    fi
+    
+    # Get version
+    version=$(mysql --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1)
+    [ -z "$version" ] && version="Unknown"
+    
+    # Read port from default config
+    default_port=3306
+    for conf_file in /etc/mysql/mariadb.conf.d/50-server.cnf /etc/mysql/my.cnf /etc/my.cnf; do
+        if [ -f "$conf_file" ]; then
+            port_from_config=$(grep -E "^port\s*=" "$conf_file" 2>/dev/null | head -1 | awk -F'=' '{print $2}' | tr -d ' ')
+            [ -n "$port_from_config" ] && default_port=$port_from_config && break
+        fi
+    done
+    
+    # Get data directory from config
+    data_dir="/var/lib/mysql"
+    for conf_file in /etc/mysql/mariadb.conf.d/50-server.cnf /etc/mysql/my.cnf /etc/my.cnf; do
+        if [ -f "$conf_file" ]; then
+            datadir_from_config=$(grep -E "^datadir\s*=" "$conf_file" 2>/dev/null | head -1 | awk -F'=' '{print $2}' | tr -d ' ')
+            [ -n "$datadir_from_config" ] && data_dir=$datadir_from_config && break
+        fi
+    done
+    
+    # Determine config path
+    config_path="/etc/mysql/mariadb.conf.d/50-server.cnf"
+    [ ! -f "$config_path" ] && config_path="/etc/mysql/my.cnf"
+    [ ! -f "$config_path" ] && config_path="/etc/my.cnf"
+    
+    # Get memory usage
+    if systemctl is-active --quiet mariadb 2>/dev/null; then
+        pid=$(systemctl show mariadb --property=MainPID --value 2>/dev/null)
+    else
+        pid=$(systemctl show mysql --property=MainPID --value 2>/dev/null)
+    fi
+    
+    if [ -n "$pid" ] && [ "$pid" != "0" ]; then
+        mem=$(ps -o rss= -p "$pid" 2>/dev/null | awk '{printf "%.1f MB", $1/1024}')
+    else
+        mem="0 MB"
+    fi
+    
+    # Get data size
+    data_size=$(du -sh "$data_dir" 2>/dev/null | awk '{print $1}')
+    [ -z "$data_size" ] && data_size="0"
+    
+    # Determine service name
+    if systemctl list-unit-files mariadb.service &>/dev/null; then
+        service_name="mariadb"
+    else
+        service_name="mysql"
+    fi
+    
+    # Add default instance as first entry
+    output+='{'
+    output+='"name":"default",'
+    output+="\"port\":$default_port,"
+    output+="\"status\":\"$status\","
+    output+="\"version\":\"$version\","
+    output+="\"dataDir\":\"$data_dir\","
+    output+="\"configPath\":\"$config_path\","
+    output+="\"serviceName\":\"$service_name\","
+    output+="\"memory\":\"$mem\","
+    output+="\"dataSize\":\"$data_size\","
+    output+='"isDefault":true'
+    output+='}'
+    first=false
+fi
+
+# Scan for custom instance directories
+if [ -d "$INSTANCES_DATA_DIR" ]; then
+    for instance_dir in "$INSTANCES_DATA_DIR"/*/; do
+        if [ -d "$instance_dir" ]; then
+            instance_name=$(basename "$instance_dir")
+            service_name="mariadb-${instance_name}"
+            config_file="$INSTANCES_CONF_DIR/${instance_name}.cnf"
+            
+            # Check if config exists
+            if [ ! -f "$config_file" ]; then
+                continue
+            fi
+            
+            # Get port from config
+            port=$(grep -E "^port\s*=" "$config_file" 2>/dev/null | head -1 | awk -F'=' '{print $2}' | tr -d ' ')
+            [ -z "$port" ] && port="3306"
+            
+            # Get data directory from config
+            data_dir=$(grep -E "^datadir\s*=" "$config_file" 2>/dev/null | head -1 | awk -F'=' '{print $2}' | tr -d ' ')
+            [ -z "$data_dir" ] && data_dir="${instance_dir}"
+            
+            # Get service status
+            if systemctl is-active --quiet "$service_name" 2>/dev/null; then
+                status="running"
+            elif systemctl is-enabled --quiet "$service_name" 2>/dev/null; then
+                status="stopped"
+            else
+                status="unknown"
+            fi
+            
+            # Get version (same as default)
+            version=$(mysql --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1)
+            [ -z "$version" ] && version="Unknown"
+            
+            # Get memory usage
+            pid=$(systemctl show "$service_name" --property=MainPID --value 2>/dev/null)
+            if [ -n "$pid" ] && [ "$pid" != "0" ]; then
+                mem=$(ps -o rss= -p "$pid" 2>/dev/null | awk '{printf "%.1f MB", $1/1024}')
+            else
+                mem="0 MB"
+            fi
+            
+            # Get data size
+            data_size=$(du -sh "$data_dir" 2>/dev/null | awk '{print $1}')
+            [ -z "$data_size" ] && data_size="0"
+            
+            # Add to JSON
+            if [ "$first" = true ]; then
+                first=false
+            else
+                output+=','
+            fi
+            
+            output+='{'
+            output+="\"name\":\"$instance_name\","
+            output+="\"port\":$port,"
+            output+="\"status\":\"$status\","
+            output+="\"version\":\"$version\","
+            output+="\"dataDir\":\"$data_dir\","
+            output+="\"configPath\":\"$config_file\","
+            output+="\"serviceName\":\"$service_name\","
+            output+="\"memory\":\"$mem\","
+            output+="\"dataSize\":\"$data_size\","
+            output+='"isDefault":false'
+            output+='}'
+        fi
+    done
+fi
+
+output+=']}'
+
+# Output
+if [ "$format" = "json" ]; then
+    if command -v jq &>/dev/null; then
+        echo "$output" | jq .
+    else
+        echo "$output"
+    fi
+elif [ "$format" = "plain" ]; then
+    echo "MariaDB Instances:"
+    echo ""
+    if command -v jq &>/dev/null; then
+        echo "$output" | jq -r '.instances[] | "  \(.name): port=\(.port), status=\(.status)"'
+    else
+        echo "$output"
+    fi
+else
+    echo "$output"
+fi
+
+exit 0

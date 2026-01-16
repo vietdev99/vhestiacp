@@ -1,0 +1,175 @@
+#!/bin/bash
+# info: add HAProxy backend for user
+# options: USER NAME PORT [MODE] [BALANCE] [OPTIONS]
+#
+# example: v-add-user-haproxy-backend admin myapp 3000
+# example: v-add-user-haproxy-backend admin api 8080 http roundrobin
+#
+# This function adds a HAProxy backend configuration for a user.
+# The backend will proxy traffic to the specified port on localhost.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+name=$2
+port=$3
+mode=${4:-http}
+balance=${5:-roundrobin}
+options=$6
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '3' "$#" 'USER NAME PORT [MODE] [BALANCE] [OPTIONS]'
+is_format_valid 'user' 'name' 'port'
+is_object_valid 'user' 'USER' "$user"
+is_object_unsuspended 'user' 'USER' "$user"
+
+# Check if HAProxy is enabled
+if [ "$HAPROXY_SYSTEM" != "yes" ]; then
+    echo "Error: HAProxy is not enabled on this server"
+    exit 1
+fi
+
+# Validate port
+if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+    echo "Error: Invalid port number"
+    exit 1
+fi
+
+# Validate mode
+if [ "$mode" != "http" ] && [ "$mode" != "tcp" ]; then
+    echo "Error: Mode must be 'http' or 'tcp'"
+    exit 1
+fi
+
+# Validate name (alphanumeric and dash only)
+if ! [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    echo "Error: Backend name can only contain letters, numbers, underscores and dashes"
+    exit 1
+fi
+
+# Check if backend already exists for this user
+if [ -f "$HESTIA/data/users/$user/haproxy.conf" ]; then
+    if grep -q "NAME='$name'" "$HESTIA/data/users/$user/haproxy.conf"; then
+        echo "Error: Backend '$name' already exists for user $user"
+        exit 1
+    fi
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Create user haproxy directories
+user_conf_dir="$HOMEDIR/$user/conf/haproxy"
+
+# Remove immutable flag from conf directory (Hestia security feature)
+chattr -i "$HOMEDIR/$user/conf" > /dev/null 2>&1
+
+mkdir -p "$user_conf_dir/backends"
+chown "root:$user" "$HOMEDIR/$user/conf/haproxy"
+chown "root:$user" "$user_conf_dir/backends"
+chmod 750 "$HOMEDIR/$user/conf/haproxy"
+chmod 750 "$user_conf_dir/backends"
+
+# Restore immutable flag
+chattr +i "$HOMEDIR/$user/conf" > /dev/null 2>&1
+
+# Generate unique frontend port for this backend (starting from 9000)
+frontend_port=9000
+if [ -f "$HESTIA/data/haproxy_user_ports.conf" ]; then
+    last_port=$(tail -1 "$HESTIA/data/haproxy_user_ports.conf" | cut -d: -f3)
+    if [ -n "$last_port" ]; then
+        frontend_port=$((last_port + 1))
+    fi
+fi
+
+# Create backend config file
+backend_cfg="$user_conf_dir/backends/${name}.cfg"
+cat > "$backend_cfg" << EOF
+#---------------------------------------------------------------------
+# Backend: $name (User: $user)
+# Created: $(date "+%Y-%m-%d %H:%M:%S")
+#---------------------------------------------------------------------
+
+frontend ${user}_${name}_front
+    bind *:${frontend_port}
+    mode $mode
+EOF
+
+if [ "$mode" = "http" ]; then
+    cat >> "$backend_cfg" << EOF
+    option httplog
+    option forwardfor
+    http-request set-header X-Real-IP %[src]
+    http-request set-header X-Forwarded-Proto http
+    http-request set-header X-Forwarded-For %[src]
+EOF
+else
+    cat >> "$backend_cfg" << EOF
+    option tcplog
+EOF
+fi
+
+cat >> "$backend_cfg" << EOF
+    default_backend ${user}_${name}_back
+
+backend ${user}_${name}_back
+    mode $mode
+    balance $balance
+EOF
+
+if [ "$mode" = "http" ]; then
+    cat >> "$backend_cfg" << EOF
+    option httpchk GET /
+    http-check expect status 200-499
+EOF
+fi
+
+cat >> "$backend_cfg" << EOF
+    server ${name}1 127.0.0.1:${port} check inter 5s fall 3 rise 2
+EOF
+
+chown root:root "$backend_cfg"
+chmod 644 "$backend_cfg"
+
+# Add to user's haproxy.conf
+haproxy_conf="$HESTIA/data/users/$user/haproxy.conf"
+touch "$haproxy_conf"
+
+# Build record
+record="NAME='$name' PORT='$port' FRONTEND_PORT='$frontend_port' MODE='$mode' BALANCE='$balance' TIME='$(date +%s)' DATE='$(date +%F)'"
+echo "$record" >> "$haproxy_conf"
+
+# Track port allocation
+echo "${user}:${name}:${frontend_port}" >> "$HESTIA/data/haproxy_user_ports.conf"
+
+# Rebuild main HAProxy config
+$BIN/v-rebuild-haproxy-conf
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+$BIN/v-log-action "$user" "Info" "HAProxy" "Added backend $name (port $port -> frontend $frontend_port)"
+
+echo "Backend '$name' added successfully"
+echo "  Internal Port: $port"
+echo "  External Port: $frontend_port"
+echo "  Mode: $mode"
+echo "  URL: http://$(hostname -I | awk '{print $1}'):$frontend_port"
+
+exit 0

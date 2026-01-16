@@ -1,0 +1,71 @@
+#!/bin/bash
+# info: VHestia Panel Watchdog - checks and restarts PM2 process if needed
+# options: NONE
+#
+# example: v-check-vhestia-panel
+#
+# This function checks if the vhestia-panel PM2 process is running
+# and restarts it if necessary. It's designed to be called by systemd timer.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+PM2_BIN="/usr/bin/pm2"
+PROCESS_NAME="vhestia-panel"
+LOG_FILE="/var/log/hestia/vhestia-panel-watchdog.log"
+
+# Ensure log directory exists
+mkdir -p /var/log/hestia
+
+log() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" >> "$LOG_FILE"
+}
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if PM2 is installed
+if [ ! -x "$PM2_BIN" ]; then
+    log "ERROR: PM2 not found at $PM2_BIN"
+    exit 1
+fi
+
+# Check if ecosystem config exists
+if [ ! -f "$HESTIA/web_v2/ecosystem.config.cjs" ]; then
+    log "ERROR: ecosystem.config.cjs not found"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Check PM2 process status
+STATUS=$($PM2_BIN jlist 2>/dev/null | jq -r ".[] | select(.name == \"$PROCESS_NAME\") | .pm2_env.status" 2>/dev/null)
+
+if [ -z "$STATUS" ]; then
+    log "WARNING: Process $PROCESS_NAME not found in PM2. Starting..."
+    cd "$HESTIA/web_v2" && $PM2_BIN start ecosystem.config.cjs --env production
+    $PM2_BIN save
+    log "Started $PROCESS_NAME"
+elif [ "$STATUS" != "online" ]; then
+    log "WARNING: Process $PROCESS_NAME is $STATUS. Restarting..."
+    $PM2_BIN restart $PROCESS_NAME --update-env
+    log "Restarted $PROCESS_NAME"
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+exit 0

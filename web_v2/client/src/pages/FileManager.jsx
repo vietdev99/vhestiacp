@@ -35,7 +35,8 @@ import toast from 'react-hot-toast';
 
 export default function FileManager() {
   const queryClient = useQueryClient();
-  const [currentPath, setCurrentPath] = useState('/');
+  const [currentPath, setCurrentPath] = useState('~'); // Start at home directory
+  const [homePath, setHomePath] = useState(null); // Store actual home path
   const [selectedFiles, setSelectedFiles] = useState([]);
   const [viewMode, setViewMode] = useState('list'); // 'list' or 'grid'
   const [searchQuery, setSearchQuery] = useState('');
@@ -51,6 +52,10 @@ export default function FileManager() {
     queryKey: ['file-manager', currentPath],
     queryFn: async () => {
       const res = await api.get('/api/files/list', { params: { path: currentPath } });
+      // Store actual home path when we get it
+      if (res.data?.homePath && !homePath) {
+        setHomePath(res.data.homePath);
+      }
       return res.data;
     }
   });
@@ -67,10 +72,25 @@ export default function FileManager() {
 
   // Go up one directory
   const goUp = () => {
-    if (currentPath === '/') return;
-    const parts = currentPath.split('/').filter(Boolean);
+    // If at home path or ~, don't go up further for regular users
+    const effectivePath = currentPath === '~' ? (homePath || '/home') : currentPath;
+    if (effectivePath === '/' || effectivePath === homePath) return;
+
+    const parts = effectivePath.split('/').filter(Boolean);
     parts.pop();
-    setCurrentPath('/' + parts.join('/'));
+    const newPath = '/' + parts.join('/');
+
+    // If going above home, stay at home
+    if (homePath && !newPath.startsWith(homePath) && newPath !== homePath) {
+      setCurrentPath('~');
+    } else {
+      setCurrentPath(newPath || '/');
+    }
+  };
+
+  // Go to home directory
+  const goHome = () => {
+    setCurrentPath('~');
   };
 
   // Build breadcrumb path parts
@@ -316,8 +336,8 @@ export default function FileManager() {
         <p className="text-gray-500 dark:text-dark-muted mb-4">
           {error.response?.data?.error || 'Failed to load directory contents'}
         </p>
-        <button onClick={() => navigateTo('/')} className="btn btn-primary">
-          Go to Root
+        <button onClick={goHome} className="btn btn-primary">
+          Go to Home
         </button>
       </div>
     );
@@ -345,15 +365,15 @@ export default function FileManager() {
         <div className="flex flex-wrap items-center gap-2">
           {/* Navigation */}
           <button
-            onClick={() => navigateTo('/')}
+            onClick={goHome}
             className="btn btn-secondary btn-sm"
-            title="Home"
+            title="Home (~)"
           >
             <Home className="w-4 h-4" />
           </button>
           <button
             onClick={goUp}
-            disabled={currentPath === '/'}
+            disabled={currentPath === '~' || currentPath === homePath}
             className="btn btn-secondary btn-sm"
             title="Go up"
           >
@@ -503,23 +523,29 @@ export default function FileManager() {
       {/* Breadcrumb */}
       <div className="card px-4 py-2 mb-4 flex items-center gap-1 text-sm overflow-x-auto">
         <button
-          onClick={() => navigateTo('/')}
+          onClick={goHome}
           className="flex items-center gap-1 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-dark-border"
         >
           <Home className="w-4 h-4" />
-          root
+          ~
         </button>
-        {pathParts.map((part, index) => (
-          <div key={index} className="flex items-center">
-            <ChevronRight className="w-4 h-4 text-gray-400" />
-            <button
-              onClick={() => navigateTo('/' + pathParts.slice(0, index + 1).join('/'))}
-              className="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-dark-border"
-            >
-              {part}
-            </button>
-          </div>
-        ))}
+        {currentPath !== '~' && pathParts.map((part, index) => {
+          // Don't show home path components for cleaner display
+          const fullPath = '/' + pathParts.slice(0, index + 1).join('/');
+          if (homePath && fullPath === homePath) return null;
+
+          return (
+            <div key={index} className="flex items-center">
+              <ChevronRight className="w-4 h-4 text-gray-400" />
+              <button
+                onClick={() => navigateTo(fullPath)}
+                className="px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-dark-border"
+              >
+                {part}
+              </button>
+            </div>
+          );
+        })}
       </div>
 
       {/* File List */}

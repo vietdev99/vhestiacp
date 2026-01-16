@@ -65,10 +65,11 @@ export default function HAProxyVisualize() {
   // Calculate node positions
   const calculatePositions = useCallback((nodes, edges) => {
     const positions = {};
-    const padding = 80;
+    const padding = 100;
     const nodeWidth = 180;
     const nodeHeight = 60;
-    const levelGap = 200;
+    const levelGap = 300;  // Increased horizontal gap between levels
+    const verticalGap = 100;  // Increased vertical gap between nodes
 
     // Separate by type
     const frontends = nodes.filter(n => n.type === 'frontend');
@@ -81,15 +82,15 @@ export default function HAProxyVisualize() {
     frontends.forEach((node, i) => {
       positions[node.id] = {
         x: padding,
-        y: padding + i * (nodeHeight + 40)
+        y: padding + i * (nodeHeight + verticalGap)
       };
     });
 
-    // Position backends in the middle
+    // Position backends in the middle - spread out more
     backends.forEach((node, i) => {
       positions[node.id] = {
         x: padding + levelGap,
-        y: padding + i * (nodeHeight + 40)
+        y: padding + i * (nodeHeight + verticalGap)
       };
     });
 
@@ -104,34 +105,35 @@ export default function HAProxyVisualize() {
           x: padding + levelGap * 2,
           y: serverY
         };
-        serverY += nodeHeight + 20;
+        serverY += nodeHeight + 40;
       });
       if (backendServers.length > 0) {
-        serverY += 20;
+        serverY += 40;
       }
     });
 
-    // Position user backends on the far right (level 4)
+    // Position user backends on the far right (level 4) - spread out more
     let userBackendY = padding;
     userBackends.forEach((ub, i) => {
       positions[ub.id] = {
         x: padding + levelGap * 3,
         y: userBackendY
       };
-      userBackendY += nodeHeight + 20;
+      userBackendY += nodeHeight + verticalGap;
     });
 
     // Position listen sections below
     const maxY = Math.max(
-      frontends.length * (nodeHeight + 40),
-      backends.length * (nodeHeight + 40),
-      serverY
+      frontends.length * (nodeHeight + verticalGap),
+      backends.length * (nodeHeight + verticalGap),
+      serverY,
+      userBackendY
     ) + padding;
 
     listens.forEach((node, i) => {
       positions[node.id] = {
         x: padding,
-        y: maxY + i * (nodeHeight + 40)
+        y: maxY + i * (nodeHeight + verticalGap)
       };
 
       // Position listen servers
@@ -141,7 +143,7 @@ export default function HAProxyVisualize() {
       listenServers.forEach((server, j) => {
         positions[server.id] = {
           x: padding + levelGap,
-          y: maxY + i * (nodeHeight + 40) + j * (nodeHeight + 20)
+          y: maxY + i * (nodeHeight + verticalGap) + j * (nodeHeight + 40)
         };
       });
     });
@@ -227,14 +229,37 @@ export default function HAProxyVisualize() {
       ctx.fillStyle = ctx.strokeStyle;
       ctx.fill();
 
-      // Draw label
-      if (showLabels && edge.label && edge.type === 'conditional') {
+      // Draw label for edges
+      if (showLabels && edge.label) {
         ctx.font = '10px system-ui';
-        ctx.fillStyle = '#6b7280';
         ctx.textAlign = 'center';
         const midX = (fromX + toX) / 2;
-        const midY = (fromY + toY) / 2 - 10;
-        ctx.fillText(edge.label, midX, midY);
+        const midY = (fromY + toY) / 2;
+
+        // Draw label background for better readability
+        const labelText = edge.type === 'default' ? 'default' : edge.label;
+        const labelWidth = ctx.measureText(labelText).width + 8;
+        const labelHeight = 14;
+
+        // Background
+        ctx.fillStyle = edge.type === 'default' ? '#dcfce7' :
+                       edge.type === 'conditional' ? '#ffedd5' :
+                       edge.type === 'user_backend' ? '#fae8ff' : '#f3f4f6';
+        ctx.fillRect(midX - labelWidth / 2, midY - labelHeight / 2 - 8, labelWidth, labelHeight);
+
+        // Border
+        ctx.strokeStyle = edge.type === 'default' ? '#22c55e' :
+                         edge.type === 'conditional' ? '#f97316' :
+                         edge.type === 'user_backend' ? '#a855f7' : '#9ca3af';
+        ctx.lineWidth = 1;
+        ctx.setLineDash([]);
+        ctx.strokeRect(midX - labelWidth / 2, midY - labelHeight / 2 - 8, labelWidth, labelHeight);
+
+        // Text
+        ctx.fillStyle = edge.type === 'default' ? '#15803d' :
+                       edge.type === 'conditional' ? '#c2410c' :
+                       edge.type === 'user_backend' ? '#7e22ce' : '#374151';
+        ctx.fillText(labelText, midX, midY - 3);
       }
     });
 

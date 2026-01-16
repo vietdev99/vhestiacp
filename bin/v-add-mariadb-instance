@@ -1,0 +1,298 @@
+#!/bin/bash
+# info: add mariadb instance
+# options: NAME PORT [TYPE] [MASTER_HOST] [MASTER_PORT]
+#
+# example: v-add-mariadb-instance myapp 3307
+# example: v-add-mariadb-instance mymaster 3307 master
+# example: v-add-mariadb-instance myslave 3308 slave 192.168.0.1 3307
+#
+# TYPE: standalone (default), master, slave
+# This function creates a new MariaDB instance with its own port and data directory.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+name=$1
+port=$2
+instance_type=${3:-standalone}    # standalone, master, slave
+master_host=$4
+master_port=${5:-3306}
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Directories
+INSTANCES_DATA_DIR="/var/lib/mysql-instances"
+INSTANCES_CONF_DIR="/etc/mysql-instances"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if name is provided
+if [ -z "$name" ]; then
+    echo "Error: Instance name is required"
+    echo "Usage: v-add-mariadb-instance NAME PORT [DATADIR]"
+    exit 1
+fi
+
+# Check if port is provided
+if [ -z "$port" ]; then
+    echo "Error: Port is required"
+    echo "Usage: v-add-mariadb-instance NAME PORT [DATADIR]"
+    exit 1
+fi
+
+# Validate name format
+if ! [[ "$name" =~ ^[a-zA-Z][a-zA-Z0-9_-]*$ ]]; then
+    echo "Error: Instance name must start with a letter and contain only letters, numbers, dashes, and underscores"
+    exit 1
+fi
+
+# Validate port
+if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1024 ] || [ "$port" -gt 65535 ]; then
+    echo "Error: Port must be a number between 1024 and 65535"
+    exit 1
+fi
+
+# Check if port is in use
+if ss -tlnp 2>/dev/null | grep -q ":$port "; then
+    echo "Error: Port $port is already in use"
+    exit 1
+fi
+
+# Validate instance type
+case "$instance_type" in
+    standalone|master|slave) ;;
+    *)
+        echo "Error: Invalid instance type. Use: standalone, master, slave"
+        exit 1
+        ;;
+esac
+
+# For slave, require master_host
+if [ "$instance_type" = "slave" ] && [ -z "$master_host" ]; then
+    echo "Error: Slave instance requires master host"
+    echo "Usage: v-add-mariadb-instance NAME PORT slave MASTER_HOST [MASTER_PORT]"
+    exit 1
+fi
+
+# Check if instance already exists
+if [ -d "$INSTANCES_DATA_DIR/$name" ] || [ -f "$INSTANCES_CONF_DIR/$name.cnf" ]; then
+    echo "Error: Instance '$name' already exists"
+    exit 1
+fi
+
+# Set datadir
+datadir="$INSTANCES_DATA_DIR/$name"
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Creating MariaDB instance: $name on port $port"
+
+# Create directories
+mkdir -p "$INSTANCES_DATA_DIR"
+mkdir -p "$INSTANCES_CONF_DIR"
+mkdir -p "$datadir"
+
+# Set ownership
+chown -R mysql:mysql "$datadir"
+chmod 750 "$datadir"
+
+# Ensure log directory exists
+LOG_DIR="/var/log/mysql"
+if [ ! -d "$LOG_DIR" ]; then
+    mkdir -p "$LOG_DIR"
+    chown mysql:mysql "$LOG_DIR"
+    chmod 750 "$LOG_DIR"
+fi
+
+# Create socket directory
+socket_dir="/var/run/mysqld-$name"
+mkdir -p "$socket_dir"
+chown mysql:mysql "$socket_dir"
+
+# Create log file
+log_file="/var/log/mysql/error-$name.log"
+touch "$log_file"
+chown mysql:mysql "$log_file"
+
+# Create config file
+config_file="$INSTANCES_CONF_DIR/$name.cnf"
+
+# Generate a unique server-id based on port
+server_id=$((port % 1000000))
+
+cat > "$config_file" << EOF
+# MariaDB instance: $name
+# Created by VHestiaCP
+# Instance Type: $instance_type
+
+[mysqld]
+user                    = mysql
+pid-file                = /var/run/mysqld-$name/mysqld.pid
+socket                  = /var/run/mysqld-$name/mysqld.sock
+port                    = $port
+basedir                 = /usr
+datadir                 = $datadir
+tmpdir                  = /tmp
+bind-address            = 0.0.0.0
+
+# Logging
+log_error               = /var/log/mysql/error-$name.log
+slow_query_log_file     = /var/log/mysql/slow-$name.log
+
+# Performance settings
+max_connections         = 100
+innodb_buffer_pool_size = 128M
+innodb_log_file_size    = 48M
+
+# Character set
+character-set-server    = utf8mb4
+collation-server        = utf8mb4_general_ci
+
+# Server ID for replication
+server-id               = $server_id
+EOF
+
+# Add replication config for master
+if [ "$instance_type" = "master" ]; then
+    cat >> "$config_file" << EOF
+
+# Master Replication Settings
+log-bin                 = /var/log/mysql/$name-bin
+binlog_format           = ROW
+binlog_expire_logs_days = 7
+max_binlog_size         = 100M
+sync_binlog             = 1
+EOF
+fi
+
+# Add replication config for slave
+if [ "$instance_type" = "slave" ]; then
+    cat >> "$config_file" << EOF
+
+# Slave Replication Settings
+relay-log               = /var/log/mysql/$name-relay
+relay-log-index         = /var/log/mysql/$name-relay.index
+read_only               = ON
+log_slave_updates       = ON
+EOF
+fi
+
+echo "Created config file: $config_file (type: $instance_type)"
+
+# Initialize the database directory
+echo "Initializing database..."
+mysql_install_db --user=mysql --datadir="$datadir" --auth-root-authentication-method=normal > /dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+    # Try alternative method
+    mysqld --initialize-insecure --user=mysql --datadir="$datadir" > /dev/null 2>&1
+fi
+
+# Set ownership
+chown -R mysql:mysql "$datadir"
+chmod 750 "$datadir"
+
+# Create systemd service file
+service_file="/etc/systemd/system/mariadb-$name.service"
+cat > "$service_file" << EOF
+[Unit]
+Description=MariaDB $name database server
+After=network.target
+After=syslog.target
+
+[Install]
+WantedBy=multi-user.target
+
+[Service]
+Type=notify
+User=mysql
+Group=mysql
+
+# Start main service
+ExecStart=/usr/sbin/mariadbd --defaults-file=$config_file
+
+# Hardening
+PrivateTmp=false
+ProtectHome=true
+ProtectSystem=full
+NoNewPrivileges=true
+
+# Timeout and runtime settings
+TimeoutStartSec=900
+TimeoutStopSec=300
+Restart=on-failure
+RestartPreventExitStatus=1
+
+# Runtime directory
+RuntimeDirectory=mysqld-$name
+RuntimeDirectoryMode=755
+
+# Make sure socket directory exists
+ExecStartPre=/bin/mkdir -p $socket_dir
+ExecStartPre=/bin/chown mysql:mysql $socket_dir
+EOF
+
+echo "Created systemd service: mariadb-$name.service"
+
+# Reload systemd
+systemctl daemon-reload
+
+# Enable and start the service
+systemctl enable "mariadb-$name" > /dev/null 2>&1
+systemctl start "mariadb-$name"
+
+if [ $? -eq 0 ]; then
+    echo "Instance '$name' started successfully on port $port"
+    
+    # Generate and Set Root Password
+    echo "Setting up root password..."
+    ROOT_PASSWORD=$(generate_password)
+    socket="/var/run/mysqld-$name/mysqld.sock"
+    
+    # Wait for socket
+    sleep 5
+    
+    # Set password
+    if [ -S "$socket" ]; then
+        mysqladmin --socket="$socket" -u root password "$ROOT_PASSWORD"
+        if [ $? -eq 0 ]; then
+             echo "Root password set successfully."
+        else
+             echo "Warning: Failed to set root password via mysqladmin."
+             # Try via SQL
+             mysql --socket="$socket" -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$ROOT_PASSWORD'; FLUSH PRIVILEGES;"
+        fi
+    fi
+    
+    # Save password to Hestia Config
+    CONF_FILE="$HESTIA/conf/mariadb-${name}.conf"
+    cat > "$CONF_FILE" <<EOF2
+# MariaDB instance: $name
+# Generated: $(date)
+ROOT_PASSWORD='$ROOT_PASSWORD'
+PORT='$port'
+SOCKET='$socket'
+EOF2
+    chmod 600 "$CONF_FILE"
+
+    echo ""
+    echo "Connection info:"
+    echo "  mysql -h 127.0.0.1 -P $port -u root -p"
+    echo "  Socket: /var/run/mysqld-$name/mysqld.sock"
+    echo "  Password: $ROOT_PASSWORD"
+    echo "  Config: $CONF_FILE"
+else
+    echo "Warning: Instance created but failed to start. Check logs:"
+    echo "  journalctl -u mariadb-$name -n 50"
+fi
+
+exit 0

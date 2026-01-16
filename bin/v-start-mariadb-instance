@@ -1,0 +1,51 @@
+#!/bin/bash
+# info: start mariadb instance
+# options: NAME
+#
+# example: v-start-mariadb-instance myapp
+#
+# This function starts a MariaDB instance.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+name=$1
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+if [ -z "$name" ]; then
+    echo "Error: Instance name is required"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+if [ "$name" = "default" ]; then
+    service_name="mariadb"
+    # Fallback to mysql if mariadb service doesn't exist
+    if ! systemctl list-unit-files mariadb.service &>/dev/null; then
+        service_name="mysql"
+    fi
+else
+    service_name="mariadb-$name"
+fi
+
+systemctl start "$service_name"
+
+if [ $? -eq 0 ]; then
+    echo "Instance '$name' started successfully"
+    exit 0
+else
+    echo "Error: Failed to start instance '$name'"
+    exit 1
+fi

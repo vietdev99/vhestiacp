@@ -1,0 +1,95 @@
+#!/bin/bash
+# info: Setup VHestia Panel systemd service and watchdog timer
+# options: NONE
+#
+# example: v-setup-vhestia-panel-watchdog
+#
+# This function installs the systemd service files for vhestia-panel
+# and enables the watchdog timer to ensure the panel stays running.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+INSTALL_DIR="$HESTIA/install/deb"
+SYSTEMD_DIR="/etc/systemd/system"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if running as root
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+# Check if PM2 is installed
+if ! command -v pm2 &> /dev/null; then
+    echo "Error: PM2 is not installed"
+    exit 1
+fi
+
+# Check if source files exist
+if [ ! -f "$INSTALL_DIR/vhestia-panel.service" ]; then
+    echo "Error: vhestia-panel.service not found in $INSTALL_DIR"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Installing VHestia Panel systemd services..."
+
+# Copy service files
+cp "$INSTALL_DIR/vhestia-panel.service" "$SYSTEMD_DIR/"
+cp "$INSTALL_DIR/vhestia-panel-watchdog.service" "$SYSTEMD_DIR/"
+cp "$INSTALL_DIR/vhestia-panel-watchdog.timer" "$SYSTEMD_DIR/"
+
+# Set permissions
+chmod 644 "$SYSTEMD_DIR/vhestia-panel.service"
+chmod 644 "$SYSTEMD_DIR/vhestia-panel-watchdog.service"
+chmod 644 "$SYSTEMD_DIR/vhestia-panel-watchdog.timer"
+
+# Ensure watchdog script is executable
+chmod +x "$HESTIA/bin/v-check-vhestia-panel"
+
+# Reload systemd
+systemctl daemon-reload
+
+# Enable and start services
+echo "Enabling vhestia-panel service..."
+systemctl enable vhestia-panel
+
+echo "Enabling watchdog timer..."
+systemctl enable --now vhestia-panel-watchdog.timer
+
+# Create log directory
+mkdir -p /var/log/hestia
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo ""
+echo "VHestia Panel watchdog setup complete!"
+echo ""
+echo "Services installed:"
+echo "  - vhestia-panel.service (enabled, starts on boot)"
+echo "  - vhestia-panel-watchdog.timer (runs every minute)"
+echo ""
+echo "Commands:"
+echo "  systemctl status vhestia-panel"
+echo "  systemctl status vhestia-panel-watchdog.timer"
+echo "  tail -f /var/log/hestia/vhestia-panel-watchdog.log"
+
+exit 0

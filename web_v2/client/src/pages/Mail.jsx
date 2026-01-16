@@ -1,17 +1,28 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
+import { Link, useNavigate } from 'react-router-dom';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../utils/api';
-import { Plus, Search, Mail as MailIcon, MoreVertical } from 'lucide-react';
+import { Plus, Search, Mail as MailIcon, Trash2 } from 'lucide-react';
 
 export default function Mail() {
   const [search, setSearch] = useState('');
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
-  const { data, isLoading, error } = useQuery({
+  const { data, isLoading, error, refetch } = useQuery({
     queryKey: ['mail-domains'],
     queryFn: async () => {
       const res = await api.get('/api/mail');
-      return res.data.domains || [];
+      return Array.isArray(res.data) ? res.data : (res.data.domains || []);
+    }
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async (domain) => {
+      await api.delete(`/api/mail/${domain}`);
+    },
+    onSuccess: () => {
+      refetch();
     }
   });
 
@@ -91,10 +102,10 @@ export default function Mail() {
             <tbody className="divide-y divide-gray-200 dark:divide-dark-border">
               {filteredDomains.map((item) => (
                 <tr key={item.domain} className="hover:bg-gray-50 dark:hover:bg-dark-border/50">
-                  <td className="px-4 py-4">
+                  <td className="px-4 py-4 cursor-pointer" onClick={() => navigate(`/mail/${item.domain}`)}>
                     <div className="flex items-center gap-2">
                       <MailIcon className="w-5 h-5 text-gray-400" />
-                      <span className="font-medium">{item.domain}</span>
+                      <span className="font-medium text-primary-600 hover:underline">{item.domain}</span>
                     </div>
                   </td>
                   <td className="px-4 py-4 text-center text-sm text-gray-600 dark:text-dark-muted">
@@ -111,8 +122,18 @@ export default function Mail() {
                     )}
                   </td>
                   <td className="px-4 py-4 text-right">
-                    <button className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-border">
-                      <MoreVertical className="w-5 h-5" />
+                    <button 
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (confirm(`Delete mail domain "${item.domain}"? This will also delete all mail accounts.`)) {
+                          deleteMutation.mutate(item.domain);
+                        }
+                      }}
+                      disabled={deleteMutation.isPending}
+                      className="p-2 rounded-lg hover:bg-red-100 text-red-600"
+                      title="Delete domain"
+                    >
+                      <Trash2 className="w-5 h-5" />
                     </button>
                   </td>
                 </tr>

@@ -1,26 +1,44 @@
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import api from '../utils/api';
-import { ArrowLeft, AlertCircle, Loader2, Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { ArrowLeft, AlertCircle, Loader2, Eye, EyeOff, RefreshCw, Server } from 'lucide-react';
 
 export default function DatabaseAdd() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const [error, setError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  
+  // Get instance and type from URL
+  const instance = searchParams.get('instance') || 'default';
+  const dbType = searchParams.get('type') || 'mysql';
+  
   const [formData, setFormData] = useState({
     database: '',
     dbuser: '',
     password: '',
-    type: 'mysql'
+    type: dbType
   });
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
-      await api.post('/api/databases', data);
+      // Determine API endpoint based on type
+      let endpoint = '/api/databases';
+      if (data.type === 'mysql') {
+        endpoint = '/api/databases/mariadb';
+      } else if (data.type === 'pgsql') {
+        endpoint = '/api/databases/pgsql';
+      }
+      
+      // Include instance in request
+      await api.post(endpoint, {
+        ...data,
+        instance: instance
+      });
     },
     onSuccess: () => {
-      navigate('/databases');
+      navigate(`/databases?type=${formData.type}&instance=${instance}`);
     },
     onError: (err) => {
       setError(err.response?.data?.error || 'Failed to create database');
@@ -59,16 +77,25 @@ export default function DatabaseAdd() {
     setShowPassword(true);
   };
 
+  const typeLabel = formData.type === 'mysql' ? 'MariaDB' : 'PostgreSQL';
+  const backUrl = `/databases?type=${formData.type}&instance=${instance}`;
+
   return (
     <div className="max-w-2xl mx-auto">
       {/* Header */}
       <div className="flex items-center gap-4 mb-6">
-        <Link to="/databases" className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-border">
+        <Link to={backUrl} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-dark-border">
           <ArrowLeft className="w-5 h-5" />
         </Link>
-        <div>
-          <h1 className="text-2xl font-bold">Add Database</h1>
-          <p className="text-gray-500 dark:text-dark-muted mt-1">Create a new database</p>
+        <div className="flex-1">
+          <h1 className="text-2xl font-bold">Add {typeLabel} Database</h1>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="text-gray-500 dark:text-dark-muted">Creating in instance:</span>
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 rounded text-sm font-medium">
+              <Server className="w-3 h-3" />
+              {instance}
+            </span>
+          </div>
         </div>
       </div>
 
@@ -151,21 +178,8 @@ export default function DatabaseAdd() {
             </div>
           </div>
 
-          {/* Type */}
-          <div>
-            <label htmlFor="type" className="block text-sm font-medium mb-1">
-              Database Type
-            </label>
-            <select
-              id="type"
-              value={formData.type}
-              onChange={(e) => setFormData({ ...formData, type: e.target.value })}
-              className="input"
-            >
-              <option value="mysql">MySQL / MariaDB</option>
-              <option value="pgsql">PostgreSQL</option>
-            </select>
-          </div>
+          {/* Type - Hidden, controlled by URL */}
+          <input type="hidden" name="type" value={formData.type} />
 
           {/* Actions */}
           <div className="flex gap-3 pt-4">
@@ -183,7 +197,7 @@ export default function DatabaseAdd() {
                 'Create Database'
               )}
             </button>
-            <Link to="/databases" className="btn btn-secondary">
+            <Link to={backUrl} className="btn btn-secondary">
               Cancel
             </Link>
           </div>

@@ -42,7 +42,9 @@ export function execHestia(cmd, args = [], options = {}) {
     };
     exec(fullCmd, execOptions, (error, stdout, stderr) => {
       if (error) {
-        reject(new Error(stderr || error.message));
+        // Include stdout in error message as some Hestia commands output errors to stdout
+        const errorOutput = stderr || stdout || error.message;
+        reject(new Error(errorOutput.trim()));
       } else {
         resolve(stdout);
       }

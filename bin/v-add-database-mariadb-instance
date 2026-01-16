@@ -1,0 +1,142 @@
+#!/bin/bash
+# info: add database to mariadb instance
+# options: USER DATABASE DBUSER DBPASSWORD INSTANCE
+#
+# example: v-add-database-mariadb-instance admin mydb myuser password123 default
+#
+# This function creates a database on a specific MariaDB instance.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+database="${user}_${2}"
+dbuser="${user}_${3:-$2}"
+dbpassword=$4
+instance=${5:-default}
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '4' "$#" 'USER DATABASE DBUSER DBPASSWORD [INSTANCE]'
+
+# Validate user
+is_object_valid 'user' 'USER' "$user"
+
+# Generate password if not provided
+if [ -z "$dbpassword" ]; then
+    dbpassword=$(generate_password)
+fi
+
+#----------------------------------------------------------#
+#                  Instance Configuration                  #
+#----------------------------------------------------------#
+
+# Determine port and socket based on instance
+MYSQL_PORT=3306
+MYSQL_SOCKET="/var/run/mysqld/mysqld.sock"
+
+if [ "$instance" != "default" ]; then
+    # Load instance config
+    if [ -f "/etc/mysql-instances/${instance}.cnf" ]; then
+        inst_port=$(grep -E "^port\s*=" "/etc/mysql-instances/${instance}.cnf" 2>/dev/null | cut -d'=' -f2 | tr -d ' ')
+        inst_socket=$(grep -E "^socket\s*=" "/etc/mysql-instances/${instance}.cnf" 2>/dev/null | cut -d'=' -f2 | tr -d ' ')
+        [ -n "$inst_port" ] && MYSQL_PORT="$inst_port"
+        [ -n "$inst_socket" ] && MYSQL_SOCKET="$inst_socket"
+    fi
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Creating MariaDB database: $database on instance: $instance (port $MYSQL_PORT, socket $MYSQL_SOCKET)..."
+
+# Build mysql command - try multiple auth methods
+mysql_cmd=""
+
+# 1. Try instance-specific config first
+INSTANCE_CONF="$HESTIA/conf/mariadb-${instance}.conf"
+if [ -f "$INSTANCE_CONF" ]; then
+    source "$INSTANCE_CONF"
+    if [ -n "$ROOT_PASSWORD" ]; then
+        mysql_cmd="mysql --socket=$MYSQL_SOCKET -u root -p$ROOT_PASSWORD"
+    fi
+fi
+
+# 2. Try unix socket auth (no password, skip .my.cnf)
+if [ -z "$mysql_cmd" ]; then
+    if echo "SELECT 1;" | mysql --no-defaults --socket="$MYSQL_SOCKET" -u root &>/dev/null; then
+        mysql_cmd="mysql --no-defaults --socket=$MYSQL_SOCKET -u root"
+    fi
+fi
+
+# 3. Try /root/.my.cnf password (for default instance only)
+if [ -z "$mysql_cmd" ] && [ "$instance" = "default" ] && [ -f "/root/.my.cnf" ]; then
+    MYSQL_ROOT_PASSWORD=$(grep -E "^password\s*=" /root/.my.cnf | head -1 | cut -d'=' -f2 | tr -d ' \"')
+    if [ -n "$MYSQL_ROOT_PASSWORD" ]; then
+        mysql_cmd="mysql --socket=$MYSQL_SOCKET -u root -p$MYSQL_ROOT_PASSWORD"
+    fi
+fi
+
+# 4. Fallback to no password with --no-defaults
+if [ -z "$mysql_cmd" ]; then
+    mysql_cmd="mysql --no-defaults --socket=$MYSQL_SOCKET -u root"
+fi
+
+# Create database
+echo "CREATE DATABASE IF NOT EXISTS \`$database\`;" | $mysql_cmd
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to create database"
+    echo "Socket: $MYSQL_SOCKET"
+    exit 1
+fi
+
+# Create user and grant privileges
+$mysql_cmd <<EOF
+CREATE USER IF NOT EXISTS '$dbuser'@'localhost' IDENTIFIED BY '$dbpassword';
+GRANT ALL PRIVILEGES ON \`$database\`.* TO '$dbuser'@'localhost';
+FLUSH PRIVILEGES;
+EOF
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to create user"
+    exit 1
+fi
+
+# Store database info in user's config
+user_dir="$HESTIA/data/users/$user"
+user_db_conf="$user_dir/mariadb.conf"
+
+mkdir -p "$user_dir"
+touch "$user_db_conf"
+
+# Remove existing entry if any
+sed -i "/^DB='$database'/d" "$user_db_conf" 2>/dev/null || true
+
+# Add new entry with instance
+echo "DB='$database' USER='$dbuser' PASSWORD='$dbpassword' HOST='localhost' PORT='$MYSQL_PORT' INSTANCE='$instance' DATE='$(date +%Y-%m-%d)' TYPE='mysql'" >> "$user_db_conf"
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo ""
+echo "MariaDB database created successfully!"
+echo ""
+echo "  Database:    $database"
+echo "  User:        $dbuser"
+echo "  Password:    $dbpassword"
+echo "  Instance:    $instance"
+echo "  Port:        $MYSQL_PORT"
+echo ""
+
+exit 0

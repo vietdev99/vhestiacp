@@ -59,11 +59,128 @@ if [ ! -f "$HAPROXY_BASE" ]; then
     fi
 fi
 
-# Start with base config (global, defaults sections)
-cp "$HAPROXY_BASE" "$HAPROXY_TMP"
+# Collect all user ACLs and generate backends from haproxy.json
+USER_ACLS_HTTP=""
+USER_ACLS_HTTPS=""
+USER_BACKENDS=""
+user_domains_found=0
 
-# Include admin global config if exists (additional global settings)
-# This file can contain extra defaults, resolvers, peers, etc.
+for user_dir in "$HESTIA"/data/users/*/; do
+    u=$(basename "$user_dir")
+
+    # Skip if not a valid user
+    [ ! -f "$user_dir/user.conf" ] && continue
+
+    # Check if user has haproxy.json
+    if [ -f "$user_dir/haproxy.json" ] && [ -s "$user_dir/haproxy.json" ]; then
+        # Read user's haproxy.json and generate ACLs + backends
+        if command -v jq &> /dev/null; then
+            while read -r domain_json; do
+                [ -z "$domain_json" ] && continue
+
+                d_domain=$(echo "$domain_json" | jq -r '.domain')
+                d_aliases=$(echo "$domain_json" | jq -r '.aliases // [] | join(" ")')
+                d_backend=$(echo "$domain_json" | jq -r '.backend.name')
+                d_host=$(echo "$domain_json" | jq -r '.backend.host')
+                d_port=$(echo "$domain_json" | jq -r '.backend.port')
+                d_type=$(echo "$domain_json" | jq -r '.backend.type')
+                d_enabled=$(echo "$domain_json" | jq -r '.enabled')
+                d_health=$(echo "$domain_json" | jq -r '.options.healthCheck // true')
+
+                [ "$d_enabled" != "true" ] && continue
+
+                # Build ACL condition with domain and aliases
+                acl_domains="$d_domain"
+                if [ -n "$d_aliases" ] && [ "$d_aliases" != "null" ] && [ "$d_aliases" != "" ]; then
+                    acl_domains="$acl_domains $d_aliases"
+                fi
+
+                acl_name="host_${d_backend}"
+                acl_line="    acl $acl_name hdr(host) -i $acl_domains"
+                use_line="    use_backend $d_backend if $acl_name"
+
+                USER_ACLS_HTTP="${USER_ACLS_HTTP}${acl_line}\n${use_line}\n"
+                USER_ACLS_HTTPS="${USER_ACLS_HTTPS}${acl_line}\n${use_line}\n"
+
+                # Generate backend config
+                backend_cfg="
+# Domain: $d_domain
+# User: $u
+backend $d_backend
+    mode http
+    balance roundrobin
+    option forwardfor
+    http-request set-header X-Real-IP %[src]
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    http-request set-header X-Forwarded-Proto http if !{ ssl_fc }
+    http-request set-header X-Forwarded-Host %[req.hdr(host)]"
+
+                # Add health check if enabled
+                if [ "$d_health" = "true" ]; then
+                    backend_cfg="$backend_cfg
+    option httpchk GET /
+    http-check expect status 200-499
+    server ${d_type}_${d_port} ${d_host}:${d_port} check inter 5s fall 3 rise 2"
+                else
+                    backend_cfg="$backend_cfg
+    server ${d_type}_${d_port} ${d_host}:${d_port}"
+                fi
+
+                USER_BACKENDS="${USER_BACKENDS}${backend_cfg}
+"
+                ((user_domains_found++))
+            done < <(jq -c '.domains[]' "$user_dir/haproxy.json" 2>/dev/null)
+        fi
+    fi
+done
+
+# Now build the config file
+# Read base config and inject user ACLs into frontends
+HAPROXY_TMP2="/tmp/haproxy.cfg.tmp2"
+
+# Process base config line by line, injecting ACLs before default_backend
+in_http_front=0
+in_https_front=0
+injected_http=0
+injected_https=0
+
+while IFS= read -r line; do
+    # Detect frontend sections
+    if [[ "$line" =~ ^frontend[[:space:]]+http_front ]]; then
+        in_http_front=1
+        in_https_front=0
+        injected_http=0
+    elif [[ "$line" =~ ^frontend[[:space:]]+https_front ]]; then
+        in_http_front=0
+        in_https_front=1
+        injected_https=0
+    elif [[ "$line" =~ ^(frontend|backend|listen)[[:space:]] ]] && [[ ! "$line" =~ ^frontend[[:space:]]+(http|https)_front ]]; then
+        in_http_front=0
+        in_https_front=0
+    fi
+
+    # Inject user ACLs before default_backend line
+    if [[ "$line" =~ ^[[:space:]]*default_backend ]]; then
+        if [ $in_http_front -eq 1 ] && [ $injected_http -eq 0 ] && [ -n "$USER_ACLS_HTTP" ]; then
+            echo ""
+            echo "    # ============ USER DOMAIN RULES (Auto-generated) ============"
+            echo -e "$USER_ACLS_HTTP"
+            echo "    # ============ END USER DOMAIN RULES ============"
+            injected_http=1
+        fi
+        if [ $in_https_front -eq 1 ] && [ $injected_https -eq 0 ] && [ -n "$USER_ACLS_HTTPS" ]; then
+            echo ""
+            echo "    # ============ USER DOMAIN RULES (Auto-generated) ============"
+            echo -e "$USER_ACLS_HTTPS"
+            echo "    # ============ END USER DOMAIN RULES ============"
+            injected_https=1
+        fi
+    fi
+
+    echo "$line"
+done < "$HAPROXY_BASE" > "$HAPROXY_TMP"
+
+# Include admin global config if exists
 HAPROXY_GLOBAL="/etc/haproxy/haproxy.global.cfg"
 if [ -f "$HAPROXY_GLOBAL" ] && [ -s "$HAPROXY_GLOBAL" ]; then
     cat >> "$HAPROXY_TMP" << 'EOF'
@@ -75,64 +192,28 @@ EOF
     cat "$HAPROXY_GLOBAL" >> "$HAPROXY_TMP"
 fi
 
-# Add separator for user configs
-cat >> "$HAPROXY_TMP" << 'EOF'
+# Add user backends (generated from haproxy.json)
+if [ -n "$USER_BACKENDS" ]; then
+    cat >> "$HAPROXY_TMP" << 'EOF'
 
 #=====================================================================
-#                     USER CONFIGURATIONS (Auto-generated)
+#                     USER BACKENDS (Auto-generated)
 #=====================================================================
 # DO NOT EDIT THIS SECTION MANUALLY
-# Use v-add-user-haproxy-frontend / v-add-user-haproxy-backend
-# Use v-delete-user-haproxy-frontend / v-delete-user-haproxy-backend
+# Use v-add-user-haproxy-domain / v-delete-user-haproxy-domain
 #=====================================================================
 EOF
 
-# Find and include all user frontend and backend configs
-user_frontends_found=0
-user_backends_found=0
+    echo "$USER_BACKENDS" >> "$HAPROXY_TMP"
 
-for user_dir in $HESTIA/data/users/*/; do
-    u=$(basename "$user_dir")
-
-    # Skip if not a valid user
-    [ ! -f "$user_dir/user.conf" ] && continue
-
-    # Check if user has haproxy config
-    if [ -f "$user_dir/haproxy.conf" ] && [ -s "$user_dir/haproxy.conf" ]; then
-        # Include user frontends
-        user_frontend_dir="$HOMEDIR/$u/conf/haproxy/frontends"
-        if [ -d "$user_frontend_dir" ]; then
-            for cfg in "$user_frontend_dir"/*.cfg; do
-                if [ -f "$cfg" ]; then
-                    echo "" >> "$HAPROXY_TMP"
-                    cat "$cfg" >> "$HAPROXY_TMP"
-                    ((user_frontends_found++))
-                fi
-            done
-        fi
-
-        # Include user backends
-        user_backend_dir="$HOMEDIR/$u/conf/haproxy/backends"
-        if [ -d "$user_backend_dir" ]; then
-            for cfg in "$user_backend_dir"/*.cfg; do
-                if [ -f "$cfg" ]; then
-                    echo "" >> "$HAPROXY_TMP"
-                    cat "$cfg" >> "$HAPROXY_TMP"
-                    ((user_backends_found++))
-                fi
-            done
-        fi
-    fi
-done
-
-# Add footer
-cat >> "$HAPROXY_TMP" << EOF
+    cat >> "$HAPROXY_TMP" << EOF
 
 #=====================================================================
 #                     END USER CONFIGURATIONS
-#                     Total: $user_frontends_found frontend(s), $user_backends_found backend(s)
+#                     Total: $user_domains_found domain(s)
 #=====================================================================
 EOF
+fi
 
 # Validate new config
 if haproxy -c -f "$HAPROXY_TMP" > /dev/null 2>&1; then

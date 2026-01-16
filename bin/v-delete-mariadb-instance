@@ -1,0 +1,166 @@
+#!/bin/bash
+# info: delete mariadb instance
+# options: NAME [--force]
+#
+# example: v-delete-mariadb-instance myapp
+# example: v-delete-mariadb-instance myapp --force
+#
+# This function deletes a MariaDB instance. Use --force to also remove data directory.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+name=$1
+force=$2
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Directories
+INSTANCES_DATA_DIR="/var/lib/mysql-instances"
+INSTANCES_CONF_DIR="/etc/mysql-instances"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if name is provided
+if [ -z "$name" ]; then
+    echo "Error: Instance name is required"
+    echo "Usage: v-delete-mariadb-instance NAME [--force]"
+    exit 1
+fi
+
+# Cannot delete default instance
+if [ "$name" = "default" ]; then
+    echo "Error: Cannot delete the default instance"
+    exit 1
+fi
+
+# Check if instance exists
+config_file="$INSTANCES_CONF_DIR/$name.cnf"
+data_dir="$INSTANCES_DATA_DIR/$name"
+service_name="mariadb-$name"
+
+if [ ! -f "$config_file" ] && [ ! -d "$data_dir" ]; then
+    echo "Error: Instance '$name' does not exist"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Deleting MariaDB instance: $name"
+
+# Create backup directory if it doesn't exist
+BACKUP_DIR="$HESTIA/data/backups/mariadb-instances"
+mkdir -p "$BACKUP_DIR"
+
+# Stop the service
+if systemctl is-active --quiet "$service_name" 2>/dev/null; then
+    echo "Stopping service..."
+    systemctl stop "$service_name"
+fi
+
+# Disable the service
+if systemctl is-enabled --quiet "$service_name" 2>/dev/null; then
+    echo "Disabling service..."
+    systemctl disable "$service_name" > /dev/null 2>&1
+fi
+
+# Create backup archive of configuration before deletion
+backup_timestamp=$(date +%Y%m%d_%H%M%S)
+backup_file="$BACKUP_DIR/${name}_${backup_timestamp}.tar.gz"
+service_file="/etc/systemd/system/$service_name.service"
+
+echo "Creating backup archive: $backup_file"
+backup_items=""
+
+# Add config file if exists
+if [ -f "$config_file" ]; then
+    backup_items="$backup_items $config_file"
+fi
+
+# Add service file if exists
+if [ -f "$service_file" ]; then
+    backup_items="$backup_items $service_file"
+fi
+
+# Add settings file if exists
+settings_file="$HESTIA/data/mariadb-instances/$name-settings.json"
+if [ -f "$settings_file" ]; then
+    backup_items="$backup_items $settings_file"
+fi
+
+# Create the backup
+if [ -n "$backup_items" ]; then
+    tar -czvf "$backup_file" $backup_items 2>/dev/null || true
+    echo "  ✓ Backup created: $backup_file"
+fi
+
+# Remove systemd service file
+if [ -f "$service_file" ]; then
+    echo "Removing service file..."
+    rm -f "$service_file"
+    systemctl daemon-reload
+fi
+
+# Remove config file
+if [ -f "$config_file" ]; then
+    echo "Removing config file..."
+    rm -f "$config_file"
+fi
+
+# Remove log files
+rm -f "/var/log/mysql/error-$name.log"
+rm -f "/var/log/mysql/slow-$name.log"
+
+# Remove socket directory
+socket_dir="/var/run/mysqld-$name"
+if [ -d "$socket_dir" ]; then
+    rm -rf "$socket_dir"
+fi
+
+# Remove data directory (only with --force)
+if [ "$force" = "--force" ]; then
+    if [ -d "$data_dir" ]; then
+        echo "Removing data directory (--force)..."
+        rm -rf "$data_dir"
+    fi
+else
+    echo ""
+    echo "Data directory preserved: $data_dir"
+    echo "Use --force to also delete data directory"
+fi
+
+# Remove settings file if exists
+settings_file="$HESTIA/data/mariadb-instances/$name-settings.json"
+if [ -f "$settings_file" ]; then
+    rm -f "$settings_file"
+fi
+
+# Remove Hestia conf file (root password config)
+hestia_conf="$HESTIA/conf/mariadb-${name}.conf"
+if [ -f "$hestia_conf" ]; then
+    echo "Removing Hestia conf file..."
+    rm -f "$hestia_conf"
+fi
+
+# Kill any orphan mariadbd processes for this instance
+port=$(grep -E "^port\s*=" "$config_file" 2>/dev/null | cut -d'=' -f2 | tr -d ' ' || echo "")
+if [ -n "$port" ]; then
+    orphan_pids=$(lsof -i :$port -t 2>/dev/null || true)
+    if [ -n "$orphan_pids" ]; then
+        echo "Killing orphan processes on port $port..."
+        echo "$orphan_pids" | xargs -r kill -9 2>/dev/null || true
+    fi
+fi
+
+echo "Instance '$name' deleted successfully"
+
+exit 0

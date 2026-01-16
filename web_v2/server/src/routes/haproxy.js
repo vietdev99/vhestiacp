@@ -253,14 +253,29 @@ router.get('/visualize', requireAdmin, async (req, res) => {
     const nodes = [];
     const edges = [];
 
+    // Build ACL name to condition mapping for each frontend
+    const buildAclMap = (acls) => {
+      const map = {};
+      (acls || []).forEach(aclLine => {
+        const parts = aclLine.match(/^(\S+)\s+(.+)$/);
+        if (parts) {
+          map[parts[1]] = parts[2];
+        }
+      });
+      return map;
+    };
+
     // Add frontend nodes
     Object.entries(config.frontends || {}).forEach(([name, data]) => {
+      const aclMap = buildAclMap(data.acls);
+
       nodes.push({
         id: `frontend_${name}`,
         type: 'frontend',
         label: name,
         bind: data.bind,
-        mode: data.mode
+        mode: data.mode,
+        acls: data.acls || []
       });
 
       // Add edge to default backend
@@ -275,11 +290,24 @@ router.get('/visualize', requireAdmin, async (req, res) => {
 
       // Add edges for use_backend conditions
       (data.use_backends || []).forEach(ub => {
+        // Build a more descriptive label showing ACL name and what it matches
+        let label = ub.condition;
+        // If condition is just an ACL name, try to show what it matches
+        if (aclMap[ub.condition]) {
+          const aclDef = aclMap[ub.condition];
+          // Extract domain from hdr(host) -i domain.com
+          const hostMatch = aclDef.match(/hdr\(host\)\s+-i\s+(.+)/i);
+          if (hostMatch) {
+            label = `${ub.condition}: ${hostMatch[1]}`;
+          }
+        }
+
         edges.push({
           from: `frontend_${name}`,
           to: `backend_${ub.backend}`,
           type: 'conditional',
-          label: ub.condition
+          label: label,
+          aclName: ub.condition
         });
       });
     });
@@ -751,6 +779,193 @@ router.get('/user-backends', requireAdmin, async (req, res) => {
   } catch (error) {
     console.error('Get user backends error:', error);
     res.status(500).json({ error: 'Failed to get user backends' });
+  }
+});
+
+// ============================================================
+// USER HAPROXY DOMAIN MANAGEMENT (accessible by regular users)
+// ============================================================
+
+/**
+ * GET /api/haproxy/domains
+ * List current user's HAProxy domains
+ */
+router.get('/domains', async (req, res) => {
+  try {
+    const username = req.user?.user;
+    if (!username) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const result = await execHestiaJson('v-list-user-haproxy-domains', [username]);
+    res.json(result);
+  } catch (error) {
+    console.error('List user HAProxy domains error:', error);
+    // Return empty domains if no config exists
+    res.json({ domains: [] });
+  }
+});
+
+/**
+ * GET /api/haproxy/available-domains
+ * Get user's web domains that are not yet in HAProxy
+ */
+router.get('/available-domains', async (req, res) => {
+  try {
+    const username = req.user?.user;
+    if (!username) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    // Get user's web domains
+    const webDomains = await execHestiaJson('v-list-web-domains', [username]);
+
+    // Get user's HAProxy domains
+    let haproxyDomains = [];
+    try {
+      const haproxyData = await execHestiaJson('v-list-user-haproxy-domains', [username]);
+      haproxyDomains = (haproxyData.domains || []).map(d => d.domain);
+    } catch (e) {
+      // No HAProxy config yet
+    }
+
+    // Filter out domains already in HAProxy
+    const availableDomains = Object.keys(webDomains || {})
+      .filter(domain => !haproxyDomains.includes(domain))
+      .map(domain => ({
+        domain,
+        ssl: webDomains[domain].SSL === 'yes',
+        ip: webDomains[domain].IP
+      }));
+
+    res.json({ domains: availableDomains });
+  } catch (error) {
+    console.error('Get available domains error:', error);
+    res.status(500).json({ error: 'Failed to get available domains' });
+  }
+});
+
+/**
+ * POST /api/haproxy/domains
+ * Add a domain to user's HAProxy config
+ */
+router.post('/domains', async (req, res) => {
+  try {
+    const username = req.user?.user;
+    if (!username) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const {
+      domain,
+      backendHost = '127.0.0.1',
+      backendPort,
+      backendType = 'pm2',
+      sslMode = 'termination',
+      aliases = '',
+      healthCheck = true
+    } = req.body;
+
+    if (!domain || !backendPort) {
+      return res.status(400).json({ error: 'Domain and backend port are required' });
+    }
+
+    // Validate port
+    const port = parseInt(backendPort);
+    if (isNaN(port) || port < 1 || port > 65535) {
+      return res.status(400).json({ error: 'Invalid port number' });
+    }
+
+    // Call the add script
+    await execHestia('v-add-user-haproxy-domain', [
+      username,
+      domain,
+      backendHost,
+      String(port),
+      backendType,
+      sslMode,
+      aliases,
+      healthCheck ? 'yes' : 'no'
+    ]);
+
+    res.json({ success: true, message: `Domain ${domain} added to HAProxy` });
+  } catch (error) {
+    console.error('Add HAProxy domain error:', error);
+    res.status(500).json({ error: error.message || 'Failed to add domain' });
+  }
+});
+
+/**
+ * PUT /api/haproxy/domains/:domain
+ * Update a domain in user's HAProxy config
+ */
+router.put('/domains/:domain', async (req, res) => {
+  try {
+    const username = req.user?.user;
+    if (!username) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { domain } = req.params;
+    const {
+      backendHost = '127.0.0.1',
+      backendPort,
+      backendType = 'pm2',
+      sslMode = 'termination',
+      aliases = '',
+      healthCheck = true,
+      enabled = true
+    } = req.body;
+
+    if (!backendPort) {
+      return res.status(400).json({ error: 'Backend port is required' });
+    }
+
+    // Validate port
+    const port = parseInt(backendPort);
+    if (isNaN(port) || port < 1 || port > 65535) {
+      return res.status(400).json({ error: 'Invalid port number' });
+    }
+
+    // Call the change script
+    await execHestia('v-change-user-haproxy-domain', [
+      username,
+      domain,
+      backendHost,
+      String(port),
+      backendType,
+      sslMode,
+      aliases,
+      healthCheck ? 'yes' : 'no',
+      enabled ? 'yes' : 'no'
+    ]);
+
+    res.json({ success: true, message: `Domain ${domain} updated` });
+  } catch (error) {
+    console.error('Update HAProxy domain error:', error);
+    res.status(500).json({ error: error.message || 'Failed to update domain' });
+  }
+});
+
+/**
+ * DELETE /api/haproxy/domains/:domain
+ * Remove a domain from user's HAProxy config
+ */
+router.delete('/domains/:domain', async (req, res) => {
+  try {
+    const username = req.user?.user;
+    if (!username) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    const { domain } = req.params;
+
+    await execHestia('v-delete-user-haproxy-domain', [username, domain]);
+
+    res.json({ success: true, message: `Domain ${domain} removed from HAProxy` });
+  } catch (error) {
+    console.error('Delete HAProxy domain error:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete domain' });
   }
 });
 

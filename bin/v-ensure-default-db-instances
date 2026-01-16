@@ -1,0 +1,74 @@
+#!/bin/bash
+# info: ensure default database instances exist
+# options: NONE
+#
+# example: v-ensure-default-db-instances
+#
+# This function ensures that default instances exist for MongoDB, MariaDB, and PostgreSQL.
+# It's typically called during VHestiaCP installation or upgrade.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Ensuring default database instances exist..."
+
+# MongoDB default instance
+if [ -f "$HESTIA/bin/v-add-mongodb-instance" ]; then
+    MONGO_META_FILE="$HESTIA/data/mongodb-instances.json"
+    
+    # Check if any instance exists
+    if [ ! -f "$MONGO_META_FILE" ] || ! command -v jq &>/dev/null || [ "$(jq '.instances | length' "$MONGO_META_FILE" 2>/dev/null)" = "0" ] || [ "$(jq '.instances | length' "$MONGO_META_FILE" 2>/dev/null)" = "null" ]; then
+        echo "Creating default MongoDB instance..."
+        $HESTIA/bin/v-add-mongodb-instance default 27017 standalone 2>/dev/null || true
+    else
+        echo "MongoDB instance(s) already exist"
+    fi
+fi
+
+# MariaDB default instance  
+if [ -f "$HESTIA/bin/v-add-mariadb-instance" ]; then
+    MARIADB_CONF_DIR="/etc/mysql-instances"
+    
+    # Check if any instance config exists (excluding default mysql service)
+    instance_count=$(ls -1 "$MARIADB_CONF_DIR"/*.cnf 2>/dev/null | wc -l)
+    
+    if [ "$instance_count" = "0" ]; then
+        echo "Creating default MariaDB instance..."
+        $HESTIA/bin/v-add-mariadb-instance default 3307 standalone 2>/dev/null || true
+    else
+        echo "MariaDB instance(s) already exist"
+    fi
+fi
+
+# PostgreSQL default instance
+if [ -f "$HESTIA/bin/v-add-pgsql-instance" ]; then
+    PGSQL_CONF_DIR="/etc/postgresql-instances"
+    
+    # Check if any instance config dir exists
+    if [ ! -d "$PGSQL_CONF_DIR" ] || [ "$(ls -1 "$PGSQL_CONF_DIR" 2>/dev/null | wc -l)" = "0" ]; then
+        echo "Creating default PostgreSQL instance..."
+        $HESTIA/bin/v-add-pgsql-instance default 5433 standalone 2>/dev/null || true
+    else
+        echo "PostgreSQL instance(s) already exist"
+    fi
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo ""
+echo "Default database instances check completed."
+echo ""
+
+exit 0

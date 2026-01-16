@@ -1,0 +1,227 @@
+#!/bin/bash
+# info: add HAProxy frontend for user
+# options: USER NAME PORT [MODE] [DEFAULT_BACKEND] [OPTIONS]
+#
+# example: v-add-user-haproxy-frontend admin web_front 8080
+# example: v-add-user-haproxy-frontend admin api_front 9000 http api_back
+#
+# This function adds a HAProxy frontend configuration for a user.
+# The config is validated before being applied.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+user=$1
+name=$2
+port=$3
+mode=${4:-http}
+default_backend=$5
+options=$6
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '3' "$#" 'USER NAME PORT [MODE] [DEFAULT_BACKEND] [OPTIONS]'
+is_format_valid 'user' 'name' 'port'
+is_object_valid 'user' 'USER' "$user"
+is_object_unsuspended 'user' 'USER' "$user"
+
+# Check if HAProxy is enabled
+if [ "$HAPROXY_SYSTEM" != "yes" ]; then
+    echo "Error: HAProxy is not enabled on this server"
+    exit 1
+fi
+
+# Validate port
+if ! [[ "$port" =~ ^[0-9]+$ ]] || [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
+    echo "Error: Invalid port number"
+    exit 1
+fi
+
+# Check if port is already in use by another frontend
+if [ -f "$HESTIA/data/haproxy_user_ports.conf" ]; then
+    if grep -q ":${port}$" "$HESTIA/data/haproxy_user_ports.conf"; then
+        existing=$(grep ":${port}$" "$HESTIA/data/haproxy_user_ports.conf" | head -1)
+        echo "Error: Port $port is already in use by $existing"
+        exit 1
+    fi
+fi
+
+# Check common ports that should not be used
+reserved_ports="22 25 53 80 110 143 443 465 587 993 995 3306 5432 8083"
+for rp in $reserved_ports; do
+    if [ "$port" = "$rp" ]; then
+        echo "Error: Port $port is reserved for system services"
+        exit 1
+    fi
+done
+
+# Validate mode
+if [ "$mode" != "http" ] && [ "$mode" != "tcp" ]; then
+    echo "Error: Mode must be 'http' or 'tcp'"
+    exit 1
+fi
+
+# Validate name (alphanumeric and dash only)
+if ! [[ "$name" =~ ^[a-zA-Z0-9_-]+$ ]]; then
+    echo "Error: Frontend name can only contain letters, numbers, underscores and dashes"
+    exit 1
+fi
+
+# Check if frontend already exists for this user
+if [ -f "$HESTIA/data/users/$user/haproxy.conf" ]; then
+    if grep -q "^FRONTEND='$name'" "$HESTIA/data/users/$user/haproxy.conf"; then
+        echo "Error: Frontend '$name' already exists for user $user"
+        exit 1
+    fi
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Create user haproxy directories
+user_conf_dir="$HOMEDIR/$user/conf/haproxy"
+
+# Remove immutable flag from conf directory (Hestia security feature)
+chattr -i "$HOMEDIR/$user/conf" > /dev/null 2>&1
+
+mkdir -p "$user_conf_dir/frontends"
+chown "root:$user" "$HOMEDIR/$user/conf/haproxy"
+chown "root:$user" "$user_conf_dir/frontends"
+chmod 750 "$HOMEDIR/$user/conf/haproxy"
+chmod 750 "$user_conf_dir/frontends"
+
+# Restore immutable flag
+chattr +i "$HOMEDIR/$user/conf" > /dev/null 2>&1
+
+# Create frontend config file
+frontend_cfg="$user_conf_dir/frontends/${name}.cfg"
+cat > "$frontend_cfg" << EOF
+#---------------------------------------------------------------------
+# Frontend: $name (User: $user)
+# Created: $(date "+%Y-%m-%d %H:%M:%S")
+#---------------------------------------------------------------------
+
+frontend ${user}_${name}
+    bind *:${port}
+    mode $mode
+EOF
+
+if [ "$mode" = "http" ]; then
+    cat >> "$frontend_cfg" << EOF
+    option httplog
+    option forwardfor
+    http-request set-header X-Real-IP %[src]
+    http-request set-header X-Forwarded-Proto http
+    http-request set-header X-Forwarded-For %[src]
+EOF
+else
+    cat >> "$frontend_cfg" << EOF
+    option tcplog
+EOF
+fi
+
+# Add default backend if specified
+if [ -n "$default_backend" ]; then
+    cat >> "$frontend_cfg" << EOF
+    default_backend ${user}_${default_backend}
+EOF
+fi
+
+# Add custom options if specified
+if [ -n "$options" ]; then
+    echo "" >> "$frontend_cfg"
+    echo "    # Custom options" >> "$frontend_cfg"
+    echo "$options" | while IFS= read -r opt; do
+        [ -n "$opt" ] && echo "    $opt" >> "$frontend_cfg"
+    done
+fi
+
+chown root:root "$frontend_cfg"
+chmod 644 "$frontend_cfg"
+
+# Validate the new configuration before applying
+HAPROXY_CONF="/etc/haproxy/haproxy.cfg"
+HAPROXY_BASE="/etc/haproxy/haproxy.base.cfg"
+HAPROXY_TMP="/tmp/haproxy_test_$$.cfg"
+
+# Build temporary config for validation
+if [ -f "$HAPROXY_BASE" ]; then
+    cp "$HAPROXY_BASE" "$HAPROXY_TMP"
+else
+    cp "$HAPROXY_CONF" "$HAPROXY_TMP"
+fi
+
+# Add all user configs including the new one
+for user_dir in $HESTIA/data/users/*/; do
+    u=$(basename "$user_dir")
+    [ ! -f "$user_dir/user.conf" ] && continue
+
+    # Add frontends
+    if [ -d "$HOMEDIR/$u/conf/haproxy/frontends" ]; then
+        for cfg in "$HOMEDIR/$u/conf/haproxy/frontends"/*.cfg; do
+            [ -f "$cfg" ] && cat "$cfg" >> "$HAPROXY_TMP"
+        done
+    fi
+
+    # Add backends
+    if [ -d "$HOMEDIR/$u/conf/haproxy/backends" ]; then
+        for cfg in "$HOMEDIR/$u/conf/haproxy/backends"/*.cfg; do
+            [ -f "$cfg" ] && cat "$cfg" >> "$HAPROXY_TMP"
+        done
+    fi
+done
+
+# Validate configuration
+validation_output=$(haproxy -c -f "$HAPROXY_TMP" 2>&1)
+validation_result=$?
+
+rm -f "$HAPROXY_TMP"
+
+if [ $validation_result -ne 0 ]; then
+    # Validation failed - remove the frontend config and report error
+    rm -f "$frontend_cfg"
+    echo "Error: HAProxy configuration validation failed"
+    echo "$validation_output"
+    exit 1
+fi
+
+# Configuration is valid - add to user's haproxy.conf
+haproxy_conf="$HESTIA/data/users/$user/haproxy.conf"
+touch "$haproxy_conf"
+
+# Build record
+record="FRONTEND='$name' PORT='$port' MODE='$mode' DEFAULT_BACKEND='$default_backend' TIME='$(date +%s)' DATE='$(date +%F)'"
+echo "$record" >> "$haproxy_conf"
+
+# Track port allocation
+echo "${user}:${name}:${port}" >> "$HESTIA/data/haproxy_user_ports.conf"
+
+# Rebuild main HAProxy config
+$BIN/v-rebuild-haproxy-conf
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+$BIN/v-log-action "$user" "Info" "HAProxy" "Added frontend $name (port $port)"
+
+echo "Frontend '$name' added successfully"
+echo "  Port: $port"
+echo "  Mode: $mode"
+[ -n "$default_backend" ] && echo "  Default Backend: $default_backend"
+echo "  URL: http://$(hostname -I | awk '{print $1}'):$port"
+
+exit 0
