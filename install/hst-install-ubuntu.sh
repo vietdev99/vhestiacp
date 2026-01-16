@@ -3825,27 +3825,30 @@ if [ -n "$srcdir" ] && [ -d "$srcdir/web_v2" ]; then
 	cp -r "$srcdir/web_v2/server" "$HESTIA/web_v2/"
 	cp "$srcdir/web_v2/ecosystem.config.cjs" "$HESTIA/web_v2/"
 
-	# Extract client dist (tar.gz contains files directly, need to extract into dist/ folder)
-	if [ -f "$srcdir/web_v2/client/dist.tar.gz" ]; then
-		mkdir -p "$HESTIA/web_v2/client/dist"
-		tar -xzf "$srcdir/web_v2/client/dist.tar.gz" -C "$HESTIA/web_v2/client/dist/"
-		echo "    - Extracted client dist from dist.tar.gz"
-	elif [ -d "$srcdir/web_v2/client/dist" ]; then
-		mkdir -p "$HESTIA/web_v2/client"
-		cp -r "$srcdir/web_v2/client/dist" "$HESTIA/web_v2/client/"
-		echo "    - Copied client dist folder"
-	else
-		echo "    - Warning: No client dist found, panel may not work correctly"
-	fi
-
-	# Install npm dependencies
-	echo "    - Installing Node.js dependencies..."
-	cd "$HESTIA/web_v2/server"
-
 	# Load NVM to ensure npm is available
 	export NVM_DIR="${NVM_DIR:-/opt/nvm}"
 	[ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
+	# Copy and build client from source
+	echo "    - Copying client source files..."
+	cp -r "$srcdir/web_v2/client" "$HESTIA/web_v2/"
+
+	echo "    - Installing client dependencies..."
+	cd "$HESTIA/web_v2/client"
+	npm install > /dev/null 2>&1
+
+	echo "    - Building client (this may take a few minutes)..."
+	npm run build > /dev/null 2>&1
+
+	if [ -d "$HESTIA/web_v2/client/dist" ]; then
+		echo "    - Client build completed successfully"
+	else
+		echo "    - Warning: Client build may have failed, panel may not work correctly"
+	fi
+
+	# Install server dependencies
+	echo "    - Installing server dependencies..."
+	cd "$HESTIA/web_v2/server"
 	npm install --production > /dev/null 2>&1
 
 	# Start PM2
