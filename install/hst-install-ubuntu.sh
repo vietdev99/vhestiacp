@@ -2618,6 +2618,32 @@ curl -s https://rclone.org/install.sh | bash > /dev/null 2>&1
 restic self-update > /dev/null 2>&1
 
 #----------------------------------------------------------#
+#          VHestiaCP: Apply Critical Script Overrides      #
+#----------------------------------------------------------#
+# IMPORTANT: These scripts must be copied BEFORE v-update-sys-ip
+# because they fix issues with missing hestia-nginx config file
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+VHESTIA_SRC_EARLY="$(dirname "$SCRIPT_DIR")"
+
+if [ -d "$VHESTIA_SRC_EARLY/bin" ]; then
+	echo "[ * ] Applying VHestiaCP critical script overrides..."
+	# Scripts that reference hestia-nginx config (which doesn't exist in VHestiaCP)
+	for script in v-add-firewall-chain v-change-sys-port; do
+		if [ -f "$VHESTIA_SRC_EARLY/bin/$script" ]; then
+			cp -f "$VHESTIA_SRC_EARLY/bin/$script" "$HESTIA/bin/"
+			chmod +x "$HESTIA/bin/$script"
+			echo "    - Applied override: $script"
+		fi
+	done
+	# Also copy fixed syshealth.sh
+	if [ -f "$VHESTIA_SRC_EARLY/func/syshealth.sh" ]; then
+		cp -f "$VHESTIA_SRC_EARLY/func/syshealth.sh" "$HESTIA/func/"
+		echo "    - Applied override: func/syshealth.sh"
+	fi
+fi
+
+#----------------------------------------------------------#
 #                   Configure IP                           #
 #----------------------------------------------------------#
 
