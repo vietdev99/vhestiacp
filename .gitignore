@@ -42,8 +42,11 @@ logs/
 *.bak
 *.backup
 
-# Claude Code
+# AI/IDE config folders
 .claude/
+.agent/
+.cursor/
+.opencode/
 web_v2/client/node_modules
 web_v2/server/node_modules
 node_modules
