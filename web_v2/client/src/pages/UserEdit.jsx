@@ -56,6 +56,22 @@ export default function UserEdit() {
     enabled: canEdit
   });
 
+  // Helper to normalize shell path (Hestia stores 'bash' but we need '/bin/bash')
+  const normalizeShell = (shell) => {
+    if (!shell) return '/bin/bash';
+    // If already a full path, return as-is
+    if (shell.startsWith('/')) return shell;
+    // Map short names to full paths
+    const shellMap = {
+      'bash': '/bin/bash',
+      'sh': '/bin/sh',
+      'zsh': '/bin/zsh',
+      'nologin': '/usr/sbin/nologin',
+      'false': '/bin/false'
+    };
+    return shellMap[shell] || `/bin/${shell}`;
+  };
+
   // Update form when data loads
   useEffect(() => {
     if (userData) {
@@ -66,7 +82,7 @@ export default function UserEdit() {
         language: userData.LANGUAGE || 'en',
         // Advanced options
         package: userData.PACKAGE || 'default',
-        shell: userData.SHELL || '/bin/bash',
+        shell: normalizeShell(userData.SHELL),
         phpcli: userData.PHPCLI || '',
         role: userData.ROLE || 'user',
         loginDisabled: userData.LOGIN_DISABLED === 'yes',
@@ -419,15 +435,16 @@ export default function UserEdit() {
                       onChange={(e) => setFormData({ ...formData, shell: e.target.value })}
                       className="input"
                     >
-                      {systemInfo?.shells?.map((shell) => (
-                        <option key={shell} value={shell}>{shell}</option>
-                      )) || (
-                        <>
-                          <option value="/bin/bash">/bin/bash</option>
-                          <option value="/bin/sh">/bin/sh</option>
-                          <option value="/usr/sbin/nologin">/usr/sbin/nologin</option>
-                        </>
-                      )}
+                      {(() => {
+                        const shells = systemInfo?.shells || ['/bin/bash', '/bin/sh', '/usr/sbin/nologin'];
+                        // Ensure current shell value is in the list
+                        const shellList = formData.shell && !shells.includes(formData.shell)
+                          ? [formData.shell, ...shells]
+                          : shells;
+                        return shellList.map((shell) => (
+                          <option key={shell} value={shell}>{shell}</option>
+                        ));
+                      })()}
                     </select>
                   </div>
 

@@ -1187,6 +1187,11 @@ if [ -n "$sftp_subsys_enabled" ]; then
 	sed -i -E "s/^#?.*Subsystem.+(sftp )?sftp-server/Subsystem sftp internal-sftp/g" /etc/ssh/sshd_config
 fi
 
+# Fix incorrect internal-sftp-server (should be internal-sftp)
+if grep -q "internal-sftp-server" /etc/ssh/sshd_config; then
+	sed -i 's/internal-sftp-server/internal-sftp/g' /etc/ssh/sshd_config
+fi
+
 # Reduce SSH login grace time
 sed -i "s/[#]LoginGraceTime [[:digit:]]m/LoginGraceTime 1m/g" /etc/ssh/sshd_config
 

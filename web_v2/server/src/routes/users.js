@@ -98,7 +98,7 @@ router.put('/:username', async (req, res) => {
       return res.status(403).json({ error: 'Access denied' });
     }
 
-    const { password, email, name, package: pkg, language } = req.body;
+    const { password, email, name, package: pkg, language, shell, role, ns1, ns2, ns3, ns4 } = req.body;
 
     // Update password if provided
     if (password) {
@@ -123,6 +123,24 @@ router.put('/:username', async (req, res) => {
     // Update language
     if (language) {
       await execHestia('v-change-user-language', [username, language]);
+    }
+
+    // Update shell (admin only)
+    if (shell && req.user.role === 'admin') {
+      await execHestia('v-change-user-shell', [username, shell]);
+    }
+
+    // Update role (admin only, not for admin user)
+    if (role && req.user.role === 'admin' && username !== 'admin') {
+      await execHestia('v-change-user-role', [username, role]);
+    }
+
+    // Update nameservers (admin only)
+    if (req.user.role === 'admin') {
+      const ns = [ns1, ns2, ns3, ns4].filter(n => n).join(',');
+      if (ns) {
+        await execHestia('v-change-user-ns', [username, ns]);
+      }
     }
 
     res.json({ success: true, message: 'User updated successfully' });
