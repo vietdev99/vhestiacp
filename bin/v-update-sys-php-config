@@ -1,0 +1,80 @@
+#!/bin/bash
+# info: update PHP-FPM configuration in Hestia
+# options: NONE
+#
+# example: v-update-sys-php-config
+#
+# This script ensures WEB_BACKEND is properly configured when PHP-FPM is installed.
+# Run this script if nginx domains show default page instead of PHP content.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check root permissions
+if [ "x$(id -u)" != 'x0' ]; then
+    echo "Error: Script must be run as root"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Find running PHP-FPM version
+php_service=$(systemctl list-units --type=service --state=running 2>/dev/null | grep -oE 'php[0-9.]+-fpm' | head -1)
+
+if [ -z "$php_service" ]; then
+    echo "No running PHP-FPM service found"
+    exit 0
+fi
+
+php_version=$(echo "$php_service" | grep -oE '[0-9.]+')
+echo "Found PHP-FPM $php_version running ($php_service)"
+
+config_changed=false
+
+# Set WEB_BACKEND if not set
+if [ -z "$WEB_BACKEND" ]; then
+    echo "WEB_BACKEND='php-fpm'" >> "$HESTIA/conf/hestia.conf"
+    echo "Added WEB_BACKEND='php-fpm' to hestia.conf"
+    config_changed=true
+else
+    echo "WEB_BACKEND already set: $WEB_BACKEND"
+fi
+
+# Set DEFAULT_PHP if not set
+if [ -z "$DEFAULT_PHP" ]; then
+    echo "DEFAULT_PHP='$php_version'" >> "$HESTIA/conf/hestia.conf"
+    echo "Added DEFAULT_PHP='$php_version' to hestia.conf"
+    config_changed=true
+else
+    echo "DEFAULT_PHP already set: $DEFAULT_PHP"
+fi
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+if [ "$config_changed" = true ]; then
+    echo ""
+    echo "Configuration updated. To apply changes to existing domains, run:"
+    echo "  v-rebuild-web-domains <username>"
+    echo ""
+    echo "Or for a specific domain:"
+    echo "  v-rebuild-web-domain <username> <domain>"
+fi
+
+exit 0

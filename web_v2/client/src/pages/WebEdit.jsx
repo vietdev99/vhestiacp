@@ -57,7 +57,7 @@ export default function WebEdit() {
       const aliases = domainData.ALIAS || `www.${domain}`;
 
       setFormData({
-        ip: domainData.IP || '',
+        ip: domainData.IP || '*',
         aliases,
         stats: domainData.STATS || 'none',
         redirectEnabled: domainData.REDIRECT === 'yes',
@@ -78,11 +78,12 @@ export default function WebEdit() {
       const res = await api.put(`/api/web/${domain}`, data);
       return res.data;
     },
-    onSuccess: () => {
+    onSuccess: async () => {
       setSuccess('Domain updated successfully');
       setError('');
-      queryClient.invalidateQueries(['web-domain', domain]);
-      queryClient.invalidateQueries(['web-domains']);
+      // Force refetch to get fresh data from server
+      await queryClient.refetchQueries({ queryKey: ['web-domain', domain] });
+      queryClient.invalidateQueries({ queryKey: ['web-domains'] });
       setTimeout(() => setSuccess(''), 3000);
     },
     onError: (err) => {
@@ -278,7 +279,7 @@ export default function WebEdit() {
               onChange={(e) => setFormData({ ...formData, ip: e.target.value })}
               className="input"
             >
-              <option value="">* (All IP Addresses)</option>
+              <option value="*">* (All IP Addresses)</option>
               {systemInfo?.ips?.map((ip) => (
                 <option key={ip} value={ip}>{ip}</option>
               ))}

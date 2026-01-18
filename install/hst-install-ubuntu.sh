@@ -2936,8 +2936,14 @@ fi
 # Copy VHestiaCP nginx templates
 if [ -n "$VHESTIA_SRC" ] && [ -d "$VHESTIA_SRC/install/deb/templates/web/nginx" ]; then
 	echo "[ * ] Installing VHestiaCP nginx templates..."
+	# Copy root nginx templates (reactjs, angular, nextjs, nodejs, vuejs, nuxtjs, phalcon, django, flask, fastapi, etc.)
 	cp -f $VHESTIA_SRC/install/deb/templates/web/nginx/*.tpl $HESTIA/data/templates/web/nginx/ 2>/dev/null
 	cp -f $VHESTIA_SRC/install/deb/templates/web/nginx/*.stpl $HESTIA/data/templates/web/nginx/ 2>/dev/null
+	# Copy php-fpm templates (including JS/Python framework templates for php-fpm backend)
+	if [ -d "$VHESTIA_SRC/install/deb/templates/web/nginx/php-fpm" ]; then
+		cp -f $VHESTIA_SRC/install/deb/templates/web/nginx/php-fpm/*.tpl $HESTIA/data/templates/web/nginx/php-fpm/ 2>/dev/null
+		cp -f $VHESTIA_SRC/install/deb/templates/web/nginx/php-fpm/*.stpl $HESTIA/data/templates/web/nginx/php-fpm/ 2>/dev/null
+	fi
 fi
 
 # VHestiaCP: Old PHP web panel files removed

@@ -1,11 +1,14 @@
 #!/bin/bash
 # info: add HAProxy domain for user
-# options: USER DOMAIN BACKEND_HOST BACKEND_PORT [BACKEND_TYPE] [SSL_MODE] [ALIASES] [HEALTH_CHECK]
+# options: USER DOMAIN CONFIG_JSON [FORMAT]
 #
-# example: v-add-user-haproxy-domain admin example.com 127.0.0.1 3000 pm2 termination "www.example.com" yes
+# New format (FORMAT='json'):
+# example: v-add-user-haproxy-domain admin example.com '{"domain":"example.com","aliases":[],"routingMode":"simple","defaultBackend":"be_nginx","aclRules":[],"backends":[{"name":"be_nginx","mode":"http","balance":"roundrobin","options":{"healthCheck":true},"servers":[{"name":"nginx1","address":"127.0.0.1:80"}]}],"ssl":{"mode":"termination"},"enabled":true}' json
 #
-# This function adds a domain to user's HAProxy configuration.
-# The domain must exist in user's web.conf (nginx/apache).
+# Legacy format (positional args):
+# example: v-add-user-haproxy-domain admin example.com '[{"name":"server1","address":"127.0.0.1:3000"}]' roundrobin http pm2 termination "www.example.com" '{"healthCheck":true}' '{"connect":"10s"}'
+#
+# This function adds a domain to user's HAProxy configuration with Frontend/Backend separation.
 
 #----------------------------------------------------------#
 #                Variables & Functions                     #
@@ -14,12 +17,26 @@
 # Argument definition
 user=$1
 domain=$2
-backend_host=$3
-backend_port=$4
-backend_type=${5:-pm2}
-ssl_mode=${6:-termination}
-aliases=${7:-}
-health_check=${8:-yes}
+arg3=$3
+arg4=$4
+
+# Detect format: new JSON format or legacy positional args
+if [ "$arg4" = "json" ]; then
+    # New JSON format - arg3 contains the full config
+    config_json="$arg3"
+    format="json"
+else
+    # Legacy format - positional arguments
+    format="legacy"
+    servers_json=$3
+    balance=${4:-roundrobin}
+    mode=${5:-http}
+    backend_type=${6:-pm2}
+    ssl_mode=${7:-termination}
+    aliases=${8:-}
+    options_json=${9:-'{"healthCheck":true,"stickySession":false,"forwardHeaders":true,"customConfig":""}'}
+    timeout_json=${10:-'{"connect":"10s","server":"30s","client":"30s"}'}
+fi
 
 # Includes
 # shellcheck source=/etc/hestiacp/hestia.conf
@@ -33,22 +50,13 @@ source_conf "$HESTIA/conf/hestia.conf"
 #                    Verifications                         #
 #----------------------------------------------------------#
 
-check_args '4' "$#" 'USER DOMAIN BACKEND_HOST BACKEND_PORT [BACKEND_TYPE] [SSL_MODE] [ALIASES] [HEALTH_CHECK]'
+check_args '3' "$#" 'USER DOMAIN CONFIG_JSON [FORMAT]'
 is_format_valid 'user' 'domain'
 is_object_valid 'user' 'USER' "$user"
 
-# Check if domain already exists in any user's nginx/apache web.conf
-for user_dir in $HESTIA/data/users/*/; do
-    u=$(basename "$user_dir")
-    if [ -f "$user_dir/web.conf" ]; then
-        if grep -q "DOMAIN='$domain'" "$user_dir/web.conf" 2>/dev/null; then
-            echo "Error: Domain $domain already exists in web configuration (user: $u)"
-            exit 1
-        fi
-    fi
-done
-
 # Check if domain already exists in any user's HAProxy configuration
+# Note: We allow the same domain to exist in both HAProxy and nginx/apache (web.conf)
+# This enables scenarios like HAProxy routing to nginx backend on the same domain
 for user_dir in $HESTIA/data/users/*/; do
     u=$(basename "$user_dir")
     haproxy_file="$user_dir/haproxy.json"
@@ -61,41 +69,90 @@ for user_dir in $HESTIA/data/users/*/; do
     fi
 done
 
-# Validate backend_port is numeric
-if ! [[ "$backend_port" =~ ^[0-9]+$ ]]; then
-    echo "Error: Backend port must be numeric"
-    exit 1
-fi
-
-# Validate port range
-if [ "$backend_port" -lt 1 ] || [ "$backend_port" -gt 65535 ]; then
-    echo "Error: Backend port must be between 1 and 65535"
-    exit 1
-fi
-
-# Validate backend_type
-case "$backend_type" in
-    pm2|static|php|nginx|custom) ;;
-    *)
-        echo "Error: Invalid backend type. Must be: pm2, static, php, nginx, or custom"
+# Validate based on format
+if [ "$format" = "json" ]; then
+    # Validate new JSON format
+    if ! echo "$config_json" | jq -e '.' > /dev/null 2>&1; then
+        echo "Error: Invalid JSON config format"
         exit 1
-        ;;
-esac
+    fi
 
-# Validate ssl_mode
-case "$ssl_mode" in
-    termination|passthrough|none) ;;
-    *)
-        echo "Error: Invalid SSL mode. Must be: termination, passthrough, or none"
+    # Validate backends (allow 0 backends if using __system__ as default)
+    backend_count=$(echo "$config_json" | jq -r '.backends | length')
+    default_backend=$(echo "$config_json" | jq -r '.defaultBackend // ""')
+
+    # Allow 0 backends only if defaultBackend is __system__ (routes to web_backend)
+    if [ "$backend_count" -lt 1 ] && [ "$default_backend" != "__system__" ]; then
+        echo "Error: At least one backend is required (or use System Web Server as default)"
         exit 1
-        ;;
-esac
+    fi
+
+    # Validate each backend has at least one server
+    for i in $(seq 0 $((backend_count - 1))); do
+        srv_count=$(echo "$config_json" | jq -r ".backends[$i].servers | length")
+        if [ "$srv_count" -lt 1 ]; then
+            be_name=$(echo "$config_json" | jq -r ".backends[$i].name")
+            echo "Error: Backend '$be_name' must have at least one server"
+            exit 1
+        fi
+    done
+else
+    # Validate legacy format
+    # Validate servers_json
+    if ! echo "$servers_json" | jq -e '.' > /dev/null 2>&1; then
+        echo "Error: Invalid servers JSON format"
+        exit 1
+    fi
+
+    # Check at least one server
+    server_count=$(echo "$servers_json" | jq -r 'length')
+    if [ "$server_count" -lt 1 ]; then
+        echo "Error: At least one server is required"
+        exit 1
+    fi
+
+    # Validate balance method
+    case "$balance" in
+        roundrobin|leastconn|source|uri|first|random) ;;
+        *)
+            echo "Error: Invalid balance method. Must be: roundrobin, leastconn, source, uri, first, or random"
+            exit 1
+            ;;
+    esac
+
+    # Validate mode
+    case "$mode" in
+        http|tcp) ;;
+        *)
+            echo "Error: Invalid mode. Must be: http or tcp"
+            exit 1
+            ;;
+    esac
+
+    # Validate backend_type
+    case "$backend_type" in
+        pm2|static|php|nginx|custom) ;;
+        *)
+            echo "Error: Invalid backend type. Must be: pm2, static, php, nginx, or custom"
+            exit 1
+            ;;
+    esac
+
+    # Validate ssl_mode
+    case "$ssl_mode" in
+        termination|passthrough|none) ;;
+        *)
+            echo "Error: Invalid SSL mode. Must be: termination, passthrough, or none"
+            exit 1
+            ;;
+    esac
+fi
 
 #----------------------------------------------------------#
 #                       Action                             #
 #----------------------------------------------------------#
 
-# Define paths - only haproxy.json needed
+# Define paths
 HAPROXY_JSON="$HESTIA/data/users/$user/haproxy.json"
 
 # Initialize haproxy.json if it doesn't exist
@@ -105,30 +162,85 @@ if [ ! -f "$HAPROXY_JSON" ]; then
     chmod 644 "$HAPROXY_JSON"
 fi
 
-# Generate backend name (sanitize domain for HAProxy identifier)
-backend_name="${user}_$(echo "$domain" | tr '.' '_' | tr '-' '_')"
-
-# Parse aliases into JSON array
-aliases_json="[]"
-if [ -n "$aliases" ]; then
-    # Convert space-separated aliases to JSON array
-    aliases_json=$(echo "$aliases" | tr ' ' '\n' | jq -R . | jq -s .)
-fi
-
 # Get current timestamp
 timestamp=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-# Add domain to haproxy.json
-if command -v jq &> /dev/null; then
-    # Create new domain entry
+# Add domain to haproxy.json based on format
+if ! command -v jq &> /dev/null; then
+    echo "Error: jq is required for JSON manipulation"
+    exit 1
+fi
+
+if [ "$format" = "json" ]; then
+    # ============ NEW FORMAT (Frontend/Backend separation) ============
+    # Extract data from config_json
+    aliases_json=$(echo "$config_json" | jq -c '.aliases // []')
+    routing_mode=$(echo "$config_json" | jq -r '.routingMode // "simple"')
+    default_backend=$(echo "$config_json" | jq -r '.defaultBackend // ""')
+    acl_rules=$(echo "$config_json" | jq -c '.aclRules // []')
+    backends_json=$(echo "$config_json" | jq -c '.backends // []')
+    ssl_mode=$(echo "$config_json" | jq -r '.ssl.mode // "termination"')
+    enabled=$(echo "$config_json" | jq -r '.enabled // true')
+
+    # Count total servers across all backends for logging
+    total_servers=$(echo "$backends_json" | jq '[.[].servers | length] | add // 0')
+    backend_count=$(echo "$backends_json" | jq 'length')
+
+    # Create new domain entry with new format
     new_domain=$(cat <<EOF
 {
     "domain": "$domain",
     "aliases": $aliases_json,
+    "routingMode": "$routing_mode",
+    "defaultBackend": "$default_backend",
+    "aclRules": $acl_rules,
+    "backends": $backends_json,
+    "ssl": {
+        "mode": "$ssl_mode",
+        "cert": "auto"
+    },
+    "enabled": $enabled,
+    "createdAt": "$timestamp"
+}
+EOF
+)
+
+    # Add to domains array
+    jq ".domains += [$new_domain]" "$HAPROXY_JSON" > "$HAPROXY_JSON.tmp" && mv "$HAPROXY_JSON.tmp" "$HAPROXY_JSON"
+
+    # Log action
+    $HESTIA/bin/v-log-action "user" "Info" "HAProxy" "Added HAProxy domain (User: $user, Domain: $domain, Backends: $backend_count, Servers: $total_servers)."
+    echo "HAProxy domain $domain added successfully with $backend_count backend(s) and $total_servers server(s)"
+
+else
+    # ============ LEGACY FORMAT (backward compatibility) ============
+    # Generate backend name (sanitize domain for HAProxy identifier)
+    backend_name="${user}_$(echo "$domain" | tr '.' '_' | tr '-' '_')"
+
+    # Parse aliases into JSON array
+    aliases_json="[]"
+    if [ -n "$aliases" ]; then
+        aliases_json=$(echo "$aliases" | tr ' ' '\n' | jq -R . | jq -s .)
+    fi
+
+    # Parse options
+    health_check=$(echo "$options_json" | jq -r '.healthCheck // true')
+    sticky_session=$(echo "$options_json" | jq -r '.stickySession // false')
+    forward_headers=$(echo "$options_json" | jq -r '.forwardHeaders // true')
+    custom_config=$(echo "$options_json" | jq -r '.customConfig // ""')
+    path_rules=$(echo "$options_json" | jq -c '.pathRules // []')
+    default_backend_opt=$(echo "$options_json" | jq -r '.defaultBackend // "custom"')
+
+    # Create new domain entry with legacy format (still supported)
+    new_domain=$(cat <<EOF
+{
+    "domain": "$domain",
+    "aliases": $aliases_json,
+    "servers": $servers_json,
+    "balance": "$balance",
+    "mode": "$mode",
     "backend": {
         "name": "$backend_name",
-        "host": "$backend_host",
-        "port": $backend_port,
         "type": "$backend_type"
     },
     "ssl": {
@@ -136,9 +248,14 @@ if command -v jq &> /dev/null; then
         "cert": "auto"
     },
     "options": {
-        "healthCheck": $([ "$health_check" = "yes" ] && echo "true" || echo "false"),
-        "customConfig": ""
+        "healthCheck": $health_check,
+        "stickySession": $sticky_session,
+        "forwardHeaders": $forward_headers,
+        "customConfig": "$custom_config"
     },
+    "pathRules": $path_rules,
+    "defaultBackend": "$default_backend_opt",
+    "timeout": $timeout_json,
     "enabled": true,
     "createdAt": "$timestamp"
 }
@@ -147,9 +264,10 @@ EOF
 
     # Add to domains array
     jq ".domains += [$new_domain]" "$HAPROXY_JSON" > "$HAPROXY_JSON.tmp" && mv "$HAPROXY_JSON.tmp" "$HAPROXY_JSON"
-else
-    echo "Error: jq is required for JSON manipulation"
-    exit 1
+
+    # Log action
+    $HESTIA/bin/v-log-action "user" "Info" "HAProxy" "Added HAProxy domain (User: $user, Domain: $domain, Servers: $server_count)."
+    echo "HAProxy domain $domain added successfully with $server_count server(s)"
 fi
 
 # Rebuild HAProxy configuration (generates backends from all users' haproxy.json)
@@ -159,7 +277,4 @@ $HESTIA/bin/v-rebuild-haproxy-conf yes
 #                       Result                             #
 #----------------------------------------------------------#
 
-$HESTIA/bin/v-log-action "user" "Info" "HAProxy" "Added HAProxy domain (User: $user, Domain: $domain, Backend: $backend_host:$backend_port)."
-
-echo "HAProxy domain $domain added successfully"
 exit 0

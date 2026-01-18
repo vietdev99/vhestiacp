@@ -370,19 +370,20 @@ router.post('/mongodb', async (req, res) => {
 router.put('/mongodb/:database/password', async (req, res) => {
   try {
     const { database } = req.params;
-    const { password, instance = 'default' } = req.body;
+    const { password, dbuser, instance = 'default' } = req.body;
     const username = req.user.user;
 
     if (!password) {
       return res.status(400).json({ error: 'Password is required' });
     }
 
-    const args = [username, database, password];
-    if (instance !== 'default') {
-      args.push(instance);
-    }
-    
-    await execHestia('v-change-database-mongo-password', args);
+    // dbuser defaults to database name (same as Hestia convention)
+    const dbUsername = dbuser || database;
+
+    // v-change-database-mongo-user-password USER DATABASE DBUSER [DBPASSWORD]
+    const args = [username, database, dbUsername, password];
+
+    await execHestia('v-change-database-mongo-user-password', args);
     res.json({ success: true, message: 'Password changed successfully' });
   } catch (error) {
     console.error('Error changing MongoDB password:', error);

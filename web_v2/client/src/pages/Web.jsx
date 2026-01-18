@@ -21,15 +21,30 @@ import {
   Activity,
   Shield,
   ShieldCheck,
-  ShieldX
+  ShieldX,
+  Copy,
+  Check,
+  FolderOpen
 } from 'lucide-react';
 
 export default function Web() {
   const [search, setSearch] = useState('');
   const [openMenu, setOpenMenu] = useState(null);
   const [menuPosition, setMenuPosition] = useState({ top: 0, right: 0 });
+  const [copiedPath, setCopiedPath] = useState(null);
   const buttonRefs = useRef({});
   const queryClient = useQueryClient();
+
+  // Copy path to clipboard
+  const handleCopyPath = async (path, domain) => {
+    try {
+      await navigator.clipboard.writeText(path);
+      setCopiedPath(domain);
+      setTimeout(() => setCopiedPath(null), 2000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
 
   // Fetch web domains
   const { data, isLoading, error } = useQuery({
@@ -228,6 +243,28 @@ export default function Web() {
                             {aliases.slice(0, 2).join(', ')}
                             {aliases.length > 2 && ` +${aliases.length - 2} more`}
                           </p>
+                        )}
+                        {item.DOCUMENT_ROOT && (
+                          <div className="flex items-center gap-1 mt-1.5 group">
+                            <FolderOpen className="w-3 h-3 text-gray-400" />
+                            <code className="text-xs text-gray-500 dark:text-dark-muted font-mono bg-gray-100 dark:bg-dark-border px-1.5 py-0.5 rounded max-w-xs truncate">
+                              {item.DOCUMENT_ROOT}
+                            </code>
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCopyPath(item.DOCUMENT_ROOT, item.domain);
+                              }}
+                              className="p-1 rounded hover:bg-gray-200 dark:hover:bg-dark-border opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Copy path"
+                            >
+                              {copiedPath === item.domain ? (
+                                <Check className="w-3 h-3 text-green-500" />
+                              ) : (
+                                <Copy className="w-3 h-3 text-gray-400" />
+                              )}
+                            </button>
+                          </div>
                         )}
                       </div>
                     </td>

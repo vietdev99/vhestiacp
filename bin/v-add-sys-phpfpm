@@ -53,9 +53,28 @@ if [ -z "$version" ]; then
     esac
 fi
 
-# Check if PHP-FPM is already installed
+# Check if PHP-FPM is already installed and running
+php_already_running=false
 if systemctl is-active --quiet "php${version}-fpm" 2>/dev/null; then
+    php_already_running=true
     echo "PHP-FPM $version is already installed and running"
+fi
+
+# Ensure WEB_BACKEND is configured (even if PHP-FPM was pre-installed)
+# This fixes the issue where nginx uses wrong template when WEB_BACKEND is not set
+if [ -z "$WEB_BACKEND" ]; then
+    echo "WEB_BACKEND='php-fpm'" >> $HESTIA/conf/hestia.conf
+    echo "Configured WEB_BACKEND='php-fpm'"
+fi
+
+# Set default PHP version if not set
+if [ -z "$DEFAULT_PHP" ]; then
+    echo "DEFAULT_PHP='$version'" >> $HESTIA/conf/hestia.conf
+    echo "Configured DEFAULT_PHP='$version'"
+fi
+
+# Exit if already running (config has been fixed above)
+if [ "$php_already_running" = true ]; then
     exit 0
 fi
 
@@ -108,16 +127,6 @@ systemctl start php${version}-fpm
 if ! systemctl is-active --quiet "php${version}-fpm"; then
     echo "Error: PHP-FPM failed to start"
     exit 1
-fi
-
-# Update Hestia config
-if [ -z "$WEB_BACKEND" ]; then
-    echo "WEB_BACKEND='php-fpm'" >> $HESTIA/conf/hestia.conf
-fi
-
-# Set default PHP version in Hestia if not set
-if [ -z "$DEFAULT_PHP" ]; then
-    echo "DEFAULT_PHP='$version'" >> $HESTIA/conf/hestia.conf
 fi
 
 #----------------------------------------------------------#

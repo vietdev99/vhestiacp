@@ -130,14 +130,22 @@ router.put('/:domain', async (req, res) => {
     const currentInfo = currentData[domain];
     const currentIp = currentInfo?.IP || '';
 
-    // Change IP only if it's different from current and is a valid system IP
-    // Skip if ip is empty, *, or same as current
-    if (ip && ip !== '*' && ip !== '' && ip !== currentIp) {
-      // Check if the IP exists in system
-      const ipsDir = path.join(HESTIA_DIR, 'data/ips');
-      const ipExists = fs.existsSync(path.join(ipsDir, ip));
-      if (ipExists) {
-        await execHestia('v-change-web-domain-ip', [username, domain, ip]);
+    // Change IP if different from current
+    // Note: Frontend sends ip="" when selecting "All IP Addresses (*)"
+    const effectiveIp = (ip === '' || ip === '*') ? '*' : ip;
+    const effectiveCurrentIp = (currentIp === '' || currentIp === '*') ? '*' : currentIp;
+
+    if (ip !== undefined && effectiveIp !== effectiveCurrentIp) {
+      if (effectiveIp === '*') {
+        // VHestiaCP: Support wildcard IP to bind to all interfaces
+        await execHestia('v-change-web-domain-ip', [username, domain, '*']);
+      } else {
+        // Check if the IP exists in system
+        const ipsDir = path.join(HESTIA_DIR, 'data/ips');
+        const ipExists = fs.existsSync(path.join(ipsDir, effectiveIp));
+        if (ipExists) {
+          await execHestia('v-change-web-domain-ip', [username, domain, effectiveIp]);
+        }
       }
     }
 

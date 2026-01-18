@@ -121,8 +121,8 @@ export default function Layout() {
     const webServerName = webServer === 'apache' ? 'Apache Domains' : 'Nginx Domains';
 
     return [
-      { name: webServerName, href: '/web', icon: Globe },
-      { name: 'HAProxy Domains', href: '/haproxy/domains', icon: Network }
+      { name: 'HAProxy Domains', href: '/haproxy/domains', icon: Network },
+      { name: webServerName, href: '/web', icon: Globe }
     ];
   }, [systemInfo]);
 

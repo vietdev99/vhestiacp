@@ -94,6 +94,10 @@ get_ip_alias() {
 increase_ip_value() {
 	sip=${1-ip}
 	USER=${2-$user}
+	# VHestiaCP: Skip counter update for wildcard IP
+	if [ "$sip" = "*" ]; then
+		return 0
+	fi
 	web_key='U_WEB_DOMAINS'
 	usr_key='U_SYS_USERS'
 	current_web=$(grep "$web_key=" $HESTIA/data/ips/$sip | cut -f 2 -d \')
@@ -131,6 +135,10 @@ increase_ip_value() {
 decrease_ip_value() {
 	sip=${1-ip}
 	local user=${2-$user}
+	# VHestiaCP: Skip counter update for wildcard IP
+	if [ "$sip" = "*" ]; then
+		return 0
+	fi
 	web_key='U_WEB_DOMAINS'
 	usr_key='U_SYS_USERS'
 
@@ -171,6 +179,11 @@ get_ip_value() {
 
 # Get real ip address
 get_real_ip() {
+	# VHestiaCP: Handle wildcard IP
+	if [ "$1" = "*" ]; then
+		echo "*"
+		return
+	fi
 	if [ -e "$HESTIA/data/ips/$1" ]; then
 		echo "$1"
 	else

@@ -73,9 +73,11 @@ if [ -n "$PROXY_SYSTEM" ] && [ -n "$PROXY" ]; then
 	fi
 fi
 
-# Check for webmail
+# Check for webmail - only rebuild if mail domain exists
 if [ -n "$IMAP_SYSTEM" ]; then
-	$BIN/v-rebuild-mail-domain "$user" "$domain"
+	if [ -e "${USER_DATA}/mail/${domain}.conf" ]; then
+		"$BIN/v-rebuild-mail-domain" "$user" "$domain"
+	fi
 fi
 
 #----------------------------------------------------------#

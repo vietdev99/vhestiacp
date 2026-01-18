@@ -11,7 +11,7 @@ export default function WebAdd() {
   const [error, setError] = useState('');
   const [formData, setFormData] = useState({
     domain: '',
-    ip: '',
+    ip: '*',
     aliases: '',
     proxySupport: true,
     proxyExtensions: 'jpg,jpeg,gif,png,ico,svg,css,zip,tgz,gz,rar,bz2,doc,xls,exe,pdf,ppt,txt,odt,ods,odp,odf,tar,wav,bmp,rtf,js,mp3,avi,mpeg,flv,woff,woff2',
@@ -132,7 +132,7 @@ export default function WebAdd() {
               onChange={(e) => setFormData({ ...formData, ip: e.target.value })}
               className="input"
             >
-              <option value="">* (All IP Addresses)</option>
+              <option value="*">* (All IP Addresses)</option>
               {systemInfo?.ips?.map((ip) => (
                 <option key={ip} value={ip}>{ip}</option>
               ))}

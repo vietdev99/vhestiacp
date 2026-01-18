@@ -160,7 +160,32 @@ const SERVICE_ALIASES = {
   proftpd: ['proftpd', 'vsftpd', 'pure-ftpd'],
   clamav: ['clamav', 'clamav-daemon', 'clamd'],
   spamd: ['spamd', 'spamassassin'],
-  phpfpm: ['php-fpm', 'php8.3-fpm', 'php8.2-fpm', 'php8.1-fpm', 'php8.0-fpm', 'php7.4-fpm']
+  phpfpm: ['php-fpm', 'php8.3-fpm', 'php8.2-fpm', 'php8.1-fpm', 'php8.0-fpm', 'php7.4-fpm'],
+  rabbitmq: ['rabbitmq', 'rabbitmq-server'],
+  kafka: ['kafka']
+};
+
+// Systemd service names for checking installed status
+const SYSTEMD_SERVICE_NAMES = {
+  haproxy: 'haproxy',
+  nginx: 'nginx',
+  apache2: 'apache2',
+  phpfpm: 'php*-fpm',  // Will check with glob pattern
+  mysql: 'mariadb',
+  postgresql: 'postgresql',
+  mongodb: 'mongod',
+  redis: 'redis-server',
+  rabbitmq: 'rabbitmq-server',
+  kafka: 'kafka',
+  exim4: 'exim4',
+  dovecot: 'dovecot',
+  clamav: 'clamav-daemon',
+  spamd: 'spamassassin',
+  fail2ban: 'fail2ban',
+  iptables: 'iptables',
+  proftpd: 'proftpd',
+  bind9: 'named',
+  nodejs: 'node'  // Node.js doesn't have a systemd service, will check binary
 };
 
 /**
@@ -172,8 +197,82 @@ router.get('/', adminMiddleware, async (req, res) => {
     // Get running services
     const runningServices = await execHestiaJson('v-list-sys-services', []);
 
-    // Helper to find service by aliases
-    const findService = (key) => {
+    // Check installed services via systemctl (includes stopped services)
+    const { execSync } = await import('child_process');
+    let installedServices = {};
+    try {
+      // Get all installed service unit files
+      const unitFiles = execSync('systemctl list-unit-files --type=service --no-pager --no-legend 2>/dev/null || true', { encoding: 'utf8', timeout: 10000 });
+      unitFiles.split('\n').forEach(line => {
+        const match = line.match(/^(\S+)\.service/);
+        if (match) {
+          installedServices[match[1]] = true;
+        }
+      });
+    } catch (e) {
+      console.warn('Failed to get installed services:', e.message);
+    }
+
+    // Check PHP-FPM status separately (not included in v-list-sys-services)
+    let phpFpmStatus = null;
+    let phpFpmInstalled = false;
+    try {
+      // Check if any php-fpm is installed
+      const phpFpmCheck = execSync('systemctl list-unit-files --type=service | grep -E "php[0-9.]+-fpm" | head -1', { encoding: 'utf8', timeout: 5000 }).trim();
+      if (phpFpmCheck) {
+        phpFpmInstalled = true;
+        // Check if running
+        const phpFpmRunning = execSync('systemctl list-units --type=service --state=running | grep -oE "php[0-9.]+-fpm" | head -1', { encoding: 'utf8', timeout: 5000 }).trim();
+        if (phpFpmRunning) {
+          phpFpmStatus = {
+            STATE: 'running',
+            CPU: '0',
+            MEM: '0',
+            SYSTEM: 'php fastcgi'
+          };
+        }
+      }
+    } catch (e) {
+      // PHP-FPM not running or not installed
+    }
+
+    // Helper to check if service is installed
+    const isInstalled = (key) => {
+      // Special case for phpfpm
+      if (key === 'phpfpm') return phpFpmInstalled;
+
+      // Special case for nodejs - check binary
+      if (key === 'nodejs') {
+        try {
+          execSync('which node', { encoding: 'utf8', timeout: 5000 });
+          return true;
+        } catch (e) {
+          return false;
+        }
+      }
+
+      const systemdName = SYSTEMD_SERVICE_NAMES[key];
+      if (!systemdName) return false;
+
+      // Check installed services
+      if (installedServices[systemdName]) return true;
+
+      // Check aliases
+      const aliases = SERVICE_ALIASES[key] || [];
+      for (const alias of aliases) {
+        if (installedServices[alias]) return true;
+      }
+
+      return false;
+    };
+
+    // Helper to find running service by aliases
+    const findRunningService = (key) => {
+      // Special case for phpfpm
+      if (key === 'phpfpm' && phpFpmStatus) {
+        return phpFpmStatus;
+      }
+
       // Direct match
       if (runningServices[key]) return runningServices[key];
 
@@ -188,14 +287,15 @@ router.get('/', adminMiddleware, async (req, res) => {
 
     // Map services with status
     const services = Object.entries(AVAILABLE_SERVICES).map(([key, config]) => {
-      const running = findService(key);
+      const running = findRunningService(key);
+      const installed = isInstalled(key) || !!running; // If running, definitely installed
 
       return {
         id: key,
         name: config.name,
         description: config.description,
         category: config.category,
-        installed: !!running,
+        installed: installed,
         running: running?.STATE === 'running',
         cpu: running?.CPU || '0',
         memory: running?.MEM || '0',

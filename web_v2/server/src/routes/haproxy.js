@@ -798,6 +798,33 @@ router.get('/domains', async (req, res) => {
     }
 
     const result = await execHestiaJson('v-list-user-haproxy-domains', [username]);
+
+    // Convert legacy format (backend.host/port) to new format (servers array)
+    if (result && result.domains) {
+      result.domains = result.domains.map(d => {
+        // If already has servers array, use it
+        if (d.servers && Array.isArray(d.servers) && d.servers.length > 0) {
+          return d;
+        }
+        // Convert from legacy backend.host/port to servers array
+        if (d.backend && (d.backend.host || d.backend.port)) {
+          const address = `${d.backend.host || '127.0.0.1'}:${d.backend.port || '3000'}`;
+          return {
+            ...d,
+            servers: [{
+              name: 'server1',
+              address: address,
+              type: 'ip',
+              options: ''
+            }],
+            balance: d.balance || 'roundrobin',
+            mode: d.mode || 'http'
+          };
+        }
+        return d;
+      });
+    }
+
     res.json(result);
   } catch (error) {
     console.error('List user HAProxy domains error:', error);
@@ -848,6 +875,18 @@ router.get('/available-domains', async (req, res) => {
 /**
  * POST /api/haproxy/domains
  * Add a domain to user's HAProxy config
+ *
+ * New format (Frontend/Backend separation):
+ * {
+ *   domain: string,
+ *   aliases: string[],
+ *   routingMode: 'simple' | 'advanced',
+ *   defaultBackend: string (backend name),
+ *   aclRules: [{ name, condition, pattern, backend }],
+ *   backends: [{ name, mode, balance, options, servers[] }],
+ *   ssl: { mode: 'termination' | 'passthrough' | 'none' },
+ *   enabled: boolean
+ * }
  */
 router.post('/domains', async (req, res) => {
   try {
@@ -858,35 +897,138 @@ router.post('/domains', async (req, res) => {
 
     const {
       domain,
-      backendHost = '127.0.0.1',
+      aliases = [],
+      routingMode = 'simple',
+      defaultBackend = '',
+      aclRules = [],
+      backends = [],
+      ssl = { mode: 'termination' },
+      enabled = true,
+      // Legacy format support
+      servers,
+      balance,
+      mode,
+      backendHost,
       backendPort,
       backendType = 'pm2',
-      sslMode = 'termination',
-      aliases = '',
-      healthCheck = true
+      sslMode,
+      healthCheck,
+      stickySession,
+      forwardHeaders,
+      timeout,
+      customConfig,
+      pathRules
     } = req.body;
 
-    if (!domain || !backendPort) {
-      return res.status(400).json({ error: 'Domain and backend port are required' });
+    if (!domain) {
+      return res.status(400).json({ error: 'Domain is required' });
     }
 
-    // Validate port
-    const port = parseInt(backendPort);
-    if (isNaN(port) || port < 1 || port > 65535) {
-      return res.status(400).json({ error: 'Invalid port number' });
-    }
+    // Check if this is new format (has backends array or uses __system__) or legacy format
+    const isNewFormat = Array.isArray(backends) || defaultBackend === '__system__';
 
-    // Call the add script
-    await execHestia('v-add-user-haproxy-domain', [
-      username,
-      domain,
-      backendHost,
-      String(port),
-      backendType,
-      sslMode,
-      aliases,
-      healthCheck ? 'yes' : 'no'
-    ]);
+    if (isNewFormat) {
+      // ============ NEW FORMAT ============
+      const backendList = backends || [];
+
+      // Validate each backend
+      for (const backend of backendList) {
+        if (!backend.name) {
+          return res.status(400).json({ error: 'Each backend must have a name' });
+        }
+        if (!backend.servers || backend.servers.length === 0) {
+          return res.status(400).json({ error: `Backend "${backend.name}" must have at least one server` });
+        }
+      }
+
+      // If no backends, must use __system__ as default
+      if (backendList.length === 0 && defaultBackend !== '__system__') {
+        return res.status(400).json({ error: 'At least one backend is required (or use System Web Server as default)' });
+      }
+
+      // Validate defaultBackend exists in backends (skip __system__ which routes to web_backend)
+      if (defaultBackend && defaultBackend !== '__system__' && !backendList.find(b => b.name === defaultBackend)) {
+        return res.status(400).json({ error: `Default backend "${defaultBackend}" not found in backends list` });
+      }
+
+      // Validate aclRules reference valid backends (skip __system__)
+      for (const rule of aclRules) {
+        if (rule.backend !== '__system__' && !backendList.find(b => b.name === rule.backend)) {
+          return res.status(400).json({ error: `ACL rule "${rule.name}" references unknown backend "${rule.backend}"` });
+        }
+      }
+
+      // Build the full domain config JSON for shell script
+      const domainConfig = JSON.stringify({
+        domain,
+        aliases: typeof aliases === 'string' ? aliases.split(/[\s,]+/).filter(Boolean) : aliases,
+        routingMode,
+        defaultBackend: defaultBackend || (backendList.length > 0 ? backendList[0].name : '__system__'),
+        aclRules,
+        backends: backendList,
+        ssl,
+        enabled
+      });
+
+      // Call the add script with new format
+      await execHestia('v-add-user-haproxy-domain', [
+        username,
+        domain,
+        domainConfig,
+        'json'  // Flag to indicate JSON format
+      ]);
+
+    } else {
+      // ============ LEGACY FORMAT ============
+      // Build servers JSON for the script
+      let serversJson;
+      if (servers && servers.length > 0) {
+        serversJson = JSON.stringify(servers);
+      } else if (backendPort) {
+        const port = parseInt(backendPort);
+        if (isNaN(port) || port < 1 || port > 65535) {
+          return res.status(400).json({ error: 'Invalid port number' });
+        }
+        serversJson = JSON.stringify([{
+          name: 'server1',
+          address: `${backendHost || '127.0.0.1'}:${port}`,
+          type: 'ip',
+          options: ''
+        }]);
+      } else {
+        return res.status(400).json({ error: 'At least one backend server is required' });
+      }
+
+      // Build options JSON
+      const optionsJson = JSON.stringify({
+        healthCheck: healthCheck !== false,
+        stickySession: stickySession || false,
+        forwardHeaders: forwardHeaders !== false,
+        customConfig: customConfig || '',
+        pathRules: pathRules || [],
+        defaultBackend: defaultBackend || 'custom'
+      });
+
+      // Build timeout JSON
+      const timeoutJson = JSON.stringify(timeout || { connect: '10s', server: '30s', client: '30s' });
+
+      // Aliases string
+      const aliasesStr = typeof aliases === 'string' ? aliases : (aliases || []).join(' ');
+
+      // Call the add script with legacy format
+      await execHestia('v-add-user-haproxy-domain', [
+        username,
+        domain,
+        serversJson,
+        balance || 'roundrobin',
+        mode || 'http',
+        backendType,
+        sslMode || ssl?.mode || 'termination',
+        aliasesStr,
+        optionsJson,
+        timeoutJson
+      ]);
+    }
 
     res.json({ success: true, message: `Domain ${domain} added to HAProxy` });
   } catch (error) {
@@ -898,6 +1040,18 @@ router.post('/domains', async (req, res) => {
 /**
  * PUT /api/haproxy/domains/:domain
  * Update a domain in user's HAProxy config
+ *
+ * New format (Frontend/Backend separation):
+ * {
+ *   domain: string,
+ *   aliases: string[],
+ *   routingMode: 'simple' | 'advanced',
+ *   defaultBackend: string (backend name),
+ *   aclRules: [{ name, condition, pattern, backend }],
+ *   backends: [{ name, mode, balance, options, servers[] }],
+ *   ssl: { mode: 'termination' | 'passthrough' | 'none' },
+ *   enabled: boolean
+ * }
  */
 router.put('/domains/:domain', async (req, res) => {
   try {
@@ -908,37 +1062,135 @@ router.put('/domains/:domain', async (req, res) => {
 
     const { domain } = req.params;
     const {
-      backendHost = '127.0.0.1',
+      aliases = [],
+      routingMode = 'simple',
+      defaultBackend = '',
+      aclRules = [],
+      backends = [],
+      ssl = { mode: 'termination' },
+      enabled = true,
+      // Legacy format support
+      servers,
+      balance,
+      mode,
+      backendHost,
       backendPort,
       backendType = 'pm2',
-      sslMode = 'termination',
-      aliases = '',
-      healthCheck = true,
-      enabled = true
+      sslMode,
+      healthCheck,
+      stickySession,
+      forwardHeaders,
+      timeout,
+      customConfig,
+      pathRules
     } = req.body;
 
-    if (!backendPort) {
-      return res.status(400).json({ error: 'Backend port is required' });
-    }
+    // Check if this is new format (has backends array or uses __system__) or legacy format
+    const isNewFormat = Array.isArray(backends) || defaultBackend === '__system__';
 
-    // Validate port
-    const port = parseInt(backendPort);
-    if (isNaN(port) || port < 1 || port > 65535) {
-      return res.status(400).json({ error: 'Invalid port number' });
-    }
+    if (isNewFormat) {
+      // ============ NEW FORMAT ============
+      const backendList = backends || [];
 
-    // Call the change script
-    await execHestia('v-change-user-haproxy-domain', [
-      username,
-      domain,
-      backendHost,
-      String(port),
-      backendType,
-      sslMode,
-      aliases,
-      healthCheck ? 'yes' : 'no',
-      enabled ? 'yes' : 'no'
-    ]);
+      // Validate each backend
+      for (const backend of backendList) {
+        if (!backend.name) {
+          return res.status(400).json({ error: 'Each backend must have a name' });
+        }
+        if (!backend.servers || backend.servers.length === 0) {
+          return res.status(400).json({ error: `Backend "${backend.name}" must have at least one server` });
+        }
+      }
+
+      // If no backends, must use __system__ as default
+      if (backendList.length === 0 && defaultBackend !== '__system__') {
+        return res.status(400).json({ error: 'At least one backend is required (or use System Web Server as default)' });
+      }
+
+      // Validate defaultBackend exists in backends (skip __system__ which routes to web_backend)
+      if (defaultBackend && defaultBackend !== '__system__' && !backendList.find(b => b.name === defaultBackend)) {
+        return res.status(400).json({ error: `Default backend "${defaultBackend}" not found in backends list` });
+      }
+
+      // Validate aclRules reference valid backends (skip __system__)
+      for (const rule of aclRules) {
+        if (rule.backend !== '__system__' && !backendList.find(b => b.name === rule.backend)) {
+          return res.status(400).json({ error: `ACL rule "${rule.name}" references unknown backend "${rule.backend}"` });
+        }
+      }
+
+      // Build the full domain config JSON for shell script
+      const domainConfig = JSON.stringify({
+        domain,
+        aliases: typeof aliases === 'string' ? aliases.split(/[\s,]+/).filter(Boolean) : aliases,
+        routingMode,
+        defaultBackend: defaultBackend || (backendList.length > 0 ? backendList[0].name : '__system__'),
+        aclRules,
+        backends: backendList,
+        ssl,
+        enabled
+      });
+
+      // Call the change script with new format
+      await execHestia('v-change-user-haproxy-domain', [
+        username,
+        domain,
+        domainConfig,
+        'json'  // Flag to indicate JSON format
+      ]);
+
+    } else {
+      // ============ LEGACY FORMAT ============
+      // Build servers JSON for the script
+      let serversJson;
+      if (servers && servers.length > 0) {
+        serversJson = JSON.stringify(servers);
+      } else if (backendPort) {
+        const port = parseInt(backendPort);
+        if (isNaN(port) || port < 1 || port > 65535) {
+          return res.status(400).json({ error: 'Invalid port number' });
+        }
+        serversJson = JSON.stringify([{
+          name: 'server1',
+          address: `${backendHost || '127.0.0.1'}:${port}`,
+          type: 'ip',
+          options: ''
+        }]);
+      } else {
+        return res.status(400).json({ error: 'At least one backend server is required' });
+      }
+
+      // Build options JSON
+      const optionsJson = JSON.stringify({
+        healthCheck: healthCheck !== false,
+        stickySession: stickySession || false,
+        forwardHeaders: forwardHeaders !== false,
+        customConfig: customConfig || '',
+        pathRules: pathRules || [],
+        defaultBackend: defaultBackend || 'custom'
+      });
+
+      // Build timeout JSON
+      const timeoutJson = JSON.stringify(timeout || { connect: '10s', server: '30s', client: '30s' });
+
+      // Aliases string
+      const aliasesStr = typeof aliases === 'string' ? aliases : (aliases || []).join(' ');
+
+      // Call the change script with legacy format
+      await execHestia('v-change-user-haproxy-domain', [
+        username,
+        domain,
+        serversJson,
+        balance || 'roundrobin',
+        mode || 'http',
+        backendType,
+        sslMode || ssl?.mode || 'termination',
+        aliasesStr,
+        optionsJson,
+        timeoutJson,
+        enabled ? 'yes' : 'no'
+      ]);
+    }
 
     res.json({ success: true, message: `Domain ${domain} updated` });
   } catch (error) {

@@ -7,6 +7,7 @@
 #
 # This function rebuilds the main HAProxy configuration file by merging
 # the base config with all user-level HAProxy backend configurations.
+# Supports multi-server format with load balancing.
 
 #----------------------------------------------------------#
 #                Variables & Functions                     #
@@ -65,6 +66,84 @@ USER_ACLS_HTTPS=""
 USER_BACKENDS=""
 user_domains_found=0
 
+# Helper function to generate backend config block
+generate_backend_config() {
+    local be_name="$1"
+    local be_mode="$2"
+    local be_balance="$3"
+    local be_health="$4"
+    local be_sticky="$5"
+    local be_forward="$6"
+    local be_websocket="$7"
+    local be_servers="$8"
+    local be_domain="$9"
+    local be_user="${10}"
+
+    local backend_cfg="
+# Domain: $be_domain
+# User: $be_user
+backend $be_name
+    mode $be_mode
+    balance $be_balance"
+
+    # Add WebSocket support if enabled
+    if [ "$be_websocket" = "true" ]; then
+        backend_cfg="$backend_cfg
+    option http-server-close
+    timeout tunnel 1h"
+    fi
+
+    # Add forward headers (HTTP mode only)
+    if [ "$be_mode" = "http" ] && [ "$be_forward" = "true" ]; then
+        backend_cfg="$backend_cfg
+    option forwardfor
+    http-request set-header X-Real-IP %[src]
+    http-request set-header X-Forwarded-Proto https if { ssl_fc }
+    http-request set-header X-Forwarded-Proto http if !{ ssl_fc }
+    http-request set-header X-Forwarded-Host %[req.hdr(host)]"
+    fi
+
+    # Add health check if enabled (HTTP mode only)
+    if [ "$be_mode" = "http" ] && [ "$be_health" = "true" ]; then
+        backend_cfg="$backend_cfg
+    option httpchk GET /
+    http-check expect status 200-499"
+    fi
+
+    # Add sticky session if enabled (HTTP mode only)
+    if [ "$be_mode" = "http" ] && [ "$be_sticky" = "true" ]; then
+        backend_cfg="$backend_cfg
+    cookie SERVERID insert indirect nocache"
+    fi
+
+    # Add servers
+    while read -r srv_json; do
+        [ -z "$srv_json" ] && continue
+        local srv_name=$(echo "$srv_json" | jq -r '.name')
+        local srv_address=$(echo "$srv_json" | jq -r '.address')
+        local srv_options=$(echo "$srv_json" | jq -r '.options // ""')
+
+        local server_line="    server $srv_name $srv_address"
+
+        if [ "$be_health" = "true" ]; then
+            server_line="$server_line check inter 5s fall 3 rise 2"
+        fi
+
+        if [ "$be_mode" = "http" ] && [ "$be_sticky" = "true" ]; then
+            server_line="$server_line cookie $srv_name"
+        fi
+
+        if [ -n "$srv_options" ] && [ "$srv_options" != "null" ]; then
+            server_line="$server_line $srv_options"
+        fi
+
+        backend_cfg="$backend_cfg
+$server_line"
+    done < <(echo "$be_servers" | jq -c '.[]')
+
+    echo "$backend_cfg"
+}
+
 for user_dir in "$HESTIA"/data/users/*/; do
     u=$(basename "$user_dir")
 
@@ -80,55 +159,267 @@ for user_dir in "$HESTIA"/data/users/*/; do
 
                 d_domain=$(echo "$domain_json" | jq -r '.domain')
                 d_aliases=$(echo "$domain_json" | jq -r '.aliases // [] | join(" ")')
-                d_backend=$(echo "$domain_json" | jq -r '.backend.name')
-                d_host=$(echo "$domain_json" | jq -r '.backend.host')
-                d_port=$(echo "$domain_json" | jq -r '.backend.port')
-                d_type=$(echo "$domain_json" | jq -r '.backend.type')
                 d_enabled=$(echo "$domain_json" | jq -r '.enabled')
-                d_health=$(echo "$domain_json" | jq -r '.options.healthCheck // true')
 
                 [ "$d_enabled" != "true" ] && continue
 
-                # Build ACL condition with domain and aliases
-                acl_domains="$d_domain"
-                if [ -n "$d_aliases" ] && [ "$d_aliases" != "null" ] && [ "$d_aliases" != "" ]; then
-                    acl_domains="$acl_domains $d_aliases"
-                fi
+                # Check if this is new format (has backends array) or legacy format
+                has_backends=$(echo "$domain_json" | jq -r 'if .backends and (.backends | length > 0) then "yes" else "no" end')
 
-                acl_name="host_${d_backend}"
-                acl_line="    acl $acl_name hdr(host) -i $acl_domains"
-                use_line="    use_backend $d_backend if $acl_name"
+                if [ "$has_backends" = "yes" ]; then
+                    # ============ NEW FORMAT (Frontend/Backend separation) ============
+                    d_routing_mode=$(echo "$domain_json" | jq -r '.routingMode // "simple"')
+                    d_default_backend=$(echo "$domain_json" | jq -r '.defaultBackend // ""')
+                    d_acl_rules=$(echo "$domain_json" | jq -c '.aclRules // []')
+                    d_backends=$(echo "$domain_json" | jq -c '.backends // []')
 
-                USER_ACLS_HTTP="${USER_ACLS_HTTP}${acl_line}\n${use_line}\n"
-                USER_ACLS_HTTPS="${USER_ACLS_HTTPS}${acl_line}\n${use_line}\n"
+                    # Build ACL condition with domain and aliases
+                    acl_domains="$d_domain"
+                    if [ -n "$d_aliases" ] && [ "$d_aliases" != "null" ] && [ "$d_aliases" != "" ]; then
+                        acl_domains="$acl_domains $d_aliases"
+                    fi
 
-                # Generate backend config
-                backend_cfg="
+                    # Create unique prefix for this domain's backends
+                    domain_prefix="${u}_$(echo "$d_domain" | tr '.' '_' | tr '-' '_')"
+                    host_acl_name="host_${domain_prefix}"
+
+                    # Add host ACL
+                    acl_line="    acl $host_acl_name hdr(host) -i $acl_domains"
+                    USER_ACLS_HTTP="${USER_ACLS_HTTP}${acl_line}\n"
+                    USER_ACLS_HTTPS="${USER_ACLS_HTTPS}${acl_line}\n"
+
+                    # Process ACL rules (for advanced routing mode)
+                    acl_rule_count=$(echo "$d_acl_rules" | jq -r 'length')
+                    if [ "$acl_rule_count" -gt 0 ]; then
+                        while read -r rule_json; do
+                            [ -z "$rule_json" ] && continue
+
+                            rule_name=$(echo "$rule_json" | jq -r '.name')
+                            rule_condition=$(echo "$rule_json" | jq -r '.condition // "path_beg"')
+                            rule_pattern=$(echo "$rule_json" | jq -r '.pattern')
+                            rule_backend=$(echo "$rule_json" | jq -r '.backend')
+
+                            # Build full backend name with domain prefix
+                            # Special case: __system__ routes to web_backend (nginx/apache)
+                            if [ "$rule_backend" = "__system__" ]; then
+                                full_backend_name="web_backend"
+                            else
+                                full_backend_name="${domain_prefix}_${rule_backend}"
+                            fi
+                            path_acl_name="${domain_prefix}_path_${rule_name}"
+
+                            # Add path ACL and use_backend rule
+                            USER_ACLS_HTTP="${USER_ACLS_HTTP}    acl $path_acl_name $rule_condition $rule_pattern\n"
+                            USER_ACLS_HTTP="${USER_ACLS_HTTP}    use_backend $full_backend_name if $host_acl_name $path_acl_name\n"
+                            USER_ACLS_HTTPS="${USER_ACLS_HTTPS}    acl $path_acl_name $rule_condition $rule_pattern\n"
+                            USER_ACLS_HTTPS="${USER_ACLS_HTTPS}    use_backend $full_backend_name if $host_acl_name $path_acl_name\n"
+                        done < <(echo "$d_acl_rules" | jq -c '.[]')
+                    fi
+
+                    # Add default backend rule
+                    if [ -n "$d_default_backend" ]; then
+                        # Special case: __system__ routes to web_backend (nginx/apache on port 8080)
+                        if [ "$d_default_backend" = "__system__" ]; then
+                            full_default_backend="web_backend"
+                        else
+                            full_default_backend="${domain_prefix}_${d_default_backend}"
+                        fi
+                        if [ "$acl_rule_count" -gt 0 ]; then
+                            USER_ACLS_HTTP="${USER_ACLS_HTTP}    # Default backend for $d_domain (unmatched paths)\n"
+                            USER_ACLS_HTTPS="${USER_ACLS_HTTPS}    # Default backend for $d_domain (unmatched paths)\n"
+                        fi
+                        USER_ACLS_HTTP="${USER_ACLS_HTTP}    use_backend $full_default_backend if $host_acl_name\n"
+                        USER_ACLS_HTTPS="${USER_ACLS_HTTPS}    use_backend $full_default_backend if $host_acl_name\n"
+                    fi
+
+                    # Generate backend configs for each backend in the backends array
+                    while read -r backend_json; do
+                        [ -z "$backend_json" ] && continue
+
+                        be_name=$(echo "$backend_json" | jq -r '.name')
+                        be_mode=$(echo "$backend_json" | jq -r '.mode // "http"')
+                        be_balance=$(echo "$backend_json" | jq -r '.balance // "roundrobin"')
+                        be_servers=$(echo "$backend_json" | jq -c '.servers // []')
+
+                        # Get options
+                        be_health=$(echo "$backend_json" | jq -r '.options.healthCheck // true')
+                        be_sticky=$(echo "$backend_json" | jq -r '.options.stickySession // false')
+                        be_forward=$(echo "$backend_json" | jq -r '.options.forwardHeaders // true')
+                        be_websocket=$(echo "$backend_json" | jq -r '.options.websocket // false')
+
+                        # Full backend name with domain prefix
+                        full_be_name="${domain_prefix}_${be_name}"
+
+                        # Generate backend config
+                        backend_cfg=$(generate_backend_config "$full_be_name" "$be_mode" "$be_balance" "$be_health" "$be_sticky" "$be_forward" "$be_websocket" "$be_servers" "$d_domain" "$u")
+
+                        USER_BACKENDS="${USER_BACKENDS}${backend_cfg}
+"
+                    done < <(echo "$d_backends" | jq -c '.[]')
+
+                    ((user_domains_found++))
+
+                else
+                    # ============ LEGACY FORMAT (backward compatibility) ============
+                    d_backend=$(echo "$domain_json" | jq -r '.backend.name')
+                    d_type=$(echo "$domain_json" | jq -r '.backend.type // "pm2"')
+
+                    # New multi-server format fields
+                    d_servers=$(echo "$domain_json" | jq -r '.servers // []')
+                    d_balance=$(echo "$domain_json" | jq -r '.balance // "roundrobin"')
+                    d_mode=$(echo "$domain_json" | jq -r '.mode // "http"')
+
+                    # Options
+                    d_health=$(echo "$domain_json" | jq -r '.options.healthCheck // true')
+                    d_sticky=$(echo "$domain_json" | jq -r '.options.stickySession // false')
+                    d_forward=$(echo "$domain_json" | jq -r '.options.forwardHeaders // true')
+                    d_custom=$(echo "$domain_json" | jq -r '.options.customConfig // ""')
+
+                    # Path-based routing (legacy)
+                    d_path_rules=$(echo "$domain_json" | jq -c '.pathRules // []')
+
+                    # Legacy format fallback
+                    d_host=$(echo "$domain_json" | jq -r '.backend.host // "127.0.0.1"')
+                    d_port=$(echo "$domain_json" | jq -r '.backend.port // 3000')
+
+                    # Build ACL condition with domain and aliases
+                    acl_domains="$d_domain"
+                    if [ -n "$d_aliases" ] && [ "$d_aliases" != "null" ] && [ "$d_aliases" != "" ]; then
+                        acl_domains="$acl_domains $d_aliases"
+                    fi
+
+                    acl_name="host_${d_backend}"
+                    acl_line="    acl $acl_name hdr(host) -i $acl_domains"
+
+                    # Check if there are path rules (legacy format)
+                    path_rule_count=$(echo "$d_path_rules" | jq -r 'length')
+                    path_acls=""
+                    path_backends=""
+
+                    if [ "$path_rule_count" -gt 0 ]; then
+                        # Generate path-based ACLs and backends (legacy format)
+                        while read -r rule_json; do
+                            [ -z "$rule_json" ] && continue
+
+                            pr_name=$(echo "$rule_json" | jq -r '.name')
+                            pr_condition=$(echo "$rule_json" | jq -r '.condition // "path_beg"')
+                            pr_path=$(echo "$rule_json" | jq -r '.path')
+                            pr_servers=$(echo "$rule_json" | jq -c '.servers // []')
+                            pr_balance=$(echo "$rule_json" | jq -r '.balance // "roundrobin"')
+                            pr_mode=$(echo "$rule_json" | jq -r '.mode // "http"')
+                            pr_health=$(echo "$rule_json" | jq -r '.options.healthCheck // true')
+                            pr_sticky=$(echo "$rule_json" | jq -r '.options.stickySession // false')
+                            pr_forward=$(echo "$rule_json" | jq -r '.options.forwardHeaders // true')
+                            pr_websocket=$(echo "$rule_json" | jq -r '.options.websocket // false')
+
+                            pr_backend_name="${d_backend}_${pr_name}"
+                            pr_acl_name="${d_backend}_path_${pr_name}"
+
+                            path_acls="${path_acls}    acl $pr_acl_name $pr_condition $pr_path\n"
+                            path_acls="${path_acls}    use_backend $pr_backend_name if $acl_name $pr_acl_name\n"
+
+                            pr_backend_cfg=$(generate_backend_config "$pr_backend_name" "$pr_mode" "$pr_balance" "$pr_health" "$pr_sticky" "$pr_forward" "$pr_websocket" "$pr_servers" "$d_domain - Path: $pr_path" "$u")
+
+                            path_backends="${path_backends}${pr_backend_cfg}
+"
+                        done < <(echo "$d_path_rules" | jq -c '.[]')
+                    fi
+
+                    # Build the frontend ACL rules
+                    USER_ACLS_HTTP="${USER_ACLS_HTTP}${acl_line}\n"
+                    USER_ACLS_HTTPS="${USER_ACLS_HTTPS}${acl_line}\n"
+
+                    if [ -n "$path_acls" ]; then
+                        USER_ACLS_HTTP="${USER_ACLS_HTTP}${path_acls}"
+                        USER_ACLS_HTTPS="${USER_ACLS_HTTPS}${path_acls}"
+                    fi
+
+                    use_line="    use_backend $d_backend if $acl_name"
+                    if [ "$path_rule_count" -gt 0 ]; then
+                        use_line="    # Default backend for $d_domain (unmatched paths)\n${use_line}"
+                    fi
+
+                    USER_ACLS_HTTP="${USER_ACLS_HTTP}${use_line}\n"
+                    USER_ACLS_HTTPS="${USER_ACLS_HTTPS}${use_line}\n"
+
+                    if [ -n "$path_backends" ]; then
+                        USER_BACKENDS="${USER_BACKENDS}${path_backends}"
+                    fi
+
+                    # Generate main backend config
+                    backend_cfg="
 # Domain: $d_domain
 # User: $u
 backend $d_backend
-    mode http
-    balance roundrobin
+    mode $d_mode
+    balance $d_balance"
+
+                    if [ "$d_mode" = "http" ] && [ "$d_forward" = "true" ]; then
+                        backend_cfg="$backend_cfg
     option forwardfor
     http-request set-header X-Real-IP %[src]
     http-request set-header X-Forwarded-Proto https if { ssl_fc }
     http-request set-header X-Forwarded-Proto http if !{ ssl_fc }
     http-request set-header X-Forwarded-Host %[req.hdr(host)]"
+                    fi
 
-                # Add health check if enabled
-                if [ "$d_health" = "true" ]; then
-                    backend_cfg="$backend_cfg
+                    if [ "$d_mode" = "http" ] && [ "$d_health" = "true" ]; then
+                        backend_cfg="$backend_cfg
     option httpchk GET /
-    http-check expect status 200-499
-    server ${d_type}_${d_port} ${d_host}:${d_port} check inter 5s fall 3 rise 2"
-                else
-                    backend_cfg="$backend_cfg
-    server ${d_type}_${d_port} ${d_host}:${d_port}"
-                fi
+    http-check expect status 200-499"
+                    fi
 
-                USER_BACKENDS="${USER_BACKENDS}${backend_cfg}
+                    if [ "$d_mode" = "http" ] && [ "$d_sticky" = "true" ]; then
+                        backend_cfg="$backend_cfg
+    cookie SERVERID insert indirect nocache"
+                    fi
+
+                    if [ -n "$d_custom" ] && [ "$d_custom" != "null" ]; then
+                        backend_cfg="$backend_cfg
+    # Custom configuration
+    $d_custom"
+                    fi
+
+                    # Check if we have servers array
+                    server_count=$(echo "$d_servers" | jq -r 'length')
+                    if [ "$server_count" -gt 0 ]; then
+                        while read -r srv_json; do
+                            [ -z "$srv_json" ] && continue
+                            srv_name=$(echo "$srv_json" | jq -r '.name')
+                            srv_address=$(echo "$srv_json" | jq -r '.address')
+                            srv_options=$(echo "$srv_json" | jq -r '.options // ""')
+
+                            server_line="    server $srv_name $srv_address"
+
+                            if [ "$d_health" = "true" ]; then
+                                server_line="$server_line check inter 5s fall 3 rise 2"
+                            fi
+
+                            if [ "$d_mode" = "http" ] && [ "$d_sticky" = "true" ]; then
+                                server_line="$server_line cookie $srv_name"
+                            fi
+
+                            if [ -n "$srv_options" ] && [ "$srv_options" != "null" ]; then
+                                server_line="$server_line $srv_options"
+                            fi
+
+                            backend_cfg="$backend_cfg
+$server_line"
+                        done < <(echo "$d_servers" | jq -c '.[]')
+                    else
+                        # Legacy single server format
+                        server_line="    server ${d_type}_${d_port} ${d_host}:${d_port}"
+                        if [ "$d_health" = "true" ]; then
+                            server_line="$server_line check inter 5s fall 3 rise 2"
+                        fi
+                        backend_cfg="$backend_cfg
+$server_line"
+                    fi
+
+                    USER_BACKENDS="${USER_BACKENDS}${backend_cfg}
 "
-                ((user_domains_found++))
+                    ((user_domains_found++))
+                fi
             done < <(jq -c '.domains[]' "$user_dir/haproxy.json" 2>/dev/null)
         fi
     fi
