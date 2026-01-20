@@ -1,0 +1,172 @@
+#!/bin/bash
+# info: enable phpmyadmin web access
+# options: [ALIAS]
+#
+# example: v-add-sys-pma pma
+#
+# This function enables phpMyAdmin web access by configuring nginx.
+# phpMyAdmin package must be installed first (apt install phpmyadmin).
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+alias=${1:-pma}
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check root permissions
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: Script must be run as root"
+    exit 1
+fi
+
+# Check if phpMyAdmin is installed
+if [ ! -d "/usr/share/phpmyadmin" ]; then
+    echo "Error: phpMyAdmin is not installed"
+    echo "Install it with: apt install phpmyadmin"
+    exit 1
+fi
+
+# Check if already enabled
+if [ -f "/etc/nginx/conf.d/phpmyadmin.inc" ]; then
+    echo "phpMyAdmin is already enabled"
+    # Update alias if different
+    current_alias=$(grep -oP "location /\K[^{]+" /etc/nginx/conf.d/phpmyadmin.inc 2>/dev/null | head -1 | tr -d ' ')
+    if [ "$current_alias" != "$alias" ]; then
+        echo "Updating alias from $current_alias to $alias..."
+        $BIN/v-change-sys-db-alias pma "$alias"
+    fi
+    exit 0
+fi
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Enabling phpMyAdmin..."
+
+# Get server IP
+server_ip=$(hostname -I | awk '{print $1}')
+pma_port=8085
+
+# Detect PHP-FPM socket
+php_socket=""
+for sock in /run/php/php*-fpm.sock; do
+    if [ -S "$sock" ]; then
+        php_socket="$sock"
+        break
+    fi
+done
+
+if [ -z "$php_socket" ]; then
+    echo "Error: No PHP-FPM socket found"
+    exit 1
+fi
+
+echo "Using PHP-FPM socket: $php_socket"
+
+# Generate nginx configuration (included in web domains)
+cat > /etc/nginx/conf.d/phpmyadmin.inc << EOFPMA
+location /$alias/ {
+    alias /usr/share/phpmyadmin/;
+    index index.php;
+
+    location ~ /(libraries|setup|templates|locale) {
+        deny all;
+        return 404;
+    }
+
+    location ~ /(.+\\.(json|lock|md)) {
+        deny all;
+        return 404;
+    }
+
+    location ~ \\.php\$ {
+        include /etc/nginx/fastcgi_params;
+        fastcgi_param SCRIPT_FILENAME \$request_filename;
+        fastcgi_pass unix:$php_socket;
+    }
+}
+EOFPMA
+
+# Create self-signed certificate for phpMyAdmin if not exists
+pma_cert_dir="/etc/haproxy/certs"
+pma_cert_file="$pma_cert_dir/pma.pem"
+if [ ! -f "$pma_cert_file" ]; then
+    echo "Creating self-signed certificate for phpMyAdmin..."
+    openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+        -keyout /tmp/pma.key -out /tmp/pma.crt \
+        -subj "/C=US/ST=State/L=City/O=VHestiaCP/CN=phpMyAdmin" 2>/dev/null
+    cat /tmp/pma.crt /tmp/pma.key > "$pma_cert_file"
+    rm -f /tmp/pma.key /tmp/pma.crt
+    chmod 600 "$pma_cert_file"
+fi
+
+# Add HAProxy frontend for phpMyAdmin on port 8085
+if ! grep -q "frontend pma_front" /etc/haproxy/haproxy.cfg 2>/dev/null; then
+    echo "Adding HAProxy frontend for phpMyAdmin on port $pma_port..."
+    cat >> /etc/haproxy/haproxy.cfg << EOFHA
+
+#---------------------------------------------------------------------
+# phpMyAdmin Frontend (Port $pma_port)
+#---------------------------------------------------------------------
+frontend pma_front
+    bind *:$pma_port ssl crt $pma_cert_file alpn h2,http/1.1
+    mode http
+    option forwardfor
+    http-request set-header X-Real-IP %[src]
+    http-request set-header X-Forwarded-Proto https
+    http-request set-header Host main.vollx.com
+    default_backend pma_backend
+
+backend pma_backend
+    mode http
+    balance roundrobin
+    server pma1 $server_ip:8080 check
+EOFHA
+fi
+
+# Add firewall rule for port 8085
+echo "Adding firewall rule for port $pma_port..."
+if command -v ufw &> /dev/null; then
+    ufw allow $pma_port/tcp 2>/dev/null || true
+elif command -v firewall-cmd &> /dev/null; then
+    firewall-cmd --permanent --add-port=$pma_port/tcp 2>/dev/null || true
+    firewall-cmd --reload 2>/dev/null || true
+elif [ -x "$BIN/v-add-firewall-rule" ]; then
+    $BIN/v-add-firewall-rule ACCEPT 0.0.0.0/0 $pma_port tcp "phpMyAdmin" 2>/dev/null || true
+fi
+
+# Update config values
+$BIN/v-change-sys-config-value 'DB_PMA_ALIAS' "$alias"
+$BIN/v-change-sys-config-value 'DB_PMA_PORT' "$pma_port"
+
+# Restart services
+$BIN/v-restart-service nginx
+haproxy -c -f /etc/haproxy/haproxy.cfg && systemctl reload haproxy
+
+#----------------------------------------------------------#
+#                       Logging                            #
+#----------------------------------------------------------#
+
+$BIN/v-log-action "system" "Info" "System" "phpMyAdmin access enabled (Alias: $alias)"
+log_event "$OK" "$ARGUMENTS"
+
+echo "phpMyAdmin enabled successfully"
+echo "Access URL: https://your-server:port/$alias"
+
+exit 0

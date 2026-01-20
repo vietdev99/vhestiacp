@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import fs from 'fs';
 import { execHestia, execHestiaJson } from '../utils/hestia.js';
 import { adminMiddleware } from '../middleware/auth.js';
 
@@ -361,6 +362,106 @@ router.delete('/pbm', adminMiddleware, async (req, res) => {
   } catch (error) {
     console.error('Uninstall PBM error:', error);
     res.status(500).json({ error: error.message || 'Failed to uninstall PBM' });
+  }
+});
+
+/**
+ * GET /api/services/pma/status
+ * Get phpMyAdmin status (installed, enabled, alias)
+ * NOTE: Must be defined BEFORE /:id routes to avoid route conflict
+ */
+router.get('/pma/status', adminMiddleware, async (req, res) => {
+  try {
+    // Check if phpMyAdmin package is installed
+    const installed = fs.existsSync('/usr/share/phpmyadmin');
+
+    // Check if nginx config exists (enabled)
+    const enabled = fs.existsSync('/etc/nginx/conf.d/phpmyadmin.inc');
+
+    // Get alias and port from config
+    let alias = 'pma';
+    let port = 8085;
+    if (enabled) {
+      try {
+        const configData = await execHestiaJson('v-list-sys-config', []);
+        alias = configData?.config?.DB_PMA_ALIAS || 'pma';
+        port = parseInt(configData?.config?.DB_PMA_PORT, 10) || 8085;
+      } catch {}
+    }
+
+    res.json({
+      installed,
+      enabled,
+      alias,
+      port,
+      accessUrl: enabled ? `/${alias}` : null
+    });
+  } catch (error) {
+    console.error('Get PMA status error:', error);
+    res.status(500).json({ error: 'Failed to get phpMyAdmin status' });
+  }
+});
+
+/**
+ * POST /api/services/pma/install
+ * Enable phpMyAdmin web access
+ * NOTE: Must be defined BEFORE /:id/install to avoid route conflict
+ */
+router.post('/pma/install', adminMiddleware, async (req, res) => {
+  try {
+    const { alias = 'pma' } = req.body;
+
+    await execHestia('v-add-sys-pma', [alias], { timeout: 60000 });
+
+    res.json({
+      success: true,
+      message: 'phpMyAdmin enabled successfully',
+      accessUrl: `/${alias}`
+    });
+  } catch (error) {
+    console.error('Enable PMA error:', error);
+    res.status(500).json({ error: error.message || 'Failed to enable phpMyAdmin' });
+  }
+});
+
+/**
+ * DELETE /api/services/pma
+ * Disable phpMyAdmin web access
+ * NOTE: Must be defined BEFORE /:id to avoid route conflict
+ */
+router.delete('/pma', adminMiddleware, async (req, res) => {
+  try {
+    await execHestia('v-delete-sys-pma', [], { timeout: 60000 });
+
+    res.json({ success: true, message: 'phpMyAdmin disabled successfully' });
+  } catch (error) {
+    console.error('Disable PMA error:', error);
+    res.status(500).json({ error: error.message || 'Failed to disable phpMyAdmin' });
+  }
+});
+
+/**
+ * PUT /api/services/pma/alias
+ * Change phpMyAdmin URL alias
+ */
+router.put('/pma/alias', adminMiddleware, async (req, res) => {
+  try {
+    const { alias } = req.body;
+
+    if (!alias) {
+      return res.status(400).json({ error: 'Alias is required' });
+    }
+
+    await execHestia('v-change-sys-db-alias', ['pma', alias], { timeout: 60000 });
+
+    res.json({
+      success: true,
+      message: 'phpMyAdmin alias changed successfully',
+      accessUrl: `/${alias}`
+    });
+  } catch (error) {
+    console.error('Change PMA alias error:', error);
+    res.status(500).json({ error: error.message || 'Failed to change phpMyAdmin alias' });
   }
 });
 

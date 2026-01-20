@@ -45,6 +45,15 @@ export default function Applications() {
     }
   });
 
+  // Fetch phpMyAdmin status
+  const { data: pmaStatus } = useQuery({
+    queryKey: ['pma-status'],
+    queryFn: async () => {
+      const res = await api.get('/api/services/pma/status');
+      return res.data;
+    }
+  });
+
   // Install mutation
   const installMutation = useMutation({
     mutationFn: async (serviceId) => {
@@ -115,6 +124,40 @@ export default function Applications() {
     }
   });
 
+  // phpMyAdmin Install mutation
+  const pmaInstallMutation = useMutation({
+    mutationFn: async (alias = 'pma') => {
+      setInstalling('pma');
+      await api.post('/api/services/pma/install', { alias });
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['pma-status']);
+      toast.success('phpMyAdmin enabled successfully');
+      setInstalling(null);
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.error || 'Failed to enable phpMyAdmin');
+      setInstalling(null);
+    }
+  });
+
+  // phpMyAdmin Uninstall mutation
+  const pmaUninstallMutation = useMutation({
+    mutationFn: async () => {
+      setUninstalling('pma');
+      await api.delete('/api/services/pma');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['pma-status']);
+      toast.success('phpMyAdmin disabled');
+      setUninstalling(null);
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.error || 'Failed to disable phpMyAdmin');
+      setUninstalling(null);
+    }
+  });
+
   // Restart mutation
   const restartMutation = useMutation({
     mutationFn: async (serviceId) => {
@@ -158,6 +201,11 @@ export default function Applications() {
     cat.services.some(s => s.id === 'mongodb' && s.installed)
   );
 
+  // Check if MySQL/MariaDB is installed
+  const mysqlInstalled = data?.categories?.some(cat =>
+    cat.services.some(s => s.id === 'mysql' && s.installed)
+  );
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -192,6 +240,117 @@ export default function Applications() {
           Refresh
         </button>
       </div>
+
+      {/* Database Tools Section - Show if MySQL is installed */}
+      {mysqlInstalled && (
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Database className="w-5 h-5" />
+            Database Tools
+          </h2>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {/* phpMyAdmin Card */}
+            <div className="card p-4 hover:shadow-md transition-shadow border-2 border-blue-200 dark:border-blue-800">
+              <div className="flex items-start justify-between">
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 rounded-lg flex items-center justify-center text-blue-500 bg-blue-100 dark:bg-blue-900/30">
+                    <Database className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-semibold">phpMyAdmin</h3>
+                    <p className="text-sm text-gray-500 dark:text-dark-muted">
+                      MySQL/MariaDB web management tool
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status */}
+              <div className="mt-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  {pmaStatus?.installed ? (
+                    pmaStatus?.enabled ? (
+                      <span className="flex items-center gap-1.5 text-green-600 dark:text-green-400 text-sm">
+                        <CheckCircle className="w-4 h-4" />
+                        Enabled (/{pmaStatus?.alias})
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1.5 text-gray-400 text-sm">
+                        <XCircle className="w-4 h-4" />
+                        Disabled
+                      </span>
+                    )
+                  ) : (
+                    <span className="flex items-center gap-1.5 text-red-400 text-sm">
+                      <XCircle className="w-4 h-4" />
+                      Not Installed
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="mt-4 pt-3 border-t border-gray-200 dark:border-dark-border flex items-center gap-2">
+                {pmaStatus?.installed && pmaStatus?.enabled ? (
+                  <>
+                    <button
+                      onClick={() => {
+                        const port = pmaStatus?.port || 8085;
+                        window.open(`https://${window.location.hostname}:${port}/${pmaStatus?.alias}/`, '_blank');
+                      }}
+                      className="flex-1 btn btn-sm btn-secondary"
+                    >
+                      <ExternalLink className="w-4 h-4 mr-1" />
+                      Open
+                    </button>
+                    <button
+                      onClick={() => {
+                        if (confirm('Are you sure you want to disable phpMyAdmin access?')) {
+                          pmaUninstallMutation.mutate();
+                        }
+                      }}
+                      disabled={uninstalling === 'pma'}
+                      className="flex-1 btn btn-sm bg-red-100 hover:bg-red-200 text-red-700 dark:bg-red-900/30 dark:hover:bg-red-900/50 dark:text-red-400"
+                    >
+                      {uninstalling === 'pma' ? (
+                        <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4 mr-1" />
+                      )}
+                      Disable
+                    </button>
+                  </>
+                ) : pmaStatus?.installed ? (
+                  <button
+                    onClick={() => pmaInstallMutation.mutate('pma')}
+                    disabled={installing === 'pma'}
+                    className="flex-1 btn btn-sm btn-primary"
+                  >
+                    {installing === 'pma' ? (
+                      <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                    ) : (
+                      <Download className="w-4 h-4 mr-1" />
+                    )}
+                    Enable
+                  </button>
+                ) : (
+                  <span className="text-sm text-gray-500">
+                    Install phpMyAdmin package first
+                  </span>
+                )}
+              </div>
+
+              {/* Access URL info */}
+              {pmaStatus?.enabled && (
+                <div className="mt-3 p-2 bg-gray-50 dark:bg-dark-border rounded text-xs text-gray-600 dark:text-dark-muted">
+                  Access: https://{window.location.hostname}:{pmaStatus?.port || 8085}/{pmaStatus?.alias}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* PBM Section - Show if MongoDB is installed */}
       {mongoInstalled && (

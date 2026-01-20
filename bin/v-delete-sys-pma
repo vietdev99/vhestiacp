@@ -1,0 +1,82 @@
+#!/bin/bash
+# info: disable phpmyadmin web access
+# options: NONE
+#
+# example: v-delete-sys-pma
+#
+# This function disables phpMyAdmin web access by removing nginx config.
+# Note: This does not uninstall the phpMyAdmin package, only disables web access.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check root permissions
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: Script must be run as root"
+    exit 1
+fi
+
+# Check if phpMyAdmin nginx config exists
+if [ ! -f "/etc/nginx/conf.d/phpmyadmin.inc" ]; then
+    echo "phpMyAdmin access is already disabled"
+    exit 0
+fi
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Disabling phpMyAdmin..."
+
+# Remove nginx configuration
+rm -f /etc/nginx/conf.d/phpmyadmin.inc
+
+# Remove HAProxy frontend/backend for phpMyAdmin
+if [ -f "/etc/haproxy/haproxy.cfg" ]; then
+    if grep -q "frontend pma_front" /etc/haproxy/haproxy.cfg 2>/dev/null; then
+        echo "Removing HAProxy phpMyAdmin configuration..."
+        # Remove the pma_front frontend and pma_backend sections
+        sed -i '/^#---------------------------------------------------------------------$/,/^backend pma_backend$/{ /phpMyAdmin Frontend/,/^backend pma_backend$/d }' /etc/haproxy/haproxy.cfg
+        sed -i '/^frontend pma_front$/,/^$/d' /etc/haproxy/haproxy.cfg
+        sed -i '/^backend pma_backend$/,/^$/d' /etc/haproxy/haproxy.cfg
+        # Clean up any leftover empty lines
+        sed -i '/^#---------------------------------------------------------------------$/{ N; /\n$/d }' /etc/haproxy/haproxy.cfg
+
+        # Reload HAProxy
+        haproxy -c -f /etc/haproxy/haproxy.cfg && systemctl reload haproxy
+    fi
+fi
+
+# Clear config values
+$BIN/v-change-sys-config-value 'DB_PMA_ALIAS' ""
+$BIN/v-change-sys-config-value 'DB_PMA_PORT' ""
+
+# Restart nginx
+$BIN/v-restart-service nginx
+
+#----------------------------------------------------------#
+#                       Logging                            #
+#----------------------------------------------------------#
+
+$BIN/v-log-action "system" "Info" "System" "phpMyAdmin access disabled"
+log_event "$OK" "$ARGUMENTS"
+
+echo "phpMyAdmin access has been disabled"
+
+exit 0

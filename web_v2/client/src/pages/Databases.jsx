@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import api from '../utils/api';
-import { Plus, Search, Database, MoreVertical, HardDrive, Leaf, Trash2, UserPlus, Key, AlertCircle, X, Eye, EyeOff, RefreshCw, Server, Loader2 } from 'lucide-react';
+import { Plus, Search, Database, MoreVertical, HardDrive, Leaf, Trash2, UserPlus, Key, AlertCircle, X, Eye, EyeOff, RefreshCw, Server, Loader2, ExternalLink } from 'lucide-react';
 
 // Database type labels
 const DB_TYPE_CONFIG = {
@@ -80,6 +80,16 @@ export default function Databases() {
   });
 
   const instances = instancesData || [{ name: 'default', status: 'running' }];
+
+  // Fetch phpMyAdmin status (only for MySQL)
+  const { data: pmaStatus } = useQuery({
+    queryKey: ['pma-status'],
+    queryFn: async () => {
+      const res = await api.get('/api/services/pma/status');
+      return res.data;
+    },
+    enabled: dbType === 'mysql'
+  });
 
   // Fetch instance config details (for clusterMode, instanceType)
   const { data: instanceConfig } = useQuery({
@@ -199,6 +209,20 @@ export default function Databases() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {/* phpMyAdmin button - only show for MySQL when enabled */}
+          {dbType === 'mysql' && pmaStatus?.enabled && (
+            <button
+              onClick={() => {
+                const port = pmaStatus.port || 8085;
+                window.open(`https://${window.location.hostname}:${port}/${pmaStatus.alias}/`, '_blank');
+              }}
+              className="btn btn-secondary"
+              title="Open phpMyAdmin"
+            >
+              <ExternalLink className="w-4 h-4 mr-2" />
+              phpMyAdmin
+            </button>
+          )}
           <button onClick={() => refetch()} className="btn btn-secondary">
             <RefreshCw className="w-4 h-4" />
           </button>
