@@ -201,7 +201,8 @@ if [ -d "$HESTIA/web_v2" ]; then
             # Clean install to avoid corrupted node_modules
             echo "Installing client dependencies (clean)..."
             rm -rf node_modules package-lock.json .vite-temp 2>/dev/null
-            npm install 2>&1 | tail -5
+            # Use --include=dev to ensure vite is installed (it's in devDependencies)
+            npm install --include=dev 2>&1 | tail -5
 
             echo "Building client..."
             # Use npx to ensure vite is found from node_modules
