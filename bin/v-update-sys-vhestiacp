@@ -78,47 +78,39 @@ fi
 #                       Action                             #
 #----------------------------------------------------------#
 
-# Create log directory
-mkdir -p "$UPDATE_LOG_DIR"
-
-# Generate update log filename with timestamp
-timestamp=$(date +%Y%m%d_%H%M%S)
-update_log="$UPDATE_LOG_DIR/update_$timestamp.log"
-
-# Start logging
-exec > >(tee -a "$update_log") 2>&1
-
-echo "=========================================="
-echo "VHestiaCP Update - $(date)"
-echo "=========================================="
-
-cd "$VHESTIA_DIR"
+cd "$VHESTIA_DIR" || exit 1
 
 # Get current version info
 current_commit=$(git rev-parse HEAD 2>/dev/null)
 current_version=$(git describe --tags --always 2>/dev/null || echo "$current_commit")
 
-echo "Current version: $current_version"
-echo "Current commit: ${current_commit:0:8}"
-
 # Fetch latest from remote
-echo ""
-echo "Fetching updates from remote..."
 git fetch origin "$VHESTIA_BRANCH" --quiet 2>/dev/null
 
 # Get remote version info
 remote_commit=$(git rev-parse "origin/$VHESTIA_BRANCH" 2>/dev/null)
 remote_version=$(git describe --tags --always "origin/$VHESTIA_BRANCH" 2>/dev/null || echo "$remote_commit")
 
-echo "Remote version: $remote_version"
-echo "Remote commit: ${remote_commit:0:8}"
-
-# Check if update is needed
+# Check if update is needed (before creating log file)
 if [ "$remote_commit" = "$current_commit" ]; then
-    echo ""
     echo "Already up to date. No update needed."
     exit 0
 fi
+
+# Create log directory and start logging (only when there's an update)
+mkdir -p "$UPDATE_LOG_DIR"
+timestamp=$(date +%Y%m%d_%H%M%S)
+update_log="$UPDATE_LOG_DIR/update_$timestamp.log"
+exec > >(tee -a "$update_log") 2>&1
+
+echo "=========================================="
+echo "VHestiaCP Update - $(date)"
+echo "=========================================="
+
+echo "Current version: $current_version"
+echo "Current commit: ${current_commit:0:8}"
+echo "Remote version: $remote_version"
+echo "Remote commit: ${remote_commit:0:8}"
 
 # Count commits behind
 commits_behind=$(git rev-list --count "$current_commit..$remote_commit" 2>/dev/null || echo "0")
