@@ -327,6 +327,24 @@ export default function UpdateSettings() {
           </a>
         </div>
       </div>
+
+      {/* Version Test Card */}
+      <div className="card p-6 border-2 border-dashed border-purple-300 dark:border-purple-700">
+        <div className="flex items-center justify-between">
+          <div>
+            <h3 className="font-semibold text-purple-700 dark:text-purple-400">Update Test Marker</h3>
+            <p className="text-sm text-gray-500 dark:text-dark-muted">
+              If you see this card, the update was successful!
+            </p>
+            <p className="text-2xl font-bold text-purple-600 dark:text-purple-400 mt-2">
+              Version: 1.0.1
+            </p>
+          </div>
+          <div className="w-16 h-16 rounded-xl bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
+            <CheckCircle className="w-8 h-8 text-purple-600" />
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
