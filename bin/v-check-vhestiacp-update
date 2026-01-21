@@ -99,8 +99,17 @@ else
             # Get recent commits from GitHub API for changelog
             commits_json=$(curl -s "https://api.github.com/repos/vietdev99/vhestiacp/commits?sha=$VHESTIA_BRANCH&per_page=20" 2>/dev/null)
             if [ -n "$commits_json" ] && echo "$commits_json" | grep -q '"sha"'; then
-                # Extract commit messages (sha + first line of message)
-                changelog=$(echo "$commits_json" | grep -oP '"sha":\s*"\K[^"]{8}|"message":\s*"\K[^"\\]*' | paste - - | head -20)
+                # Extract commit sha (short) and message (first line only)
+                # Use jq if available, fallback to grep
+                if command -v jq &> /dev/null; then
+                    changelog=$(echo "$commits_json" | jq -r '.[] | "\(.sha[0:8]) \(.commit.message | split("\n")[0])"' 2>/dev/null | head -20)
+                else
+                    # Fallback: extract sha and message separately, then combine
+                    changelog=$(echo "$commits_json" | grep -oP '"sha":\s*"\K[^"]{7}' | head -20 | while read -r sha; do
+                        msg=$(echo "$commits_json" | grep -oP "\"sha\":\\s*\"${sha}[^\"]*\"[^}]*\"message\":\\s*\"\\K[^\"\\\\]*" | head -1)
+                        echo "$sha $msg"
+                    done)
+                fi
 
                 # Count commits (approximate - count until we find current commit or max 20)
                 if [ -n "$current_commit" ]; then
