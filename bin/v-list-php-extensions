@@ -41,9 +41,6 @@ fi
 #                       Action                             #
 #----------------------------------------------------------#
 
-# Get installed extensions
-installed_modules=$(php$php_version -m 2>/dev/null | grep -v "^\[" | sort -u)
-
 # Get available extensions from apt
 available_packages=$(apt-cache search "php${php_version}-" 2>/dev/null | grep -E "^php${php_version}-" | awk '{print $1}' | sort -u)
 
@@ -65,23 +62,11 @@ if [ "$format" = "json" ]; then
             continue
         fi
 
-        # Check if installed
+        # Check if installed - use dpkg to check package status
         is_installed="false"
-        if echo "$installed_modules" | grep -qi "^${ext_name}$"; then
+        if dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
             is_installed="true"
         fi
-        # Special cases for module names that differ from package names
-        case "$ext_name" in
-            mysql)
-                echo "$installed_modules" | grep -qi "^mysqli$\|^pdo_mysql$" && is_installed="true"
-                ;;
-            pgsql)
-                echo "$installed_modules" | grep -qi "^pgsql$\|^pdo_pgsql$" && is_installed="true"
-                ;;
-            sqlite3)
-                echo "$installed_modules" | grep -qi "^sqlite3$\|^pdo_sqlite$" && is_installed="true"
-                ;;
-        esac
 
         # Check if popular
         is_popular="false"
@@ -118,9 +103,9 @@ else
             continue
         fi
 
-        # Check if installed
+        # Check if installed - use dpkg to check package status
         status="available"
-        if echo "$installed_modules" | grep -qi "^${ext_name}$"; then
+        if dpkg -l "$pkg" 2>/dev/null | grep -q "^ii"; then
             status="installed"
         fi
 

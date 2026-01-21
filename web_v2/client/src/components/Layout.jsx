@@ -30,7 +30,8 @@ import {
   FolderOpen,
   BarChart3,
   Box,
-  Puzzle
+  Puzzle,
+  Download
 } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -72,6 +73,7 @@ const adminItems = [
   { name: 'Cloud Storage', href: '/admin/rclone', icon: Cloud },
   { name: 'HAProxy', href: '/haproxy', icon: Network },
   { name: 'Hestia Config', href: '/admin/hestia-config', icon: Settings },
+  { name: 'Updates', href: '/admin/updates', icon: Download },
   // File Manager is conditional - added dynamically based on system config
 ];
 

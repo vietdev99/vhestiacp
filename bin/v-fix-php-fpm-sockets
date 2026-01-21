@@ -1,0 +1,91 @@
+#!/bin/bash
+# info: fix PHP-FPM socket conflicts between versions
+# options: NONE
+#
+# example: v-fix-php-fpm-sockets
+#
+# This function fixes the www.conf socket paths for all installed PHP versions
+# to use version-specific sockets, avoiding conflicts when multiple PHP versions
+# are installed.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check root permissions
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: Script must be run as root"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Checking PHP-FPM socket configurations..."
+
+# Find all installed PHP-FPM versions
+for fpm_service in $(systemctl list-unit-files --type=service | grep -oE "php[0-9.]+-fpm" | sort -u); do
+    version=$(echo "$fpm_service" | grep -oE "[0-9]+\.[0-9]+")
+
+    if [ -z "$version" ]; then
+        continue
+    fi
+
+    www_conf="/etc/php/${version}/fpm/pool.d/www.conf"
+
+    if [ ! -f "$www_conf" ]; then
+        echo "PHP $version: www.conf not found, skipping"
+        continue
+    fi
+
+    current_socket=$(grep "^listen = " "$www_conf" | head -1 | awk '{print $3}')
+    expected_socket="/run/php/php${version}-fpm.sock"
+
+    # Check if using generic socket that could conflict
+    if echo "$current_socket" | grep -qE "^/run/php/(www|php-fpm)\.sock$"; then
+        echo "PHP $version: Fixing socket path..."
+        echo "  Current: $current_socket"
+        echo "  New:     $expected_socket"
+
+        # Update socket path
+        sed -i "s|^listen = .*|listen = $expected_socket|" "$www_conf"
+
+        # Restart PHP-FPM if running
+        if systemctl is-active --quiet "php${version}-fpm"; then
+            echo "  Restarting php${version}-fpm..."
+            systemctl restart "php${version}-fpm"
+
+            # Verify restart was successful
+            if systemctl is-active --quiet "php${version}-fpm"; then
+                echo "  OK: php${version}-fpm restarted successfully"
+            else
+                echo "  ERROR: php${version}-fpm failed to restart"
+            fi
+        fi
+    else
+        echo "PHP $version: Socket OK ($current_socket)"
+    fi
+done
+
+echo ""
+echo "Socket fix complete. Current sockets:"
+ls -la /run/php/*.sock 2>/dev/null || echo "No sockets found"
+
+#----------------------------------------------------------#
+#                       Logging                            #
+#----------------------------------------------------------#
+
+$BIN/v-log-action "system" "Info" "System" "Fixed PHP-FPM socket configurations"
+log_event "$OK" "$ARGUMENTS"
+
+exit 0

@@ -42,9 +42,20 @@ export function execHestia(cmd, args = [], options = {}) {
     };
     exec(fullCmd, execOptions, (error, stdout, stderr) => {
       if (error) {
-        // Include stdout in error message as some Hestia commands output errors to stdout
-        const errorOutput = stderr || stdout || error.message;
-        reject(new Error(errorOutput.trim()));
+        // Check if it's a non-zero exit code or just stderr output
+        // Some scripts output warnings to stderr but still succeed
+        if (error.code !== undefined && error.code !== 0) {
+          // Real error - non-zero exit code
+          const errorOutput = stderr || stdout || error.message;
+          reject(new Error(errorOutput.trim()));
+        } else if (error.killed) {
+          // Process was killed (timeout)
+          reject(new Error('Command timed out'));
+        } else {
+          // Other error (e.g., command not found)
+          const errorOutput = stderr || stdout || error.message;
+          reject(new Error(errorOutput.trim()));
+        }
       } else {
         resolve(stdout);
       }

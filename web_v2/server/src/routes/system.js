@@ -1437,4 +1437,172 @@ router.get('/user-stats', async (req, res) => {
   }
 });
 
+/**
+ * GET /api/system/update/status
+ * Get VHestiaCP update status
+ */
+router.get('/update/status', adminMiddleware, async (req, res) => {
+  try {
+    // Get update check result
+    const output = await execHestia('v-check-vhestiacp-update', ['json']);
+    let updateInfo = {};
+    try {
+      updateInfo = JSON.parse(output);
+    } catch (e) {
+      console.error('Failed to parse update info:', e);
+    }
+
+    // Get auto-update setting from hestia.conf (read directly from file)
+    let autoUpdate = false;
+    try {
+      const configPath = path.join(HESTIA_DIR, 'conf/hestia.conf');
+      if (fs.existsSync(configPath)) {
+        const configContent = fs.readFileSync(configPath, 'utf8');
+        const match = configContent.match(/VHESTIA_AUTO_UPDATE=['"]*([^'"'\n]+)['"']*/);
+        if (match) {
+          autoUpdate = match[1] === 'true' || match[1] === 'yes';
+        }
+      }
+    } catch (e) {}
+
+    // Get update logs
+    let updateLogs = [];
+    try {
+      const logsDir = path.join(HESTIA_DIR, 'log/updates');
+      if (fs.existsSync(logsDir)) {
+        const files = fs.readdirSync(logsDir)
+          .filter(f => f.startsWith('update_') && f.endsWith('.log'))
+          .sort()
+          .reverse()
+          .slice(0, 10); // Last 10 update logs
+
+        updateLogs = files.map(f => ({
+          name: f,
+          date: f.replace('update_', '').replace('.log', ''),
+          path: path.join(logsDir, f)
+        }));
+      }
+    } catch (e) {}
+
+    res.json({
+      ...updateInfo,
+      autoUpdate,
+      updateLogs
+    });
+  } catch (error) {
+    console.error('Get update status error:', error);
+    res.status(500).json({ error: 'Failed to get update status' });
+  }
+});
+
+/**
+ * POST /api/system/update/check
+ * Force check for updates
+ */
+router.post('/update/check', adminMiddleware, async (req, res) => {
+  try {
+    const output = await execHestia('v-check-vhestiacp-update', ['json']);
+    let updateInfo = {};
+    try {
+      updateInfo = JSON.parse(output);
+    } catch (e) {
+      console.error('Failed to parse update info:', e);
+    }
+    res.json(updateInfo);
+  } catch (error) {
+    console.error('Check update error:', error);
+    res.status(500).json({ error: 'Failed to check for updates' });
+  }
+});
+
+/**
+ * POST /api/system/update/install
+ * Install available update
+ */
+router.post('/update/install', adminMiddleware, async (req, res) => {
+  try {
+    const { force } = req.body;
+    const args = force ? ['force'] : [];
+
+    // Run update with longer timeout (10 minutes)
+    const output = await execHestia('v-update-sys-vhestiacp', args, { timeout: 600000 });
+
+    res.json({
+      success: true,
+      message: 'Update completed successfully',
+      output
+    });
+  } catch (error) {
+    console.error('Install update error:', error);
+    res.status(500).json({ error: error.message || 'Failed to install update' });
+  }
+});
+
+/**
+ * PUT /api/system/update/auto-update
+ * Enable/disable auto-update
+ */
+router.put('/update/auto-update', adminMiddleware, async (req, res) => {
+  try {
+    const { enabled } = req.body;
+    const value = enabled ? 'true' : 'false';
+
+    await execHestia('v-change-sys-config-value', ['VHESTIA_AUTO_UPDATE', value]);
+
+    // Set up or remove cron job
+    if (enabled) {
+      // Add daily cron job for update check (at 3 AM)
+      try {
+        const cronCmd = `0 3 * * * root ${HESTIA_DIR}/bin/v-update-sys-vhestiacp-cron`;
+        const cronFile = '/etc/cron.d/vhestiacp-update';
+        fs.writeFileSync(cronFile, `# VHestiaCP auto-update check\n${cronCmd}\n`, 'utf8');
+      } catch (e) {
+        console.error('Failed to create cron job:', e);
+      }
+    } else {
+      // Remove cron job
+      try {
+        const cronFile = '/etc/cron.d/vhestiacp-update';
+        if (fs.existsSync(cronFile)) {
+          fs.unlinkSync(cronFile);
+        }
+      } catch (e) {
+        console.error('Failed to remove cron job:', e);
+      }
+    }
+
+    res.json({ success: true, autoUpdate: enabled });
+  } catch (error) {
+    console.error('Set auto-update error:', error);
+    res.status(500).json({ error: 'Failed to set auto-update' });
+  }
+});
+
+/**
+ * GET /api/system/update/log/:name
+ * Get specific update log content
+ */
+router.get('/update/log/:name', adminMiddleware, async (req, res) => {
+  try {
+    const { name } = req.params;
+
+    // Validate filename to prevent path traversal
+    if (!/^update_\d{8}_\d{6}\.log$/.test(name)) {
+      return res.status(400).json({ error: 'Invalid log file name' });
+    }
+
+    const logPath = path.join(HESTIA_DIR, 'log/updates', name);
+
+    if (!fs.existsSync(logPath)) {
+      return res.status(404).json({ error: 'Log file not found' });
+    }
+
+    const content = fs.readFileSync(logPath, 'utf8');
+    res.json({ name, content });
+  } catch (error) {
+    console.error('Get update log error:', error);
+    res.status(500).json({ error: 'Failed to get update log' });
+  }
+});
+
 export default router;

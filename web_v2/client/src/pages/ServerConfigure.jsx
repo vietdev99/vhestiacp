@@ -6,7 +6,6 @@ import {
   ArrowLeft,
   Save,
   Settings,
-  GitBranch,
   Globe,
   Server,
   Database,
@@ -100,8 +99,6 @@ export default function ServerConfigure() {
         diskQuota: data.config?.diskQuota,
         resourcesLimit: data.config?.resourcesLimit,
         firewallSystem: data.config?.firewallSystem,
-        upgradeSendEmail: data.config?.upgradeSendEmail,
-        upgradeSendEmailLog: data.config?.upgradeSendEmailLog,
         smtpRelay: data.config?.smtpRelay,
         smtpRelayHost: data.config?.smtpRelayHost,
         smtpRelayPort: data.config?.smtpRelayPort,
@@ -207,7 +204,6 @@ export default function ServerConfigure() {
         'hostname', 'timezone', 'theme', 'language', 'debugMode',
         'webmailAlias', 'dbPmaAlias', 'dbPgaAlias', 'inactiveSessionTimeout', 'loginStyle',
         'api', 'apiSystem', 'policySystemPasswordReset', 'policyUserChangeTheme',
-        'upgradeSendEmail', 'upgradeSendEmailLog',
         'backupMode', 'backupGzip', 'backupRemote',
         'policyCsrfStrictness',
         'policySystemProtectedAdmin', 'policySystemHideAdmin', 'policySystemHideServices',
@@ -326,42 +322,6 @@ export default function ServerConfigure() {
               onChange={(e) => handleFieldChange('debugMode', e.target.checked)}
             />
             <label htmlFor="debugMode">Enable debug mode</label>
-          </div>
-        </div>
-      </AccordionSection>
-
-      {/* Updates */}
-      <AccordionSection icon={GitBranch} title="Updates">
-        <div className="space-y-4">
-          <p className="text-sm">
-            <span className="text-gray-500">Version:</span>{' '}
-            <span className="font-medium">{config.version}</span>
-          </p>
-          {config.releaseBranch !== 'release' && (
-            <p className="text-sm">
-              <span className="text-gray-500">Release:</span>{' '}
-              <span className="font-medium">{config.releaseBranch}</span>
-            </p>
-          )}
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="upgradeSendEmail"
-              className="form-checkbox"
-              checked={formData.upgradeSendEmail || false}
-              onChange={(e) => handleFieldChange('upgradeSendEmail', e.target.checked)}
-            />
-            <label htmlFor="upgradeSendEmail">Send email notification when an update has been installed</label>
-          </div>
-          <div className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              id="upgradeSendEmailLog"
-              className="form-checkbox"
-              checked={formData.upgradeSendEmailLog || false}
-              onChange={(e) => handleFieldChange('upgradeSendEmailLog', e.target.checked)}
-            />
-            <label htmlFor="upgradeSendEmailLog">Include update log in notification email</label>
           </div>
         </div>
       </AccordionSection>

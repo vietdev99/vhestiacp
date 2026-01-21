@@ -1,0 +1,161 @@
+#!/bin/bash
+# info: check for VHestiaCP updates
+# options: [FORMAT]
+#
+# example: v-check-vhestiacp-update
+# example: v-check-vhestiacp-update json
+#
+# This function checks if there are updates available for VHestiaCP
+# by comparing local version with remote git repository.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+format=${1:-shell}
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+# VHestiaCP specific
+VHESTIA_REPO="https://github.com/vietdev99/vhestiacp.git"
+VHESTIA_BRANCH="${VHESTIA_BRANCH:-main}"
+VHESTIA_DIR="$HESTIA"
+VERSION_FILE="$HESTIA/conf/vhestiacp.version"
+UPDATE_CHECK_FILE="$HESTIA/conf/vhestiacp-update.json"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if git is installed
+if ! command -v git &> /dev/null; then
+    echo "Error: git is not installed"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Get current local version (from git or version file)
+current_version=""
+current_commit=""
+
+if [ -d "$VHESTIA_DIR/.git" ]; then
+    cd "$VHESTIA_DIR"
+    current_commit=$(git rev-parse HEAD 2>/dev/null)
+    current_version=$(git describe --tags --always 2>/dev/null || echo "$current_commit")
+else
+    # Read from version file if exists
+    if [ -f "$VERSION_FILE" ]; then
+        current_version=$(cat "$VERSION_FILE")
+    else
+        current_version="unknown"
+    fi
+fi
+
+# Fetch latest info from remote
+cd "$VHESTIA_DIR" 2>/dev/null || cd /tmp
+
+# Get remote latest commit
+remote_commit=""
+remote_version=""
+changelog=""
+update_available="false"
+
+if [ -d "$VHESTIA_DIR/.git" ]; then
+    cd "$VHESTIA_DIR"
+
+    # Fetch latest from remote (without merging)
+    git fetch origin "$VHESTIA_BRANCH" --quiet 2>/dev/null
+
+    # Get remote HEAD commit
+    remote_commit=$(git rev-parse "origin/$VHESTIA_BRANCH" 2>/dev/null)
+    remote_version=$(git describe --tags --always "origin/$VHESTIA_BRANCH" 2>/dev/null || echo "$remote_commit")
+
+    # Check if update is available
+    if [ -n "$remote_commit" ] && [ -n "$current_commit" ] && [ "$remote_commit" != "$current_commit" ]; then
+        update_available="true"
+
+        # Get changelog (commits between current and remote)
+        changelog=$(git log --oneline "$current_commit..$remote_commit" 2>/dev/null | head -20)
+
+        # Count commits behind
+        commits_behind=$(git rev-list --count "$current_commit..$remote_commit" 2>/dev/null || echo "0")
+    fi
+else
+    # If not a git repo, try to get info via API
+    remote_info=$(curl -s "https://api.github.com/repos/vietdev99/vhestiacp/commits/$VHESTIA_BRANCH" 2>/dev/null)
+    if [ -n "$remote_info" ]; then
+        remote_commit=$(echo "$remote_info" | grep -oP '"sha":\s*"\K[^"]+' | head -1)
+        remote_version="$remote_commit"
+
+        if [ -n "$remote_commit" ] && [ "$remote_commit" != "$current_commit" ]; then
+            update_available="true"
+        fi
+    fi
+fi
+
+# Get last check time
+last_check=$(date +%s)
+
+# Save update info to file
+cat > "$UPDATE_CHECK_FILE" << EOF
+{
+    "current_version": "$current_version",
+    "current_commit": "$current_commit",
+    "remote_version": "$remote_version",
+    "remote_commit": "$remote_commit",
+    "update_available": $update_available,
+    "commits_behind": ${commits_behind:-0},
+    "last_check": $last_check,
+    "last_check_date": "$(date -Iseconds)",
+    "branch": "$VHESTIA_BRANCH"
+}
+EOF
+
+#----------------------------------------------------------#
+#                       Output                             #
+#----------------------------------------------------------#
+
+if [ "$format" = "json" ]; then
+    # Escape changelog for JSON
+    changelog_escaped=$(echo "$changelog" | sed 's/"/\\"/g' | sed ':a;N;$!ba;s/\n/\\n/g')
+
+    cat << EOF
+{
+    "current_version": "$current_version",
+    "current_commit": "${current_commit:0:8}",
+    "remote_version": "$remote_version",
+    "remote_commit": "${remote_commit:0:8}",
+    "update_available": $update_available,
+    "commits_behind": ${commits_behind:-0},
+    "last_check": $last_check,
+    "last_check_date": "$(date -Iseconds)",
+    "branch": "$VHESTIA_BRANCH",
+    "changelog": "$changelog_escaped"
+}
+EOF
+else
+    echo "VHestiaCP Update Check"
+    echo "======================"
+    echo "Current Version: $current_version"
+    echo "Current Commit:  ${current_commit:0:8}"
+    echo "Remote Version:  $remote_version"
+    echo "Remote Commit:   ${remote_commit:0:8}"
+    echo "Branch:          $VHESTIA_BRANCH"
+    echo ""
+    if [ "$update_available" = "true" ]; then
+        echo "UPDATE AVAILABLE! (${commits_behind:-0} commits behind)"
+        echo ""
+        echo "Changelog:"
+        echo "$changelog"
+    else
+        echo "You are up to date."
+    fi
+fi
+
+exit 0

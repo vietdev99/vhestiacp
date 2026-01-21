@@ -1,0 +1,76 @@
+#!/bin/bash
+# info: cron job for VHestiaCP auto-update check
+# options: NONE
+#
+# example: v-update-sys-vhestiacp-cron
+#
+# This function is called by cron to check for updates and optionally auto-update.
+# It reads the auto-update configuration from hestia.conf.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+# VHestiaCP specific
+UPDATE_CHECK_FILE="$HESTIA/conf/vhestiacp-update.json"
+UPDATE_LOG_DIR="$HESTIA/log/updates"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check root permissions
+if [ "x$(id -u)" != 'x0' ]; then
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Create log directory
+mkdir -p "$UPDATE_LOG_DIR"
+
+# Check for updates
+$BIN/v-check-vhestiacp-update json > /dev/null 2>&1
+
+# Read update status
+if [ -f "$UPDATE_CHECK_FILE" ]; then
+    update_available=$(grep -oP '"update_available":\s*\K(true|false)' "$UPDATE_CHECK_FILE")
+
+    if [ "$update_available" = "true" ]; then
+        # Check auto-update setting
+        auto_update="${VHESTIA_AUTO_UPDATE:-false}"
+
+        if [ "$auto_update" = "true" ] || [ "$auto_update" = "yes" ]; then
+            # Auto-update enabled - perform update
+            echo "$(date): Auto-update triggered" >> "$UPDATE_LOG_DIR/cron.log"
+            $BIN/v-update-sys-vhestiacp force >> "$UPDATE_LOG_DIR/cron.log" 2>&1
+
+            # Send notification to admin
+            if [ -n "$CONTACT" ]; then
+                remote_version=$(grep -oP '"remote_version":\s*"\K[^"]+' "$UPDATE_CHECK_FILE")
+                commits_behind=$(grep -oP '"commits_behind":\s*\K[0-9]+' "$UPDATE_CHECK_FILE")
+
+                # Log notification (email can be added later)
+                $BIN/v-log-action "system" "Info" "Updates" "VHestiaCP auto-updated to $remote_version ($commits_behind commits)"
+            fi
+        else
+            # Auto-update disabled - just log notification
+            remote_version=$(grep -oP '"remote_version":\s*"\K[^"]+' "$UPDATE_CHECK_FILE")
+            commits_behind=$(grep -oP '"commits_behind":\s*\K[0-9]+' "$UPDATE_CHECK_FILE")
+
+            echo "$(date): Update available - $remote_version ($commits_behind commits behind)" >> "$UPDATE_LOG_DIR/cron.log"
+
+            # Log for admin panel notification
+            $BIN/v-log-action "system" "Info" "Updates" "VHestiaCP update available: $remote_version ($commits_behind commits)"
+        fi
+    fi
+fi
+
+exit 0

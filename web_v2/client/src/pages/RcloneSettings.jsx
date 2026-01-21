@@ -4,7 +4,7 @@ import api from '../utils/api';
 import {
   Cloud, Plus, Trash2, RefreshCw, CheckCircle, XCircle,
   Loader2, Settings, HardDrive, Server, Key, Eye, EyeOff,
-  ExternalLink, AlertCircle
+  ExternalLink, AlertCircle, Terminal, Copy, Check
 } from 'lucide-react';
 
 export default function RcloneSettings() {
@@ -222,17 +222,7 @@ function AddRemoteModal({ providers, onClose, onSuccess }) {
   const [remoteName, setRemoteName] = useState('');
   const [config, setConfig] = useState({});
   const [showSecrets, setShowSecrets] = useState({});
-  const [oauthState, setOauthState] = useState(null); // { status: 'idle' | 'authorizing' | 'waiting' | 'success' | 'error', authUrl, pid, error }
-  const pollIntervalRef = useRef(null);
-
-  // Clean up polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current);
-      }
-    };
-  }, []);
+  const [copiedCommand, setCopiedCommand] = useState(false);
 
   const createMutation = useMutation({
     mutationFn: async (data) => {
@@ -274,67 +264,11 @@ function AddRemoteModal({ providers, onClose, onSuccess }) {
     setShowSecrets(prev => ({ ...prev, [name]: !prev[name] }));
   };
 
-  // Start OAuth authorization
-  const startOAuth = async () => {
-    if (!selectedProvider) return;
-
-    setOauthState({ status: 'authorizing' });
-
-    try {
-      const res = await api.post('/api/rclone/oauth/authorize', {
-        provider: selectedProvider.id
-      });
-
-      if (res.data.authUrl) {
-        setOauthState({
-          status: 'waiting',
-          authUrl: res.data.authUrl,
-          pid: res.data.pid
-        });
-
-        // Start polling for token
-        pollIntervalRef.current = setInterval(async () => {
-          try {
-            const tokenRes = await api.get(`/api/rclone/oauth/token/${res.data.pid}`);
-            if (tokenRes.data.completed && tokenRes.data.token) {
-              clearInterval(pollIntervalRef.current);
-              pollIntervalRef.current = null;
-              setConfig(prev => ({ ...prev, token: tokenRes.data.token }));
-              setOauthState({ status: 'success' });
-            }
-          } catch (e) {
-            // Keep polling
-          }
-        }, 2000);
-
-        // Stop polling after 2 minutes
-        setTimeout(() => {
-          if (pollIntervalRef.current) {
-            clearInterval(pollIntervalRef.current);
-            pollIntervalRef.current = null;
-            if (oauthState?.status === 'waiting') {
-              setOauthState({ status: 'error', error: 'Authorization timed out. Please try again.' });
-            }
-          }
-        }, 120000);
-      } else {
-        setOauthState({ status: 'error', error: 'Failed to get authorization URL' });
-      }
-    } catch (error) {
-      setOauthState({
-        status: 'error',
-        error: error.response?.data?.error || 'Failed to start authorization'
-      });
-    }
-  };
-
-  // Cancel OAuth
-  const cancelOAuth = () => {
-    if (pollIntervalRef.current) {
-      clearInterval(pollIntervalRef.current);
-      pollIntervalRef.current = null;
-    }
-    setOauthState(null);
+  // Copy command to clipboard
+  const copyCommand = (command) => {
+    navigator.clipboard.writeText(command);
+    setCopiedCommand(true);
+    setTimeout(() => setCopiedCommand(false), 2000);
   };
 
   // Group providers by type
@@ -423,105 +357,102 @@ function AddRemoteModal({ providers, onClose, onSuccess }) {
               </p>
             </div>
 
-            {/* OAuth Authorization */}
-            {selectedProvider.authType === 'oauth' && (
-              <div className="space-y-3">
-                {/* OAuth Status */}
-                {oauthState?.status === 'waiting' && (
-                  <div className="p-4 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-                    <div className="flex items-center gap-2 mb-2">
-                      <Loader2 className="w-4 h-4 animate-spin text-blue-600" />
-                      <span className="font-medium text-blue-800 dark:text-blue-300">
-                        Waiting for authorization...
-                      </span>
-                    </div>
-                    <p className="text-sm text-blue-700 dark:text-blue-400 mb-3">
-                      Click the button below to open the authorization page. After approving, the token will be captured automatically.
-                    </p>
-                    <div className="flex items-center gap-2">
-                      <a
-                        href={oauthState.authUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="btn btn-primary btn-sm"
-                      >
-                        <ExternalLink className="w-4 h-4 mr-1" />
-                        Open Authorization Page
-                      </a>
-                      <button
-                        type="button"
-                        onClick={cancelOAuth}
-                        className="btn btn-secondary btn-sm"
-                      >
-                        Cancel
-                      </button>
+            {/* OAuth Authorization Instructions */}
+            {selectedProvider.authType === 'oauth' && !config.token && (
+              <div className="space-y-4">
+                <div className="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="font-medium text-amber-800 dark:text-amber-300 mb-2">
+                        OAuth Authorization Required
+                      </h4>
+                      <p className="text-sm text-amber-700 dark:text-amber-400 mb-3">
+                        Since this server doesn't have a web browser, you need to authorize from your local computer:
+                      </p>
+                      <ol className="text-sm text-amber-700 dark:text-amber-400 space-y-2 list-decimal list-inside">
+                        <li>
+                          <a
+                            href="https://rclone.org/downloads/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="underline hover:text-amber-800 dark:hover:text-amber-300"
+                          >
+                            Download rclone
+                          </a> on your local computer (if not already installed)
+                        </li>
+                        <li>Run the command below in your terminal/command prompt</li>
+                        <li>Complete the authorization in your browser</li>
+                        <li>Copy the token JSON that appears and paste it below</li>
+                      </ol>
                     </div>
                   </div>
-                )}
+                </div>
 
-                {oauthState?.status === 'success' && (
-                  <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <CheckCircle className="w-4 h-4 text-green-600" />
-                      <span className="text-green-800 dark:text-green-300 font-medium">
-                        Authorization successful! Token captured.
-                      </span>
+                {/* Command to run */}
+                <div>
+                  <label className="block text-sm font-medium mb-2">
+                    Run this command on your local computer:
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 flex items-center bg-gray-900 dark:bg-gray-950 text-green-400 font-mono text-sm rounded-lg overflow-hidden">
+                      <Terminal className="w-4 h-4 ml-3 text-gray-500" />
+                      <code className="flex-1 p-3">
+                        rclone authorize {selectedProvider.id}
+                      </code>
                     </div>
-                  </div>
-                )}
-
-                {oauthState?.status === 'error' && (
-                  <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <AlertCircle className="w-4 h-4 text-red-600" />
-                      <span className="text-red-800 dark:text-red-300">
-                        {oauthState.error}
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {oauthState?.status === 'authorizing' && (
-                  <div className="p-3 bg-gray-50 dark:bg-gray-900/20 border border-gray-200 dark:border-gray-800 rounded-lg">
-                    <div className="flex items-center gap-2">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Starting authorization...</span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Authorize Button or Manual Input */}
-                {(!oauthState || oauthState.status === 'error') && !config.token && (
-                  <div className="p-4 bg-gray-50 dark:bg-gray-900/20 border border-gray-200 dark:border-gray-700 rounded-lg">
-                    <p className="text-sm text-gray-600 dark:text-gray-400 mb-3">
-                      Click the button below to authorize with {selectedProvider.name}:
-                    </p>
                     <button
                       type="button"
-                      onClick={startOAuth}
-                      disabled={oauthState?.status === 'authorizing'}
-                      className="btn btn-primary"
+                      onClick={() => copyCommand(`rclone authorize ${selectedProvider.id}`)}
+                      className="btn btn-secondary"
+                      title="Copy to clipboard"
                     >
-                      {oauthState?.status === 'authorizing' ? (
-                        <>
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Starting...
-                        </>
+                      {copiedCommand ? (
+                        <Check className="w-4 h-4 text-green-500" />
                       ) : (
-                        <>
-                          <Key className="w-4 h-4 mr-2" />
-                          Authorize with {selectedProvider.name}
-                        </>
+                        <Copy className="w-4 h-4" />
                       )}
                     </button>
-
-                    <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-                      <p className="text-xs text-gray-500 mb-2">
-                        Or manually paste the token (run <code className="bg-gray-200 dark:bg-gray-800 px-1 rounded">rclone authorize {selectedProvider.id}</code> on a machine with a browser):
-                      </p>
-                    </div>
                   </div>
-                )}
+                </div>
+
+                {/* Token input */}
+                <div>
+                  <label className="block text-sm font-medium mb-1">
+                    Paste the token here: *
+                  </label>
+                  <textarea
+                    value={config.token || ''}
+                    onChange={(e) => updateConfig('token', e.target.value)}
+                    placeholder='{"access_token":"...","token_type":"Bearer","refresh_token":"...","expiry":"..."}'
+                    required
+                    className="input font-mono text-xs h-28 w-full"
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    The token is a JSON object that starts with {"{"} and ends with {"}"}
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Token successfully added */}
+            {selectedProvider.authType === 'oauth' && config.token && (
+              <div className="p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4 text-green-600" />
+                    <span className="text-green-800 dark:text-green-300 font-medium">
+                      Token configured
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => updateConfig('token', '')}
+                    className="text-xs text-red-600 hover:underline"
+                  >
+                    Clear token
+                  </button>
+                </div>
               </div>
             )}
 
@@ -529,59 +460,9 @@ function AddRemoteModal({ providers, onClose, onSuccess }) {
             {selectedProvider.fields.map((field) => {
               if (field.type === 'hidden') return null;
 
-              // For OAuth providers, hide token field if we have a successful auth
-              // or show it collapsed under manual input section
+              // Skip token field for OAuth providers - handled above
               if (selectedProvider.authType === 'oauth' && field.name === 'token') {
-                // If OAuth success or has token, show readonly display
-                if (oauthState?.status === 'success' || config.token) {
-                  return (
-                    <div key={field.name}>
-                      <label className="block text-sm font-medium mb-1">
-                        {field.label} {field.required && '*'}
-                      </label>
-                      <div className="relative">
-                        <textarea
-                          value={config[field.name] || ''}
-                          onChange={(e) => updateConfig(field.name, e.target.value)}
-                          className="input font-mono text-xs h-20 bg-green-50 dark:bg-green-900/20"
-                          readOnly={oauthState?.status === 'success'}
-                        />
-                        {oauthState?.status === 'success' && (
-                          <div className="absolute top-2 right-2">
-                            <CheckCircle className="w-4 h-4 text-green-600" />
-                          </div>
-                        )}
-                      </div>
-                      {config.token && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setConfig(prev => ({ ...prev, token: '' }));
-                            setOauthState(null);
-                          }}
-                          className="text-xs text-red-600 hover:underline mt-1"
-                        >
-                          Clear token and re-authorize
-                        </button>
-                      )}
-                    </div>
-                  );
-                }
-                // If no token and still in manual mode, show input
-                return (
-                  <div key={field.name}>
-                    <textarea
-                      value={config[field.name] || ''}
-                      onChange={(e) => updateConfig(field.name, e.target.value)}
-                      placeholder="Paste your token here..."
-                      required={field.required}
-                      className="input font-mono text-xs h-24"
-                    />
-                    {field.help && (
-                      <p className="text-xs text-gray-500 mt-1">{field.help}</p>
-                    )}
-                  </div>
-                );
+                return null;
               }
 
               return (

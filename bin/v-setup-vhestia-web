@@ -1,0 +1,117 @@
+#!/bin/bash
+# info: setup VHestiaCP web interface (web_v2)
+# options: NONE
+#
+# example: v-setup-vhestia-web
+#
+# This function sets up the VHestiaCP web_v2 interface:
+# - Removes hestia-nginx package (not needed, conflicts with port 8083)
+# - Masks hestia service to prevent auto-restart
+# - Sets up PM2 for web_v2 if not already running
+#
+# Note: The main nginx server (handling web domains) is NOT affected.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check if running as root
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Setting up VHestiaCP web interface..."
+
+# Step 1: Stop and disable hestia service (controls hestia-nginx)
+echo "Disabling hestia service..."
+systemctl stop hestia 2>/dev/null || true
+systemctl disable hestia 2>/dev/null || true
+systemctl mask hestia 2>/dev/null || true
+
+# Step 2: Remove hestia-nginx package if installed
+# This package is not needed for VHestiaCP - we use web_v2 (Express/PM2) instead
+if dpkg -l hestia-nginx 2>/dev/null | grep -q "^ii"; then
+    echo "Removing hestia-nginx package..."
+
+    # First, stop any nginx instances that might be running from hestia-nginx
+    pkill -f "nginx.*hestia" 2>/dev/null || true
+
+    # Remove the package
+    export DEBIAN_FRONTEND=noninteractive
+    apt-get remove --purge -y hestia-nginx 2>/dev/null || true
+    apt-get autoremove -y 2>/dev/null || true
+
+    # Clean up any leftover files
+    rm -rf /usr/local/hestia/nginx 2>/dev/null || true
+
+    echo "hestia-nginx package removed"
+else
+    echo "hestia-nginx package not installed (OK)"
+fi
+
+# Step 3: Verify main nginx is still running (should not be affected)
+if systemctl is-active --quiet nginx; then
+    echo "Main nginx server: running (OK)"
+else
+    echo "Warning: Main nginx server is not running"
+    echo "Starting nginx..."
+    systemctl start nginx
+fi
+
+# Step 4: Check web_v2 PM2 status
+if command -v pm2 &>/dev/null; then
+    if pm2 list 2>/dev/null | grep -q "vhestia"; then
+        echo "VHestiaCP web_v2 (PM2): running (OK)"
+    else
+        echo "Warning: VHestiaCP web_v2 not running in PM2"
+
+        # Try to start if ecosystem file exists
+        if [ -f "$HESTIA/web_v2/ecosystem.config.cjs" ]; then
+            echo "Starting web_v2..."
+            cd $HESTIA/web_v2
+            pm2 start ecosystem.config.cjs
+            pm2 save
+        else
+            echo "Please start web_v2 manually: cd $HESTIA/web_v2 && pm2 start ecosystem.config.cjs"
+        fi
+    fi
+else
+    echo "Warning: PM2 not installed. VHestiaCP web_v2 requires PM2."
+fi
+
+# Step 5: Verify port 8083 is accessible
+echo ""
+echo "Checking port 8083..."
+if ss -tlnp | grep -q ":8083"; then
+    service_info=$(ss -tlnp | grep ":8083" | head -1)
+    echo "Port 8083 is in use by: $service_info"
+else
+    echo "Warning: Nothing is listening on port 8083"
+fi
+
+#----------------------------------------------------------#
+#                       Logging                            #
+#----------------------------------------------------------#
+
+$BIN/v-log-action "system" "Info" "System" "VHestiaCP web interface setup completed"
+log_event "$OK" "$ARGUMENTS"
+
+echo ""
+echo "VHestiaCP web interface setup completed!"
+echo "Access panel at: https://$(hostname):8083"
+
+exit 0

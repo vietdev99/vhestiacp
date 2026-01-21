@@ -73,7 +73,66 @@ if [ -z "$DEFAULT_PHP" ]; then
     echo "Configured DEFAULT_PHP='$version'"
 fi
 
-# Exit if already running (config has been fixed above)
+# Create PHP-FPM backend template if not exists
+template_name="PHP-${version//./_}"  # 8.3 -> PHP-8_3
+template_path="$HESTIA/data/templates/web/php-fpm/${template_name}.tpl"
+if [ ! -f "$template_path" ]; then
+    echo "Creating backend template: $template_name"
+    # Use default multiphp template
+    cat > "$template_path" << 'EOFTPL'
+; origin-src: deb/php-fpm/multiphp.tpl
+;#=========================================================================#
+;# Default Web Domain Template                                             #
+;# DO NOT MODIFY THIS FILE! CHANGES WILL BE LOST WHEN REBUILDING DOMAINS   #
+;# https://hestiacp.com/docs/server-administration/web-templates.html      #
+;#=========================================================================#
+
+[%domain%]
+listen = /run/php/php%backend_version%-fpm-%domain%.sock
+listen.owner = %user%
+listen.group = www-data
+listen.mode = 0660
+
+user = %user%
+group = %user%
+
+pm = ondemand
+pm.max_children = 8
+pm.max_requests = 4000
+pm.process_idle_timeout = 10s
+pm.status_path = /status
+
+php_admin_value[upload_tmp_dir] = /home/%user%/tmp
+php_admin_value[session.save_path] = /home/%user%/tmp
+php_admin_value[open_basedir] = /home/%user%/.composer:/home/%user%/web/%domain%/public_html:/home/%user%/web/%domain%/private:/home/%user%/web/%domain%/public_shtml:/home/%user%/tmp:/tmp:/var/www/html:/bin:/usr/bin:/usr/local/bin:/usr/share:/opt
+php_admin_value[sendmail_path] = /usr/sbin/sendmail -t -i -f admin@%domain%
+
+env[PATH] = /usr/local/bin:/usr/bin:/bin
+env[TMP] = /home/%user%/tmp
+env[TMPDIR] = /home/%user%/tmp
+env[TEMP] = /home/%user%/tmp
+EOFTPL
+fi
+
+# Fix www.conf to use version-specific socket (avoid conflict between PHP versions)
+www_conf="/etc/php/${version}/fpm/pool.d/www.conf"
+if [ -f "$www_conf" ]; then
+    current_socket=$(grep "^listen = " "$www_conf" | head -1)
+    # If using generic socket path, change to version-specific
+    if echo "$current_socket" | grep -q "/run/php/www.sock\|/run/php/php-fpm.sock"; then
+        echo "Fixing www.conf socket path for PHP $version..."
+        sed -i "s|listen = /run/php/www.sock|listen = /run/php/php${version}-fpm.sock|g" "$www_conf"
+        sed -i "s|listen = /run/php/php-fpm.sock|listen = /run/php/php${version}-fpm.sock|g" "$www_conf"
+
+        # Restart if already running to apply changes
+        if [ "$php_already_running" = true ]; then
+            echo "Restarting PHP-FPM $version to apply socket changes..."
+            systemctl restart "php${version}-fpm"
+        fi
+    fi
+fi
+
+# Exit if already running (template has been created above)
 if [ "$php_already_running" = true ]; then
     exit 0
 fi

@@ -98,6 +98,57 @@ find func bin -type f \( -name "*.sh" -o -name "v-*" \) -exec sed -i 's/\r$//' {
 
 ### Deployment
 
+#### SSH Aliases
+
+**IMPORTANT**: Luôn sử dụng SSH config alias thay vì IP hoặc domain:
+- `vollx` - server vollx (đã cấu hình trong ~/.ssh/config)
+- `ctest` hoặc `root@45.32.100.33` - server ctest
+
+```bash
+# Đúng:
+ssh vollx "command"
+
+# Sai:
+ssh vollx.com "command"
+ssh root@vollx.com "command"
+```
+
+#### web_v2 Deployment (React + Express)
+
+**CRITICAL**: VHestiaCP web_v2 chạy production mode trên port 8083. Phải build lại dist sau khi cập nhật client files.
+
+```bash
+# 1. Transfer files (chỉ sync những file thay đổi)
+scp -r web_v2/client/src/* vollx:/usr/local/hestia/web_v2/client/src/
+scp -r web_v2/server/src/* vollx:/usr/local/hestia/web_v2/server/src/
+
+# 2. Build dist trên server (BẮT BUỘC cho client changes)
+ssh vollx "cd /usr/local/hestia/web_v2/client && npm run build"
+
+# 3. Restart PM2
+ssh vollx "pm2 restart vhestia-panel"
+```
+
+**KHÔNG BAO GIỜ xóa thư mục dist** - Server chỉ serve static files từ dist folder.
+
+#### Post-Install: Remove hestia-nginx
+
+**IMPORTANT**: Sau khi cài VHestiaCP, phải chạy script để gỡ hestia-nginx (tránh xung đột port 8083):
+
+```bash
+/usr/local/hestia/bin/v-setup-vhestia-web
+```
+
+Script này sẽ:
+
+1. Gỡ package `hestia-nginx` (không cần thiết cho VHestiaCP)
+2. Mask service `hestia` để tránh auto-restart
+3. Verify main nginx và PM2 đang chạy
+
+**LƯU Ý**: Main nginx (serving web domains trên port 80/443) KHÔNG bị ảnh hưởng. `hestia-nginx` là nginx instance riêng chỉ dùng cho control panel.
+
+#### Shell Scripts & PHP Deployment
+
 Recommended deployment method (faster than scp):
 
 ```bash

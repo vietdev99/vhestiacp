@@ -31,15 +31,28 @@ router.get('/versions', adminMiddleware, async (req, res) => {
       console.warn('Failed to list PHP versions:', e.message);
     }
 
-    // Get default/active PHP version
+    // Get default PHP version from hestia.conf first, then fallback to php -v
     let defaultVersion = null;
     try {
-      const phpVersion = execSync('php -v 2>/dev/null | head -1 | grep -oP "\\d+\\.\\d+" | head -1', { encoding: 'utf8', timeout: 5000 }).trim();
-      if (phpVersion) {
-        defaultVersion = phpVersion;
+      // Try to get DEFAULT_PHP from hestia.conf
+      const configOutput = await execHestiaJson('v-list-sys-config', []);
+      const config = configOutput.config || configOutput;
+      if (config.DEFAULT_PHP) {
+        defaultVersion = config.DEFAULT_PHP;
       }
     } catch (e) {
-      // PHP CLI not installed or not in PATH
+      // Fallback to php -v
+    }
+
+    if (!defaultVersion) {
+      try {
+        const phpVersion = execSync('php -v 2>/dev/null | head -1 | grep -oP "\\d+\\.\\d+" | head -1', { encoding: 'utf8', timeout: 5000 }).trim();
+        if (phpVersion) {
+          defaultVersion = phpVersion;
+        }
+      } catch (e) {
+        // PHP CLI not installed or not in PATH
+      }
     }
 
     res.json({

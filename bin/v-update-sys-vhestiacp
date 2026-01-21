@@ -1,0 +1,248 @@
+#!/bin/bash
+# info: update VHestiaCP to latest version
+# options: [FORCE]
+#
+# example: v-update-sys-vhestiacp
+# example: v-update-sys-vhestiacp force
+#
+# This function updates VHestiaCP by pulling latest changes from git repository.
+# It will backup current installation, pull updates, and restart services if needed.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+force=${1:-}
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+# VHestiaCP specific
+VHESTIA_BRANCH="${VHESTIA_BRANCH:-main}"
+VHESTIA_DIR="$HESTIA"
+UPDATE_LOG_DIR="$HESTIA/log/updates"
+UPDATE_CHECK_FILE="$HESTIA/conf/vhestiacp-update.json"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check root permissions
+if [ "x$(id -u)" != 'x0' ]; then
+    echo "Error: Script must be run as root"
+    exit 1
+fi
+
+# Check if git is installed
+if ! command -v git &> /dev/null; then
+    echo "Error: git is not installed"
+    exit 1
+fi
+
+# Check if this is a git repository
+if [ ! -d "$VHESTIA_DIR/.git" ]; then
+    echo "Error: VHestiaCP installation is not a git repository"
+    echo "Cannot update non-git installations"
+    exit 1
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Create log directory
+mkdir -p "$UPDATE_LOG_DIR"
+
+# Generate update log filename with timestamp
+timestamp=$(date +%Y%m%d_%H%M%S)
+update_log="$UPDATE_LOG_DIR/update_$timestamp.log"
+
+# Start logging
+exec > >(tee -a "$update_log") 2>&1
+
+echo "=========================================="
+echo "VHestiaCP Update - $(date)"
+echo "=========================================="
+
+cd "$VHESTIA_DIR"
+
+# Get current version info
+current_commit=$(git rev-parse HEAD 2>/dev/null)
+current_version=$(git describe --tags --always 2>/dev/null || echo "$current_commit")
+
+echo "Current version: $current_version"
+echo "Current commit: ${current_commit:0:8}"
+
+# Fetch latest from remote
+echo ""
+echo "Fetching updates from remote..."
+git fetch origin "$VHESTIA_BRANCH" --quiet 2>/dev/null
+
+# Get remote version info
+remote_commit=$(git rev-parse "origin/$VHESTIA_BRANCH" 2>/dev/null)
+remote_version=$(git describe --tags --always "origin/$VHESTIA_BRANCH" 2>/dev/null || echo "$remote_commit")
+
+echo "Remote version: $remote_version"
+echo "Remote commit: ${remote_commit:0:8}"
+
+# Check if update is needed
+if [ "$remote_commit" = "$current_commit" ]; then
+    echo ""
+    echo "Already up to date. No update needed."
+    exit 0
+fi
+
+# Count commits behind
+commits_behind=$(git rev-list --count "$current_commit..$remote_commit" 2>/dev/null || echo "0")
+echo ""
+echo "Updates available: $commits_behind commits"
+
+# Show changelog
+echo ""
+echo "Changelog:"
+echo "----------"
+git log --oneline "$current_commit..$remote_commit" 2>/dev/null | head -30
+echo ""
+
+# Check for local modifications
+local_changes=$(git status --porcelain 2>/dev/null)
+if [ -n "$local_changes" ]; then
+    echo "Warning: Local modifications detected"
+    if [ "$force" != "force" ]; then
+        echo "Use 'v-update-sys-vhestiacp force' to override"
+        echo ""
+        echo "Modified files:"
+        echo "$local_changes"
+        exit 1
+    else
+        echo "Force flag set, stashing local changes..."
+        git stash save "Auto-stash before update $timestamp"
+    fi
+fi
+
+# Backup current version file
+if [ -f "$HESTIA/conf/vhestiacp.version" ]; then
+    cp "$HESTIA/conf/vhestiacp.version" "$HESTIA/conf/vhestiacp.version.backup"
+fi
+
+echo ""
+echo "Applying updates..."
+
+# Pull updates
+if git pull origin "$VHESTIA_BRANCH" --ff-only 2>/dev/null; then
+    echo "Git pull successful"
+else
+    echo "Fast-forward failed, trying rebase..."
+    if git pull origin "$VHESTIA_BRANCH" --rebase 2>/dev/null; then
+        echo "Git pull with rebase successful"
+    else
+        echo "Error: Failed to pull updates"
+        echo "Please resolve conflicts manually"
+        exit 1
+    fi
+fi
+
+# Get new version info
+new_commit=$(git rev-parse HEAD 2>/dev/null)
+new_version=$(git describe --tags --always 2>/dev/null || echo "$new_commit")
+
+# Update version file
+echo "$new_version" > "$HESTIA/conf/vhestiacp.version"
+
+# Fix line endings for shell scripts (Windows to Unix)
+echo ""
+echo "Fixing line endings..."
+find "$HESTIA/bin" "$HESTIA/func" -type f \( -name "*.sh" -o -name "v-*" \) -exec sed -i 's/\r$//' {} \; 2>/dev/null
+
+# Make scripts executable
+echo "Setting permissions..."
+chmod +x "$HESTIA/bin/"* 2>/dev/null
+
+# Check if web_v2 needs rebuild
+if [ -d "$HESTIA/web_v2" ]; then
+    # Check if web_v2 files changed
+    if git diff --name-only "$current_commit..$new_commit" | grep -q "web_v2/"; then
+        echo ""
+        echo "Web interface changes detected"
+
+        # Check if npm is available
+        if ! command -v npm &> /dev/null; then
+            echo "Warning: npm not found, skipping web_v2 rebuild"
+        else
+            # Install server dependencies if package.json changed
+            if git diff --name-only "$current_commit..$new_commit" | grep -q "web_v2/server/package.json"; then
+                echo "Installing server dependencies..."
+                cd "$HESTIA/web_v2/server" || { echo "Error: Cannot cd to web_v2/server"; exit 1; }
+                npm install 2>&1 | tail -5
+            fi
+
+            # Install client dependencies and rebuild
+            if git diff --name-only "$current_commit..$new_commit" | grep -q "web_v2/client/"; then
+                echo "Installing client dependencies..."
+                cd "$HESTIA/web_v2/client" || { echo "Error: Cannot cd to web_v2/client"; exit 1; }
+                npm install 2>&1 | tail -5
+
+                echo "Building client..."
+                npm run build 2>&1 | tail -10
+                if [ -d "dist" ]; then
+                    echo "Client built successfully"
+                else
+                    echo "Warning: Client build may have failed, dist folder not found"
+                fi
+            fi
+
+            # Restart PM2 vhestia-panel if running
+            if command -v pm2 &> /dev/null; then
+                if pm2 list 2>/dev/null | grep -q "vhestia-panel"; then
+                    echo "Restarting vhestia-panel..."
+                    pm2 restart vhestia-panel 2>&1 | tail -3
+                fi
+            fi
+        fi
+    fi
+fi
+
+# Restart Hestia web service if running
+if systemctl is-active --quiet hestia; then
+    echo ""
+    echo "Restarting Hestia service..."
+    systemctl restart hestia
+fi
+
+# Update the update check file
+cat > "$UPDATE_CHECK_FILE" << EOF
+{
+    "current_version": "$new_version",
+    "current_commit": "$new_commit",
+    "remote_version": "$new_version",
+    "remote_commit": "$new_commit",
+    "update_available": false,
+    "commits_behind": 0,
+    "last_check": $(date +%s),
+    "last_check_date": "$(date -Iseconds)",
+    "last_update": $(date +%s),
+    "last_update_date": "$(date -Iseconds)",
+    "branch": "$VHESTIA_BRANCH"
+}
+EOF
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo ""
+echo "=========================================="
+echo "Update completed successfully!"
+echo "=========================================="
+echo "Previous version: $current_version (${current_commit:0:8})"
+echo "New version:      $new_version (${new_commit:0:8})"
+echo "Commits applied:  $commits_behind"
+echo "Log file:         $update_log"
+echo ""
+
+# Log action
+$BIN/v-log-action "system" "Info" "System" "VHestiaCP updated from $current_version to $new_version"
+
+exit 0
