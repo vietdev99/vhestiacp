@@ -208,14 +208,9 @@ if [ -d "$HESTIA/web_v2" ]; then
             cd "$HESTIA/web_v2/client" || { echo "Error: Cannot cd to web_v2/client"; exit 1; }
             npm install 2>&1 | tail -5
 
-            # Check if vite is available, install globally if not
-            if ! npx vite --version &> /dev/null; then
-                echo "Installing vite globally..."
-                npm install -g vite 2>&1 | tail -3
-            fi
-
             echo "Building client..."
-            build_output=$(npm run build 2>&1)
+            # Use npx to ensure vite is found from node_modules
+            build_output=$(npx vite build 2>&1)
             build_exit_code=$?
             echo "$build_output" | tail -10
 
