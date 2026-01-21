@@ -370,7 +370,7 @@ router.delete('/pbm', adminMiddleware, async (req, res) => {
  * Get phpMyAdmin status (installed, enabled, alias)
  * NOTE: Must be defined BEFORE /:id routes to avoid route conflict
  */
-router.get('/pma/status', adminMiddleware, async (req, res) => {
+router.get('/pma/status', async (req, res) => {
   try {
     // Check if phpMyAdmin package is installed
     const installed = fs.existsSync('/usr/share/phpmyadmin');
