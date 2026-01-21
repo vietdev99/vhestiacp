@@ -12,10 +12,14 @@ import {
   Loader2,
   ChevronDown,
   ChevronUp,
-  ExternalLink
+  ExternalLink,
+  Package
 } from 'lucide-react';
 import api from '../utils/api';
 import toast from 'react-hot-toast';
+
+// VHestiaCP Version - Update this when releasing new versions
+const VHESTIACP_VERSION = '2.0.1';
 
 export default function UpdateSettings() {
   const queryClient = useQueryClient();
@@ -126,13 +130,21 @@ export default function UpdateSettings() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
+      {/* Header with Version Badge */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">VHestiaCP Updates</h1>
-          <p className="text-gray-500 dark:text-dark-muted mt-1">
-            Manage VHestiaCP updates and view changelog
-          </p>
+        <div className="flex items-center gap-4">
+          <div>
+            <div className="flex items-center gap-3">
+              <h1 className="text-2xl font-bold">VHestiaCP Updates</h1>
+              <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 text-sm font-semibold">
+                <Package className="w-4 h-4" />
+                v{VHESTIACP_VERSION}
+              </span>
+            </div>
+            <p className="text-gray-500 dark:text-dark-muted mt-1">
+              Manage VHestiaCP updates and view changelog
+            </p>
+          </div>
         </div>
         <button
           onClick={() => checkUpdateMutation.mutate()}
@@ -325,24 +337,6 @@ export default function UpdateSettings() {
             <ExternalLink className="w-4 h-4 mr-2" />
             GitHub
           </a>
-        </div>
-      </div>
-
-      {/* Version Test Card */}
-      <div className="card p-6 border-2 border-dashed border-purple-300 dark:border-purple-700">
-        <div className="flex items-center justify-between">
-          <div>
-            <h3 className="font-semibold text-purple-700 dark:text-purple-400">Update Test Marker</h3>
-            <p className="text-sm text-gray-500 dark:text-dark-muted">
-              If you see this card, the update was successful!
-            </p>
-            <p className="text-2xl font-bold text-purple-600 dark:text-purple-400 mt-2">
-              Version: 1.0.8
-            </p>
-          </div>
-          <div className="w-16 h-16 rounded-xl bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
-            <CheckCircle className="w-8 h-8 text-purple-600" />
-          </div>
         </div>
       </div>
     </div>
