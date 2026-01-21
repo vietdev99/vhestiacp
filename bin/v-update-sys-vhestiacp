@@ -186,45 +186,42 @@ find "$HESTIA/bin" "$HESTIA/func" -type f \( -name "*.sh" -o -name "v-*" \) -exe
 echo "Setting permissions..."
 chmod +x "$HESTIA/bin/"* 2>/dev/null
 
-# Check if web_v2 needs rebuild
+# Rebuild web_v2 panel (always rebuild to ensure consistency)
 if [ -d "$HESTIA/web_v2" ]; then
-    # Check if web_v2 files changed
-    if git diff --name-only "$current_commit..$new_commit" | grep -q "web_v2/"; then
-        echo ""
-        echo "Web interface changes detected"
+    echo ""
+    echo "Rebuilding web panel..."
 
-        # Check if npm is available
-        if ! command -v npm &> /dev/null; then
-            echo "Warning: npm not found, skipping web_v2 rebuild"
-        else
-            # Install server dependencies if package.json changed
-            if git diff --name-only "$current_commit..$new_commit" | grep -q "web_v2/server/package.json"; then
-                echo "Installing server dependencies..."
-                cd "$HESTIA/web_v2/server" || { echo "Error: Cannot cd to web_v2/server"; exit 1; }
-                npm install 2>&1 | tail -5
+    # Check if npm is available
+    if ! command -v npm &> /dev/null; then
+        echo "Warning: npm not found, skipping web_v2 rebuild"
+    else
+        # Install server dependencies
+        if [ -d "$HESTIA/web_v2/server" ]; then
+            echo "Installing server dependencies..."
+            cd "$HESTIA/web_v2/server" || { echo "Error: Cannot cd to web_v2/server"; exit 1; }
+            npm install 2>&1 | tail -5
+        fi
+
+        # Install client dependencies and rebuild
+        if [ -d "$HESTIA/web_v2/client" ]; then
+            echo "Installing client dependencies..."
+            cd "$HESTIA/web_v2/client" || { echo "Error: Cannot cd to web_v2/client"; exit 1; }
+            npm install 2>&1 | tail -5
+
+            echo "Building client..."
+            npm run build 2>&1 | tail -10
+            if [ -d "dist" ]; then
+                echo "Client built successfully"
+            else
+                echo "Warning: Client build may have failed, dist folder not found"
             fi
+        fi
 
-            # Install client dependencies and rebuild
-            if git diff --name-only "$current_commit..$new_commit" | grep -q "web_v2/client/"; then
-                echo "Installing client dependencies..."
-                cd "$HESTIA/web_v2/client" || { echo "Error: Cannot cd to web_v2/client"; exit 1; }
-                npm install 2>&1 | tail -5
-
-                echo "Building client..."
-                npm run build 2>&1 | tail -10
-                if [ -d "dist" ]; then
-                    echo "Client built successfully"
-                else
-                    echo "Warning: Client build may have failed, dist folder not found"
-                fi
-            fi
-
-            # Restart PM2 vhestia-panel if running
-            if command -v pm2 &> /dev/null; then
-                if pm2 list 2>/dev/null | grep -q "vhestia-panel"; then
-                    echo "Restarting vhestia-panel..."
-                    pm2 restart vhestia-panel 2>&1 | tail -3
-                fi
+        # Restart PM2 vhestia-panel if running
+        if command -v pm2 &> /dev/null; then
+            if pm2 list 2>/dev/null | grep -q "vhestia-panel"; then
+                echo "Restarting vhestia-panel..."
+                pm2 restart vhestia-panel 2>&1 | tail -3
             fi
         fi
     fi
