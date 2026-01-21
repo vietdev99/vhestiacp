@@ -1521,8 +1521,8 @@ router.post('/update/check', adminMiddleware, async (req, res) => {
  */
 router.post('/update/install', adminMiddleware, async (req, res) => {
   try {
-    const { force } = req.body;
-    const args = force ? ['force'] : [];
+    // Always use force to handle local modifications (deployed servers often have local changes)
+    const args = ['force'];
 
     // Run update with longer timeout (10 minutes)
     const output = await execHestia('v-update-sys-vhestiacp', args, { timeout: 600000 });
