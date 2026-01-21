@@ -56,6 +56,7 @@ import PM2 from './pages/PM2';
 import Security from './pages/Security';
 import ServerConfigure from './pages/ServerConfigure';
 import HestiaConfig from './pages/HestiaConfig';
+import PhpExtensions from './pages/PhpExtensions';
 
 function ProtectedRoute({ children, adminOnly = false }) {
   const { user, loading, isAdmin } = useAuth();
@@ -145,6 +146,7 @@ export default function App() {
         <Route path="server-info" element={<ProtectedRoute adminOnly><ServerInfo /></ProtectedRoute>} />
         <Route path="server/configure" element={<ProtectedRoute adminOnly><ServerConfigure /></ProtectedRoute>} />
         <Route path="admin/hestia-config" element={<ProtectedRoute adminOnly><HestiaConfig /></ProtectedRoute>} />
+        <Route path="admin/php-extensions" element={<ProtectedRoute adminOnly><PhpExtensions /></ProtectedRoute>} />
         <Route path="pm2" element={<PM2 />} />
         <Route path="security" element={<Security />} />
       </Route>

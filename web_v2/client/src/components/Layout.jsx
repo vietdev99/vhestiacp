@@ -29,7 +29,8 @@ import {
   Cloud,
   FolderOpen,
   BarChart3,
-  Box
+  Box,
+  Puzzle
 } from 'lucide-react';
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
@@ -65,6 +66,7 @@ const adminItems = [
   { name: 'Services', href: '/server-services', icon: Activity },
   { name: 'Statistics', href: '/statistics', icon: BarChart3 },
   { name: 'Applications', href: '/applications', icon: Server },
+  { name: 'PHP Extensions', href: '/admin/php-extensions', icon: Puzzle },
   { name: 'Firewall', href: '/firewall', icon: Shield },
   { name: 'Database Settings', href: '/admin/database-settings', icon: Settings },
   { name: 'Cloud Storage', href: '/admin/rclone', icon: Cloud },

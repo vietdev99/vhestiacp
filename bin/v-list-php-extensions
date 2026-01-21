@@ -1,172 +1,133 @@
 #!/bin/bash
-# info: list installed PHP extensions for a PHP version
+# info: list PHP extensions (installed and available)
 # options: [PHP_VERSION] [FORMAT]
 #
-# example: v-list-php-extensions 8.2
-# example: v-list-php-extensions 8.2 json
-# example: v-list-php-extensions all
+# example: v-list-php-extensions 8.3 json
 #
-# Lists all installed extensions for the specified PHP version.
+# This function lists installed and available PHP extensions for a given PHP version.
 
 #----------------------------------------------------------#
 #                Variables & Functions                     #
 #----------------------------------------------------------#
+
+php_version=${1:-}
+format=${2:-shell}
 
 # Includes
 source /etc/hestiacp/hestia.conf
 source $HESTIA/func/main.sh
 source_conf "$HESTIA/conf/hestia.conf"
 
-PHP_VERSION="${1:-all}"
-FORMAT="${2:-plain}"
-
 #----------------------------------------------------------#
-#                    Functions                             #
+#                    Verifications                         #
 #----------------------------------------------------------#
 
-# Get installed PHP versions
-get_installed_php_versions() {
-    local versions=""
-    for v in 7.2 7.3 7.4 8.0 8.1 8.2 8.3 8.4; do
-        if [ -f "/etc/php/$v/fpm/php.ini" ] || [ -f "/etc/php/$v/cli/php.ini" ]; then
-            versions="$versions $v"
-        fi
-    done
-    echo "$versions"
-}
-
-# Get extensions for a PHP version
-get_extensions() {
-    local version="$1"
-    php${version} -m 2>/dev/null | grep -v "^\[" | sort
-}
-
-# Check if extension is from Zend
-is_zend_extension() {
-    local version="$1"
-    local ext="$2"
-    php${version} -i 2>/dev/null | grep -qi "zend.*$ext"
-}
-
-# Get extension version
-get_extension_version() {
-    local version="$1"
-    local ext="$2"
-    php${version} --ri "$ext" 2>/dev/null | grep -i "version" | head -1 | awk '{print $NF}'
-}
-
-# Notable extensions to highlight
-notable_extensions="phalcon redis memcached imagick mongodb swoole xdebug apcu opcache ioncube"
-
-# Print extensions for a version
-print_extensions() {
-    local version="$1"
-    
-    if [ ! -f "/etc/php/$version/fpm/php.ini" ]; then
-        return
+# Auto-detect PHP version if not provided
+if [ -z "$php_version" ]; then
+    php_version=$(php -v 2>/dev/null | head -1 | grep -oP '\d+\.\d+' | head -1)
+    if [ -z "$php_version" ]; then
+        echo "Error: Could not detect PHP version"
+        exit 1
     fi
-    
-    echo "PHP $version"
-    echo "═══════════════════════════════════════════════════════"
-    
-    local exts=$(get_extensions "$version")
-    local count=$(echo "$exts" | wc -l)
-    
-    printf "  %-25s %-15s %s\n" "EXTENSION" "VERSION" "TYPE"
-    printf "  %-25s %-15s %s\n" "─────────────────────────" "───────────────" "────────"
-    
-    for ext in $exts; do
-        local ext_ver=$(get_extension_version "$version" "$ext")
-        local ext_type="standard"
-        
-        # Check if Zend extension
-        if is_zend_extension "$version" "$ext"; then
-            ext_type="zend"
-        fi
-        
-        # Check if notable
-        if echo "$notable_extensions" | grep -qi "$ext"; then
-            ext_type="$ext_type ★"
-        fi
-        
-        printf "  %-25s %-15s %s\n" "$ext" "${ext_ver:-N/A}" "$ext_type"
-    done
-    
-    echo ""
-    echo "  Total: $count extensions"
-    echo ""
-}
+fi
 
-# Print as JSON
-print_json() {
-    local version="$1"
-    
-    if [ ! -f "/etc/php/$version/fpm/php.ini" ]; then
-        echo "{}"
-        return
-    fi
-    
-    echo "{"
-    echo "  \"php_version\": \"$version\","
-    echo "  \"extensions\": ["
-    
-    local exts=$(get_extensions "$version")
-    local first=true
-    
-    for ext in $exts; do
-        local ext_ver=$(get_extension_version "$version" "$ext")
-        
-        if [ "$first" = true ]; then
-            first=false
-        else
-            echo ","
-        fi
-        
-        printf "    {\"name\": \"%s\", \"version\": \"%s\"}" "$ext" "${ext_ver:-unknown}"
-    done
-    
-    echo ""
-    echo "  ]"
-    echo "}"
-}
+# Validate PHP version format
+if ! [[ "$php_version" =~ ^[0-9]+\.[0-9]+$ ]]; then
+    echo "Error: Invalid PHP version format. Use X.Y (e.g., 8.3)"
+    exit 1
+fi
 
 #----------------------------------------------------------#
 #                       Action                             #
 #----------------------------------------------------------#
 
-if [ "$PHP_VERSION" = "all" ]; then
-    versions=$(get_installed_php_versions)
-else
-    versions="$PHP_VERSION"
-fi
+# Get installed extensions
+installed_modules=$(php$php_version -m 2>/dev/null | grep -v "^\[" | sort -u)
 
-if [ "$FORMAT" = "json" ]; then
+# Get available extensions from apt
+available_packages=$(apt-cache search "php${php_version}-" 2>/dev/null | grep -E "^php${php_version}-" | awk '{print $1}' | sort -u)
+
+# Common/popular extensions to highlight
+popular_extensions="redis mongodb memcached imagick gd curl mbstring xml json mysql pgsql sqlite3 zip bcmath gmp intl soap ldap imap opcache apcu xdebug phalcon"
+
+if [ "$format" = "json" ]; then
     echo "{"
-    echo "  \"php_extensions\": ["
+    echo "  \"php_version\": \"$php_version\","
+    echo "  \"extensions\": ["
+
     first=true
-    for version in $versions; do
+    for pkg in $available_packages; do
+        # Extract extension name from package name (php8.3-redis -> redis)
+        ext_name=$(echo "$pkg" | sed "s/php${php_version}-//")
+
+        # Skip meta packages
+        if [[ "$ext_name" =~ ^(cli|fpm|cgi|common|dev|phpdbg)$ ]]; then
+            continue
+        fi
+
+        # Check if installed
+        is_installed="false"
+        if echo "$installed_modules" | grep -qi "^${ext_name}$"; then
+            is_installed="true"
+        fi
+        # Special cases for module names that differ from package names
+        case "$ext_name" in
+            mysql)
+                echo "$installed_modules" | grep -qi "^mysqli$\|^pdo_mysql$" && is_installed="true"
+                ;;
+            pgsql)
+                echo "$installed_modules" | grep -qi "^pgsql$\|^pdo_pgsql$" && is_installed="true"
+                ;;
+            sqlite3)
+                echo "$installed_modules" | grep -qi "^sqlite3$\|^pdo_sqlite$" && is_installed="true"
+                ;;
+        esac
+
+        # Check if popular
+        is_popular="false"
+        echo "$popular_extensions" | grep -qw "$ext_name" && is_popular="true"
+
+        # Get description
+        description=$(apt-cache show "$pkg" 2>/dev/null | grep "^Description:" | head -1 | sed 's/Description: //' | sed 's/"/\\"/g')
+
         if [ "$first" = true ]; then
             first=false
         else
             echo ","
         fi
-        print_json "$version"
+
+        printf '    {"name": "%s", "package": "%s", "installed": %s, "popular": %s, "description": "%s"}' \
+            "$ext_name" "$pkg" "$is_installed" "$is_popular" "$description"
     done
+
+    echo ""
     echo "  ]"
     echo "}"
 else
+    # Shell format
+    echo "PHP Version: $php_version"
     echo ""
-    echo "╔═══════════════════════════════════════════════════════════╗"
-    echo "║              PHP Extensions Report                        ║"
-    echo "╚═══════════════════════════════════════════════════════════╝"
-    echo ""
-    
-    for version in $versions; do
-        print_extensions "$version"
+    echo "EXTENSION       PACKAGE                 STATUS      DESCRIPTION"
+    echo "--------------------------------------------------------------------------"
+
+    for pkg in $available_packages; do
+        ext_name=$(echo "$pkg" | sed "s/php${php_version}-//")
+
+        # Skip meta packages
+        if [[ "$ext_name" =~ ^(cli|fpm|cgi|common|dev|phpdbg)$ ]]; then
+            continue
+        fi
+
+        # Check if installed
+        status="available"
+        if echo "$installed_modules" | grep -qi "^${ext_name}$"; then
+            status="installed"
+        fi
+
+        description=$(apt-cache show "$pkg" 2>/dev/null | grep "^Description:" | head -1 | sed 's/Description: //' | cut -c1-40)
+
+        printf "%-15s %-23s %-11s %s\n" "$ext_name" "$pkg" "$status" "$description"
     done
-    
-    echo "Legend: ★ = Notable/Framework extension"
-    echo ""
 fi
 
 exit 0

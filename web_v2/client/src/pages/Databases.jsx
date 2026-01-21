@@ -216,7 +216,7 @@ export default function Databases() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {/* phpMyAdmin button - only show for MySQL when enabled */}
+          {/* phpMyAdmin button - only show for MySQL when enabled - v2 */}
           {dbType === 'mysql' && pmaStatus?.enabled && (
             <button
               onClick={() => {

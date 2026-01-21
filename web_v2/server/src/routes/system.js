@@ -1152,8 +1152,35 @@ router.post('/server/config/feature', adminMiddleware, async (req, res) => {
 });
 
 router.post('/server/config/php', adminMiddleware, async (req, res) => {
-  // Placeholder for php install/uninstall
-   res.json({ success: true });
+  const { version, action } = req.body;
+
+  if (!version || !action) {
+    return res.status(400).json({ error: 'Version and action are required' });
+  }
+
+  // Validate version format
+  if (!/^\d+\.\d+$/.test(version)) {
+    return res.status(400).json({ error: 'Invalid PHP version format' });
+  }
+
+  // Validate action
+  if (!['install', 'uninstall'].includes(action)) {
+    return res.status(400).json({ error: 'Action must be install or uninstall' });
+  }
+
+  try {
+    if (action === 'install') {
+      // Install PHP-FPM for this version
+      await execHestia('v-add-sys-phpfpm', [version], { timeout: 600000 }); // 10 min timeout
+    } else {
+      // Uninstall PHP-FPM for this version
+      await execHestia('v-delete-sys-phpfpm', [version], { timeout: 300000 }); // 5 min timeout
+    }
+    res.json({ success: true });
+  } catch (error) {
+    console.error(`PHP ${action} error:`, error);
+    res.status(500).json({ error: error.message || `Failed to ${action} PHP ${version}` });
+  }
 });
 
 router.post('/server/config/default-php', adminMiddleware, async (req, res) => {

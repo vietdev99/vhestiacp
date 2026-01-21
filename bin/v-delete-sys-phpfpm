@@ -1,0 +1,123 @@
+#!/bin/bash
+# info: uninstall PHP-FPM version
+# options: VERSION
+#
+# example: v-delete-sys-phpfpm 7.4
+#
+# This function uninstalls a specific PHP-FPM version from the system.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Argument definition
+version=$1
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '1' "$#" 'VERSION'
+
+# Check root permissions
+if [ "x$(id -u)" != 'x0' ]; then
+    echo "Error: Script must be run as root"
+    exit 1
+fi
+
+# Validate version format
+if ! [[ "$version" =~ ^[0-9]+\.[0-9]+$ ]]; then
+    echo "Error: Invalid PHP version format. Use X.Y (e.g., 7.4)"
+    exit 1
+fi
+
+# Check if this PHP version is installed
+if ! dpkg -l | grep -q "php${version}-fpm"; then
+    echo "Error: PHP $version is not installed"
+    exit 1
+fi
+
+# Check if this is the only PHP version installed
+installed_versions=$(dpkg -l | grep -oP "php\d+\.\d+-fpm" | grep -oP "\d+\.\d+" | sort -u)
+version_count=$(echo "$installed_versions" | wc -l)
+
+if [ "$version_count" -le 1 ]; then
+    echo "Error: Cannot uninstall the last PHP version. At least one PHP-FPM must remain."
+    exit 1
+fi
+
+# Check if any domains are using this PHP version
+domains_using=""
+for user_dir in $HESTIA/data/users/*/; do
+    user=$(basename "$user_dir")
+    if [ -f "${user_dir}web.conf" ]; then
+        while read line; do
+            if echo "$line" | grep -q "BACKEND='$version'"; then
+                domain=$(echo "$line" | grep -oP "DOMAIN='[^']+'" | cut -d"'" -f2)
+                if [ -n "$domain" ]; then
+                    domains_using="$domains_using $user:$domain"
+                fi
+            fi
+        done < "${user_dir}web.conf"
+    fi
+done
+
+if [ -n "$domains_using" ]; then
+    echo "Error: The following domains are still using PHP $version:"
+    for item in $domains_using; do
+        echo "  - $item"
+    done
+    echo "Please change the PHP version for these domains before uninstalling."
+    exit 1
+fi
+
+# Check if this is the default PHP version
+if [ "$DEFAULT_PHP" = "$version" ]; then
+    # Find another installed version to set as default
+    new_default=$(echo "$installed_versions" | grep -v "^${version}$" | tail -1)
+    if [ -n "$new_default" ]; then
+        echo "Changing default PHP from $version to $new_default..."
+        sed -i "s/DEFAULT_PHP='$version'/DEFAULT_PHP='$new_default'/" $HESTIA/conf/hestia.conf
+    fi
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Uninstalling PHP-FPM $version..."
+
+# Stop the service first
+systemctl stop php${version}-fpm 2>/dev/null
+systemctl disable php${version}-fpm 2>/dev/null
+
+# Remove PHP packages for this version
+echo "Removing PHP $version packages..."
+export DEBIAN_FRONTEND=noninteractive
+apt-get -y purge php${version}-* > /dev/null 2>&1
+
+if [ $? -ne 0 ]; then
+    echo "Warning: Some packages may not have been fully removed"
+fi
+
+# Clean up
+apt-get -y autoremove > /dev/null 2>&1
+
+#----------------------------------------------------------#
+#                       Result                             #
+#----------------------------------------------------------#
+
+echo "PHP-FPM $version uninstalled successfully"
+
+# Log action
+$BIN/v-log-action "system" "Info" "System" "Uninstalled PHP-FPM $version"
+
+exit 0
