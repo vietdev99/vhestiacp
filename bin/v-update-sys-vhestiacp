@@ -204,8 +204,11 @@ if [ -d "$HESTIA/web_v2" ]; then
 
         # Install client dependencies and rebuild
         if [ -d "$HESTIA/web_v2/client" ]; then
-            echo "Installing client dependencies..."
             cd "$HESTIA/web_v2/client" || { echo "Error: Cannot cd to web_v2/client"; exit 1; }
+
+            # Clean install to avoid corrupted node_modules
+            echo "Installing client dependencies (clean)..."
+            rm -rf node_modules package-lock.json 2>/dev/null
             npm install 2>&1 | tail -5
 
             echo "Building client..."
