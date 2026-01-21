@@ -158,6 +158,23 @@ export default function Applications() {
     }
   });
 
+  // phpMyAdmin Package Install mutation
+  const pmaPackageInstallMutation = useMutation({
+    mutationFn: async () => {
+      setInstalling('pma-package');
+      await api.post('/api/services/pma/install-package');
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries(['pma-status']);
+      toast.success('phpMyAdmin package installed successfully');
+      setInstalling(null);
+    },
+    onError: (error) => {
+      toast.error(error.response?.data?.error || 'Failed to install phpMyAdmin package');
+      setInstalling(null);
+    }
+  });
+
   // Restart mutation
   const restartMutation = useMutation({
     mutationFn: async (serviceId) => {
@@ -335,9 +352,18 @@ export default function Applications() {
                     Enable
                   </button>
                 ) : (
-                  <span className="text-sm text-gray-500">
-                    Install phpMyAdmin package first
-                  </span>
+                  <button
+                    onClick={() => pmaPackageInstallMutation.mutate()}
+                    disabled={installing === 'pma-package'}
+                    className="flex-1 btn btn-sm btn-primary"
+                  >
+                    {installing === 'pma-package' ? (
+                      <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                    ) : (
+                      <Download className="w-4 h-4 mr-1" />
+                    )}
+                    Install Package
+                  </button>
                 )}
               </div>
 

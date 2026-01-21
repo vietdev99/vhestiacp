@@ -1,0 +1,90 @@
+#!/bin/bash
+# info: install phpmyadmin package
+# options: NONE
+#
+# example: v-add-sys-pma-package
+#
+# This function installs the phpMyAdmin package from apt repository.
+# After installation, use v-add-sys-pma to enable web access.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+# shellcheck source=/etc/hestiacp/hestia.conf
+source /etc/hestiacp/hestia.conf
+# shellcheck source=/usr/local/hestia/func/main.sh
+source $HESTIA/func/main.sh
+# load config file
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check root permissions
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: Script must be run as root"
+    exit 1
+fi
+
+# Check if phpMyAdmin is already installed
+if [ -d "/usr/share/phpmyadmin" ]; then
+    echo "phpMyAdmin is already installed"
+    exit 0
+fi
+
+# Perform verification if read-only mode is enabled
+check_hestia_demo_mode
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Installing phpMyAdmin..."
+
+# Update package list
+apt-get update -qq
+
+# Pre-configure phpMyAdmin to not configure any web server
+# (we handle nginx config ourselves)
+echo "phpmyadmin phpmyadmin/reconfigure-webserver multiselect" | debconf-set-selections
+echo "phpmyadmin phpmyadmin/dbconfig-install boolean false" | debconf-set-selections
+
+# Install phpMyAdmin
+DEBIAN_FRONTEND=noninteractive apt-get install -y phpmyadmin
+
+if [ $? -ne 0 ]; then
+    echo "Error: Failed to install phpMyAdmin"
+    exit 1
+fi
+
+# Verify installation
+if [ ! -d "/usr/share/phpmyadmin" ]; then
+    echo "Error: phpMyAdmin installation directory not found"
+    exit 1
+fi
+
+# Fix permissions for config file
+if [ -f "/etc/phpmyadmin/config.inc.php" ]; then
+    chown root:www-data /etc/phpmyadmin/config.inc.php
+    chmod 640 /etc/phpmyadmin/config.inc.php
+fi
+
+# Fix permissions for phpmyadmin directory
+chown -R root:www-data /usr/share/phpmyadmin
+find /usr/share/phpmyadmin -type d -exec chmod 755 {} \;
+find /usr/share/phpmyadmin -type f -exec chmod 644 {} \;
+
+#----------------------------------------------------------#
+#                       Logging                            #
+#----------------------------------------------------------#
+
+$BIN/v-log-action "system" "Info" "System" "phpMyAdmin package installed"
+log_event "$OK" "$ARGUMENTS"
+
+echo "phpMyAdmin package installed successfully"
+echo "Run 'v-add-sys-pma' to enable web access"
+
+exit 0

@@ -1,0 +1,117 @@
+#!/bin/bash
+# info: delete mariadb/mysql database
+# options: USER DATABASE [INSTANCE]
+#
+# example: v-delete-database-mariadb admin myapp_db
+#
+# This function deletes a MariaDB/MySQL database directly.
+# Unlike v-delete-database, it does not require the database to be in db.conf.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+user=$1
+database=$2
+instance=${3:-default}
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+check_args '2' "$#" 'USER DATABASE [INSTANCE]'
+
+# Check if MySQL/MariaDB is installed
+if [ "$DB_SYSTEM" != "mysql" ] && ! echo "$DB_SYSTEM" | grep -q "mysql"; then
+    echo "Error: MySQL/MariaDB is not installed"
+    exit 1
+fi
+
+is_object_valid 'user' 'USER' "$user"
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Deleting MariaDB database: $database..."
+
+# Get MySQL credentials
+mysql_user="root"
+if [ -f "/root/.my.cnf" ]; then
+    # Use root credentials from .my.cnf
+    mysql_cmd="mysql"
+else
+    # Try to get password from hestia config
+    mysql_password=$(grep "^DB_PASSWORD=" $HESTIA/conf/mysql.conf 2>/dev/null | cut -d"'" -f2)
+    if [ -n "$mysql_password" ]; then
+        mysql_cmd="mysql -u root -p$mysql_password"
+    else
+        mysql_cmd="mysql"
+    fi
+fi
+
+# Check if database exists in MySQL
+db_exists=$($mysql_cmd -N -e "SELECT SCHEMA_NAME FROM INFORMATION_SCHEMA.SCHEMATA WHERE SCHEMA_NAME='$database'" 2>/dev/null)
+
+# Check if database exists in config files
+user_dir="$HESTIA/data/users/$user"
+config_exists=false
+if [ -f "$user_dir/db.conf" ] && grep -q "^DB='$database'" "$user_dir/db.conf" 2>/dev/null; then
+    config_exists=true
+fi
+if [ -f "$user_dir/mariadb.conf" ] && grep -q "^DB='$database'" "$user_dir/mariadb.conf" 2>/dev/null; then
+    config_exists=true
+fi
+
+# If database doesn't exist anywhere, return error
+if [ -z "$db_exists" ] && [ "$config_exists" = false ]; then
+    echo "Error: Database '$database' does not exist"
+    exit 1
+fi
+
+# Get database user (convention: same as database name or user_database)
+dbuser="$database"
+
+# Drop user if exists (try both with and without host)
+$mysql_cmd -e "DROP USER IF EXISTS '$dbuser'@'localhost'" 2>/dev/null || true
+$mysql_cmd -e "DROP USER IF EXISTS '$dbuser'@'%'" 2>/dev/null || true
+
+# Drop database if exists
+if [ -n "$db_exists" ]; then
+    $mysql_cmd -e "DROP DATABASE IF EXISTS \`$database\`"
+    if [ $? -ne 0 ]; then
+        echo "Error: Failed to drop database"
+        exit 1
+    fi
+    echo "Database dropped from MySQL"
+else
+    echo "Database not found in MySQL (already deleted or never existed)"
+fi
+
+# Remove from db.conf (HestiaCP standard)
+if [ -f "$user_dir/db.conf" ]; then
+    sed -i "/^DB='$database'/d" "$user_dir/db.conf" 2>/dev/null || true
+    echo "Removed from db.conf"
+fi
+
+# Remove from mariadb.conf (VHestiaCP instance-aware)
+if [ -f "$user_dir/mariadb.conf" ]; then
+    sed -i "/^DB='$database'/d" "$user_dir/mariadb.conf" 2>/dev/null || true
+    echo "Removed from mariadb.conf"
+fi
+
+echo "MariaDB database '$database' deleted successfully!"
+
+#----------------------------------------------------------#
+#                       Logging                            #
+#----------------------------------------------------------#
+
+$BIN/v-log-action "$user" "Info" "Database" "MariaDB database $database deleted"
+log_event "$OK" "$ARGUMENTS"
+
+exit 0

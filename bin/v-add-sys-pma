@@ -38,18 +38,6 @@ if [ ! -d "/usr/share/phpmyadmin" ]; then
     exit 1
 fi
 
-# Check if already enabled
-if [ -f "/etc/nginx/conf.d/phpmyadmin.inc" ]; then
-    echo "phpMyAdmin is already enabled"
-    # Update alias if different
-    current_alias=$(grep -oP "location /\K[^{]+" /etc/nginx/conf.d/phpmyadmin.inc 2>/dev/null | head -1 | tr -d ' ')
-    if [ "$current_alias" != "$alias" ]; then
-        echo "Updating alias from $current_alias to $alias..."
-        $BIN/v-change-sys-db-alias pma "$alias"
-    fi
-    exit 0
-fi
-
 # Perform verification if read-only mode is enabled
 check_hestia_demo_mode
 
@@ -79,8 +67,22 @@ fi
 
 echo "Using PHP-FPM socket: $php_socket"
 
-# Generate nginx configuration (included in web domains)
-cat > /etc/nginx/conf.d/phpmyadmin.inc << EOFPMA
+# Check if nginx config already exists
+nginx_config_exists=false
+if [ -f "/etc/nginx/conf.d/phpmyadmin.inc" ]; then
+    nginx_config_exists=true
+    echo "Nginx phpMyAdmin config already exists"
+    # Update alias if different
+    current_alias=$(grep -oP "location /\K[^/ {]+" /etc/nginx/conf.d/phpmyadmin.inc 2>/dev/null | head -1)
+    if [ -n "$current_alias" ] && [ "$current_alias" != "$alias" ]; then
+        echo "Updating alias from $current_alias to $alias..."
+    fi
+fi
+
+# Generate nginx configuration if not exists or update with new alias
+if [ "$nginx_config_exists" = false ] || [ "$current_alias" != "$alias" ]; then
+    echo "Creating/updating nginx phpMyAdmin config with alias: $alias"
+    cat > /etc/nginx/conf.d/phpmyadmin.inc << EOFPMA
 location /$alias/ {
     alias /usr/share/phpmyadmin/;
     index index.php;
@@ -102,6 +104,7 @@ location /$alias/ {
     }
 }
 EOFPMA
+fi
 
 # Create self-signed certificate for phpMyAdmin if not exists
 pma_cert_dir="/etc/haproxy/certs"
@@ -114,6 +117,24 @@ if [ ! -f "$pma_cert_file" ]; then
     cat /tmp/pma.crt /tmp/pma.key > "$pma_cert_file"
     rm -f /tmp/pma.key /tmp/pma.crt
     chmod 600 "$pma_cert_file"
+fi
+
+# Fix phpMyAdmin config file permissions
+echo "Fixing phpMyAdmin permissions..."
+if [ -f "/etc/phpmyadmin/config.inc.php" ]; then
+    chown root:www-data /etc/phpmyadmin/config.inc.php
+    chmod 640 /etc/phpmyadmin/config.inc.php
+fi
+if [ -d "/etc/phpmyadmin" ]; then
+    chown -R root:www-data /etc/phpmyadmin
+    chmod 750 /etc/phpmyadmin
+fi
+if [ -d "/var/lib/phpmyadmin" ]; then
+    chown -R www-data:www-data /var/lib/phpmyadmin
+    chmod 750 /var/lib/phpmyadmin
+fi
+if [ -d "/var/lib/phpmyadmin/tmp" ]; then
+    chmod 770 /var/lib/phpmyadmin/tmp
 fi
 
 # Add HAProxy frontend for phpMyAdmin on port 8085

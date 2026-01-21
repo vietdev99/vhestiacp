@@ -216,6 +216,22 @@ router.put('/pgsql/:database/password', async (req, res) => {
   }
 });
 
+// Delete PostgreSQL database (instance-aware)
+router.delete('/pgsql/:database', async (req, res) => {
+  try {
+    const { database } = req.params;
+    const { instance = 'default' } = req.query;
+    const username = req.user.user;
+
+    // Try v-delete-database first (HestiaCP standard)
+    await execHestia('v-delete-database', [username, database]);
+    res.json({ success: true, message: 'PostgreSQL database deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting PostgreSQL database:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete PostgreSQL database' });
+  }
+});
+
 // ============================================================
 // Legacy routes (MySQL/PostgreSQL via HestiaCP standard)
 // ============================================================
@@ -312,22 +328,8 @@ router.put('/:database/password', async (req, res) => {
   }
 });
 
-// Delete database
-router.delete('/:database', async (req, res) => {
-  try {
-    const { database } = req.params;
-    const username = req.user.user;
-
-    await execHestia('v-delete-database', [username, database]);
-    res.json({ success: true, message: 'Database deleted successfully' });
-  } catch (error) {
-    console.error('Error deleting database:', error);
-    res.status(500).json({ error: error.message || 'Failed to delete database' });
-  }
-});
-
 // ============================================================
-// MongoDB
+// MongoDB (MUST be before generic /:database routes!)
 // ============================================================
 
 // List MongoDB databases
@@ -408,6 +410,51 @@ router.delete('/mongodb/:database', async (req, res) => {
   } catch (error) {
     console.error('Error deleting MongoDB database:', error);
     res.status(500).json({ error: error.message || 'Failed to delete MongoDB database' });
+  }
+});
+
+// ============================================================
+// Generic legacy routes (MUST be after specific routes!)
+// ============================================================
+
+// Delete MariaDB database (instance-aware, doesn't require db.conf)
+router.delete('/mariadb/:database', async (req, res) => {
+  try {
+    const { database } = req.params;
+    const { instance = 'default' } = req.query;
+    const username = req.user.user;
+
+    const args = [username, database];
+    if (instance !== 'default') {
+      args.push(instance);
+    }
+
+    await execHestia('v-delete-database-mariadb', args);
+    res.json({ success: true, message: 'MariaDB database deleted successfully' });
+  } catch (error) {
+    console.error('Error deleting MariaDB database:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete MariaDB database' });
+  }
+});
+
+// Delete database (legacy - fallback)
+router.delete('/:database', async (req, res) => {
+  try {
+    const { database } = req.params;
+    const username = req.user.user;
+
+    // Try v-delete-database-mariadb first (doesn't require db.conf entry)
+    try {
+      await execHestia('v-delete-database-mariadb', [username, database]);
+      return res.json({ success: true, message: 'Database deleted successfully' });
+    } catch (e) {
+      // Fall back to standard HestiaCP command
+      await execHestia('v-delete-database', [username, database]);
+      res.json({ success: true, message: 'Database deleted successfully' });
+    }
+  } catch (error) {
+    console.error('Error deleting database:', error);
+    res.status(500).json({ error: error.message || 'Failed to delete database' });
   }
 });
 

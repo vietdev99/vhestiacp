@@ -132,10 +132,17 @@ export default function Databases() {
   // Delete mutation
   const deleteMutation = useMutation({
     mutationFn: async (database) => {
-      let endpoint = isMongoDB
-        ? `/api/databases/mongodb/${encodeURIComponent(database)}`
-        : `/api/databases/${encodeURIComponent(database)}`;
-      
+      let endpoint;
+      if (isMongoDB) {
+        endpoint = `/api/databases/mongodb/${encodeURIComponent(database)}`;
+      } else if (dbType === 'mysql') {
+        endpoint = `/api/databases/mariadb/${encodeURIComponent(database)}`;
+      } else if (dbType === 'pgsql') {
+        endpoint = `/api/databases/pgsql/${encodeURIComponent(database)}`;
+      } else {
+        endpoint = `/api/databases/${encodeURIComponent(database)}`;
+      }
+
       if (selectedInstance && selectedInstance !== 'default') {
         endpoint += `?instance=${encodeURIComponent(selectedInstance)}`;
       }

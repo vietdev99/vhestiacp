@@ -403,6 +403,25 @@ router.get('/pma/status', adminMiddleware, async (req, res) => {
 });
 
 /**
+ * POST /api/services/pma/install-package
+ * Install phpMyAdmin package (apt install phpmyadmin)
+ * NOTE: Must be defined BEFORE /:id/install to avoid route conflict
+ */
+router.post('/pma/install-package', adminMiddleware, async (req, res) => {
+  try {
+    await execHestia('v-add-sys-pma-package', [], { timeout: 300000 }); // 5 min timeout for apt install
+
+    res.json({
+      success: true,
+      message: 'phpMyAdmin package installed successfully'
+    });
+  } catch (error) {
+    console.error('Install PMA package error:', error);
+    res.status(500).json({ error: error.message || 'Failed to install phpMyAdmin package' });
+  }
+});
+
+/**
  * POST /api/services/pma/install
  * Enable phpMyAdmin web access
  * NOTE: Must be defined BEFORE /:id/install to avoid route conflict
