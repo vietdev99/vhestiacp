@@ -337,7 +337,7 @@ export default function UpdateSettings() {
               If you see this card, the update was successful!
             </p>
             <p className="text-2xl font-bold text-purple-600 dark:text-purple-400 mt-2">
-              Version: 1.0.2
+              Version: 1.0.3
             </p>
           </div>
           <div className="w-16 h-16 rounded-xl bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
