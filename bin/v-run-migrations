@@ -1,0 +1,111 @@
+#!/bin/bash
+# info: run pending VHestiaCP migrations
+# options: [FORCE]
+#
+# example: v-run-migrations
+# example: v-run-migrations force
+#
+# This function runs all pending migration scripts.
+# Each migration runs only once (tracked in migrations.json).
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+force=${1:-}
+
+# Includes
+source /etc/hestiacp/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+MIGRATIONS_DIR="$HESTIA/migrations"
+MIGRATIONS_STATE="$HESTIA/conf/migrations.json"
+
+#----------------------------------------------------------#
+#                    Verifications                         #
+#----------------------------------------------------------#
+
+# Check root permissions
+if [ "x$(id -u)" != 'x0' ]; then
+    echo "Error: Script must be run as root"
+    exit 1
+fi
+
+# Check if migrations directory exists
+if [ ! -d "$MIGRATIONS_DIR" ]; then
+    echo "No migrations directory found"
+    exit 0
+fi
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+# Initialize migrations state file if not exists
+if [ ! -f "$MIGRATIONS_STATE" ]; then
+    echo '{"completed": []}' > "$MIGRATIONS_STATE"
+fi
+
+# Get list of completed migrations
+completed_migrations=$(cat "$MIGRATIONS_STATE" | grep -oP '"completed":\s*\[\K[^\]]*' | tr -d '"' | tr ',' '\n')
+
+# Find all migration scripts (format: YYYYMMDD_HHMMSS_description.sh)
+migration_count=0
+migrations_run=0
+
+for migration_file in $(ls -1 "$MIGRATIONS_DIR"/*.sh 2>/dev/null | sort); do
+    migration_name=$(basename "$migration_file" .sh)
+    ((migration_count++))
+
+    # Check if already completed
+    if echo "$completed_migrations" | grep -q "^${migration_name}$"; then
+        if [ "$force" != "force" ]; then
+            echo "Skip: $migration_name (already completed)"
+            continue
+        else
+            echo "Force re-run: $migration_name"
+        fi
+    fi
+
+    echo ""
+    echo "Running migration: $migration_name"
+    echo "----------------------------------------"
+
+    # Run the migration
+    if bash "$migration_file"; then
+        echo "----------------------------------------"
+        echo "Migration completed: $migration_name"
+
+        # Mark as completed (add to JSON array)
+        if [ "$force" != "force" ] || ! echo "$completed_migrations" | grep -q "^${migration_name}$"; then
+            # Read current state
+            current_completed=$(cat "$MIGRATIONS_STATE" | grep -oP '"completed":\s*\[\K[^\]]*')
+
+            if [ -z "$current_completed" ]; then
+                new_completed="\"$migration_name\""
+            else
+                new_completed="$current_completed, \"$migration_name\""
+            fi
+
+            # Write updated state
+            echo "{\"completed\": [$new_completed]}" > "$MIGRATIONS_STATE"
+        fi
+
+        ((migrations_run++))
+    else
+        echo "----------------------------------------"
+        echo "ERROR: Migration failed: $migration_name"
+        echo "Please fix the issue and run again"
+        exit 1
+    fi
+done
+
+echo ""
+echo "=========================================="
+echo "Migrations summary:"
+echo "  Total migrations: $migration_count"
+echo "  Migrations run:   $migrations_run"
+echo "=========================================="
+
+exit 0

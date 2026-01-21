@@ -238,6 +238,13 @@ if [ -d "$HESTIA/web_v2" ]; then
     fi
 fi
 
+# Run migrations
+if [ -d "$HESTIA/migrations" ] && [ -x "$HESTIA/bin/v-run-migrations" ]; then
+    echo ""
+    echo "Running migrations..."
+    "$HESTIA/bin/v-run-migrations"
+fi
+
 # Restart Hestia web service if running
 if systemctl is-active --quiet hestia; then
     echo ""
