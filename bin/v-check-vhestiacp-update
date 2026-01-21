@@ -87,14 +87,33 @@ if [ -d "$VHESTIA_DIR/.git" ]; then
         commits_behind=$(git rev-list --count "$current_commit..$remote_commit" 2>/dev/null || echo "0")
     fi
 else
-    # If not a git repo, try to get info via API
+    # If not a git repo, try to get info via GitHub API
     remote_info=$(curl -s "https://api.github.com/repos/vietdev99/vhestiacp/commits/$VHESTIA_BRANCH" 2>/dev/null)
-    if [ -n "$remote_info" ]; then
+    if [ -n "$remote_info" ] && echo "$remote_info" | grep -q '"sha"'; then
         remote_commit=$(echo "$remote_info" | grep -oP '"sha":\s*"\K[^"]+' | head -1)
-        remote_version="$remote_commit"
+        remote_version="${remote_commit:0:8}"
 
-        if [ -n "$remote_commit" ] && [ "$remote_commit" != "$current_commit" ]; then
+        if [ -n "$remote_commit" ] && [ "${remote_commit:0:8}" != "${current_commit:0:8}" ]; then
             update_available="true"
+
+            # Get recent commits from GitHub API for changelog
+            commits_json=$(curl -s "https://api.github.com/repos/vietdev99/vhestiacp/commits?sha=$VHESTIA_BRANCH&per_page=20" 2>/dev/null)
+            if [ -n "$commits_json" ] && echo "$commits_json" | grep -q '"sha"'; then
+                # Extract commit messages (sha + first line of message)
+                changelog=$(echo "$commits_json" | grep -oP '"sha":\s*"\K[^"]{8}|"message":\s*"\K[^"\\]*' | paste - - | head -20)
+
+                # Count commits (approximate - count until we find current commit or max 20)
+                if [ -n "$current_commit" ]; then
+                    commits_behind=$(echo "$commits_json" | grep -oP '"sha":\s*"\K[^"]+' | while read sha; do
+                        if [ "${sha:0:8}" = "${current_commit:0:8}" ]; then
+                            break
+                        fi
+                        echo "$sha"
+                    done | wc -l)
+                else
+                    commits_behind=20
+                fi
+            fi
         fi
     fi
 fi
