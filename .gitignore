@@ -56,3 +56,7 @@ web_v2/client/dist/
 web_v2/server/dist/
 **/dist/
 **/build/
+
+# Debian packages (too large for git)
+packages/deb/
+*.deb
