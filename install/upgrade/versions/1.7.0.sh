@@ -20,11 +20,11 @@
 # load config because we need to know if proftpd is installed
 
 # Includes
-# shellcheck source=/etc/hestiacp/hestia.conf
-source /etc/hestiacp/hestia.conf
-# shellcheck source=/usr/local/hestia/func/main.sh
+# shellcheck source=/etc/vhestia/hestia.conf
+source /etc/vhestia/hestia.conf
+# shellcheck source=/usr/local/vhestia/func/main.sh
 source $HESTIA/func/main.sh
-# shellcheck source=/usr/local/hestia/func/ip.sh
+# shellcheck source=/usr/local/vhestia/func/ip.sh
 source $HESTIA/func/ip.sh
 # load config file
 source_conf "$HESTIA/conf/hestia.conf"

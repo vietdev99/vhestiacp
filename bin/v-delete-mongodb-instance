@@ -17,7 +17,7 @@ instance_name=$1
 force_flag=$2
 
 # Includes
-source /etc/hestiacp/hestia.conf
+source /etc/vhestia/hestia.conf
 source $HESTIA/func/main.sh
 source_conf "$HESTIA/conf/hestia.conf"
 

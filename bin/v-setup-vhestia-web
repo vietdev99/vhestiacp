@@ -16,7 +16,16 @@
 #----------------------------------------------------------#
 
 # Includes
-source /etc/hestiacp/hestia.conf
+# Fix VHestiaCP environment paths if missing
+if [ ! -L "/usr/local/vhestia" ] && [ -d "/usr/local/hestia" ]; then
+    ln -sf /usr/local/hestia /usr/local/vhestia
+fi
+
+if [ ! -L "/etc/vhestia" ] && [ -d "/usr/local/hestia/conf" ]; then
+    ln -sfn /usr/local/hestia/conf /etc/vhestia
+fi
+
+source /etc/vhestia/hestia.conf
 source $HESTIA/func/main.sh
 source_conf "$HESTIA/conf/hestia.conf"
 
@@ -56,7 +65,7 @@ if dpkg -l hestia-nginx 2>/dev/null | grep -q "^ii"; then
     apt-get autoremove -y 2>/dev/null || true
 
     # Clean up any leftover files
-    rm -rf /usr/local/hestia/nginx 2>/dev/null || true
+    rm -rf /usr/local/vhestia/nginx 2>/dev/null || true
 
     echo "hestia-nginx package removed"
 else
@@ -81,6 +90,18 @@ if command -v pm2 &>/dev/null; then
 
         # Try to start if ecosystem file exists
         if [ -f "$HESTIA/web_v2/ecosystem.config.cjs" ]; then
+            echo "Installing web_v2 dependencies..."
+            cd $HESTIA/web_v2/server
+            if [ -f "package.json" ]; then
+                npm install --omit=dev --no-audit --no-fund
+            fi
+            
+            # Setup CLI mailer
+            if [ -f "$HESTIA/web_v2/server/cli/send-mail.js" ]; then
+                chmod +x "$HESTIA/web_v2/server/cli/send-mail.js"
+                echo "VHestiaCP mailer configured."
+            fi
+
             echo "Starting web_v2..."
             cd $HESTIA/web_v2
             pm2 start ecosystem.config.cjs

@@ -9,7 +9,7 @@ const router = express.Router();
 // All routes require admin
 router.use(adminMiddleware);
 
-const HESTIA_DIR = process.env.HESTIA || '/usr/local/hestia';
+const HESTIA_DIR = process.env.HESTIA || '/usr/local/vhestia';
 const INSTANCES_DATA_DIR = '/var/lib/postgresql-instances';
 const INSTANCES_CONF_DIR = '/etc/postgresql-instances';
 

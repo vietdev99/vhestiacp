@@ -1971,6 +1971,7 @@ function MongoDBInstanceManager({ rcloneRemotes = [] }) {
   });
 
   const instances = instancesData?.instances || [];
+  const selectedInstance = instances.find(i => i.name === activeInstance);
 
   // Config editing state for selected instance
   const [editConfig, setEditConfig] = useState({
@@ -2017,13 +2018,21 @@ function MongoDBInstanceManager({ rcloneRemotes = [] }) {
   useEffect(() => {
     if (instanceConfig) {
       const settings = instanceConfig.settings || {};
+      
+      // Parse keyFile from config text if not in settings
+      let extractedKeyfile = '';
+      if (instanceConfig.config) {
+        const match = instanceConfig.config.match(/keyFile:\s*["']?([^"'\n\s]+)["']?/);
+        if (match) extractedKeyfile = match[1];
+      }
+
       setEditConfig({
         dataDir: instanceConfig.dataDir || settings.dataDir || '',
-        clusterMode: instanceConfig.clusterMode || settings.clusterMode || 'standalone',
-        replicaSetName: instanceConfig.replicaSetName || settings.replicaSetName || 'rs0',
+        clusterMode: instanceConfig.clusterMode || settings.clusterMode || selectedInstance?.clusterMode || 'standalone',
+        replicaSetName: instanceConfig.replicaSetName || settings.replicaSetName || selectedInstance?.replicaSetName || 'rs0',
         nodeRole: instanceConfig.nodeRole || settings.nodeRole || 'primary',
         shardRole: instanceConfig.shardRole || settings.shardRole || 'shardsvr',
-        keyfilePath: instanceConfig.keyfilePath || settings.keyfilePath || '',
+        keyfilePath: instanceConfig.keyfilePath || settings.keyfilePath || extractedKeyfile || '',
         pbm: instanceConfig.pbm || settings.pbm || {
           enabled: false,
           type: 'logical',
@@ -2035,7 +2044,7 @@ function MongoDBInstanceManager({ rcloneRemotes = [] }) {
       });
       setConfigText(instanceConfig.config || '');
     }
-  }, [instanceConfig]);
+  }, [instanceConfig, selectedInstance]);
 
   // Save config mutation
   const saveConfigMutation = useMutation({
@@ -2171,8 +2180,6 @@ function MongoDBInstanceManager({ rcloneRemotes = [] }) {
     if (portError) return;
     createMutation.mutate(newInstance);
   };
-
-  const selectedInstance = instances.find(i => i.name === activeInstance);
 
   return (
     <div className="space-y-4">
@@ -2577,7 +2584,23 @@ function MongoDBInstanceManager({ rcloneRemotes = [] }) {
                     <input
                       type="text"
                       value={editConfig.keyfilePath}
-                      onChange={(e) => setEditConfig({...editConfig, keyfilePath: e.target.value})}
+                      onChange={(e) => {
+                        const newPath = e.target.value;
+                        setEditConfig({...editConfig, keyfilePath: newPath});
+                        
+                        // Bind to config text
+                        let newConfig = configText;
+                        if (newConfig.includes('keyFile:')) {
+                          newConfig = newConfig.replace(/keyFile:\s*[^\s\n]+/, `keyFile: ${newPath}`);
+                        } else if (newConfig.includes('security:')) {
+                          // Add keyFile under security if missing
+                          newConfig = newConfig.replace('security:', `security:\n  keyFile: ${newPath}`);
+                        } else {
+                          // Add security block if missing
+                          newConfig += `\nsecurity:\n  keyFile: ${newPath}\n  authorization: enabled`;
+                        }
+                        setConfigText(newConfig);
+                      }}
                       placeholder="/var/lib/mongodb/keyfile"
                       className="input"
                     />
@@ -2696,7 +2719,9 @@ function MongoDBInstanceManager({ rcloneRemotes = [] }) {
                                 <option value="filesystem">Local Filesystem</option>
                                 <option value="s3">S3 Compatible</option>
                                 {rcloneRemotes && rcloneRemotes.map(remote => (
-                                  <option key={remote} value={`rclone:${remote}`}>Rclone: {remote}</option>
+                                  <option key={remote.Name || remote.name} value={`rclone:${remote.Name || remote.name}`}>
+                                    Rclone: {remote.Name || remote.name} ({remote.Type || remote.type})
+                                  </option>
                                 ))}
                               </select>
                             </div>
@@ -3693,8 +3718,8 @@ function PBMSection({
               <option value="s3">Amazon S3 / Compatible</option>
               <optgroup label="Rclone Remotes">
                 {rcloneRemotes?.map(remote => (
-                  <option key={remote.Name} value={`rclone:${remote.Name}`}>
-                    Rclone: {remote.Name} ({remote.Type})
+                  <option key={remote.Name || remote.name} value={`rclone:${remote.Name || remote.name}`}>
+                    Rclone: {remote.Name || remote.name} ({remote.Type || remote.type})
                   </option>
                 ))}
               </optgroup>

@@ -60,7 +60,7 @@ if [ ! -f "/var/spool/cron/crontabs/hestiaweb" ]; then
 
 fi
 
-chown hestiaweb:hestiaweb /usr/local/hestia/data/sessions
+chown hestiaweb:hestiaweb /usr/local/vhestia/data/sessions
 
 packages=$(ls --sort=time $HESTIA/data/packages | grep .pkg)
 # Update Hestia Packages

@@ -111,10 +111,10 @@ fi
 # Mute output v-add-sys-sftp-jail out put then enabling sftp on boot
 if [ -f "/etc/cron.d/hestia-sftp" ]; then
 	rm /etc/cron.d/hestia-sftp
-	echo "@reboot root sleep 60 && /usr/local/hestia/bin/v-add-sys-sftp-jail > /dev/null" > /etc/cron.d/hestia-sftp
+	echo "@reboot root sleep 60 && /usr/local/vhestia/bin/v-add-sys-sftp-jail > /dev/null" > /etc/cron.d/hestia-sftp
 fi
 
-ips=$(ls /usr/local/hestia/data/ips/ | wc -l)
+ips=$(ls /usr/local/vhestia/data/ips/ | wc -l)
 release=$(lsb_release -s -i)
 if [ $release = 'Ubuntu' ]; then
 	if [ $ips -gt 1 ]; then

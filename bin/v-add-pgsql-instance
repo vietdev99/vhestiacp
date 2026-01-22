@@ -21,7 +21,7 @@ primary_host=$4
 primary_port=${5:-5432}
 
 # Includes
-source /etc/hestiacp/hestia.conf
+source /etc/vhestia/hestia.conf
 source $HESTIA/func/main.sh
 source_conf "$HESTIA/conf/hestia.conf"
 

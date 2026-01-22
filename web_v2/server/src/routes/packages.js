@@ -5,7 +5,7 @@ import { execHestia, execHestiaJson } from '../utils/hestia.js';
 import { adminMiddleware } from '../middleware/auth.js';
 
 const router = Router();
-const HESTIA_DIR = process.env.HESTIA || '/usr/local/hestia';
+const HESTIA_DIR = process.env.HESTIA || '/usr/local/vhestia';
 
 /**
  * GET /api/packages

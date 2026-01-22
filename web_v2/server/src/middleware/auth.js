@@ -5,13 +5,13 @@ import crypto from 'crypto';
 // Use Hestia's secret key or generate one
 let JWT_SECRET = process.env.JWT_SECRET || 'vhestia-secret-key';
 try {
-  const keyPath = '/usr/local/hestia/data/sessions/key';
+  const keyPath = '/usr/local/vhestia/data/sessions/key';
   if (fs.existsSync(keyPath)) {
     JWT_SECRET = fs.readFileSync(keyPath, 'utf8').trim();
   } else {
     // Generate and save a new key
     JWT_SECRET = crypto.randomBytes(32).toString('hex');
-    fs.mkdirSync('/usr/local/hestia/data/sessions', { recursive: true });
+    fs.mkdirSync('/usr/local/vhestia/data/sessions', { recursive: true });
     fs.writeFileSync(keyPath, JWT_SECRET, { mode: 0o600 });
   }
 } catch (e) {

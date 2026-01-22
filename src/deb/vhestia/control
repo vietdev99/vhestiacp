@@ -1,0 +1,18 @@
+Source: vhestia
+Package: vhestia
+Priority: optional
+Version: 2.0.0
+Section: admin
+Maintainer: VHestiaCP <contact@vhestiacp.com>
+Homepage: https://github.com/vhestiacp/vhestiacp
+Architecture: amd64
+Depends: bash, awk, sed, acl, sysstat, setpriv | util-linux (>= 2.33), zstd, lsb-release, idn2, jq, bubblewrap, at
+Recommends: php-cli (>= 8.1), php-json, php-mbstring, php-curl, php-xml
+Conflicts: hestia, hestia-nginx, hestia-php
+Replaces: hestia
+Description: VHestiaCP Control Panel
+ VHestiaCP is an advanced open source hosting control panel.
+ Extended features include MongoDB, HAProxy load balancer,
+ Node.js/PM2 process manager, Python/Gunicorn support,
+ and a modern React-based web interface (web_v2).
+ Based on HestiaCP - special thanks to hestiacp.com team.

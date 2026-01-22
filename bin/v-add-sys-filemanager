@@ -10,9 +10,9 @@
 #----------------------------------------------------------#
 
 # Includes
-# shellcheck source=/etc/hestiacp/hestia.conf
-source /etc/hestiacp/hestia.conf
-# shellcheck source=/usr/local/hestia/func/main.sh
+# shellcheck source=/etc/vhestia/hestia.conf
+source /etc/vhestia/hestia.conf
+# shellcheck source=/usr/local/vhestia/func/main.sh
 source $HESTIA/func/main.sh
 # load config file
 source_conf "$HESTIA/conf/hestia.conf"
@@ -37,9 +37,9 @@ if [ "x$(id -u)" != 'x0' ]; then
 	exit 10
 fi
 
-# Ensure that $HESTIA (/usr/local/hestia/) and other variables are valid.
+# Ensure that $HESTIA (/usr/local/vhestia/) and other variables are valid.
 if [ -z "$HESTIA" ]; then
-	HESTIA="/usr/local/hestia"
+	HESTIA="/usr/local/vhestia"
 fi
 
 if [ -z "$HOMEDIR" ] || [ -z "$HESTIA_INSTALL_DIR" ]; then
@@ -51,7 +51,7 @@ fi
 if [ ! -f "$COMPOSER_BIN" ]; then
 	$BIN/v-add-user-composer "$user"
 	if [ $? -ne 0 ]; then
-		$BIN/v-add-user-notification "$ROOT_USER" 'Composer installation failed!' '<p class="u-text-bold">The File Manager will not work without Composer.</p><p>Please try running the installer manually from a shell session:<br><code>v-add-sys-filemanager</code></p><p>If this continues, <a href="https://github.com/hestiacp/hestiacp/issues" target="_blank">open an issue on GitHub</a>.</p>'
+		$BIN/v-add-user-notification "$ROOT_USER" 'Composer installation failed!' '<p class="u-text-bold">The File Manager will not work without Composer.</p><p>Please try running the installer manually from a shell session:<br><code>v-add-sys-filemanager</code></p><p>If this continues, <a href="https://github.com/vietdev99/vhestiacp/issues" target="_blank">open an issue on GitHub</a>.</p>'
 		exit 1
 	fi
 fi
@@ -63,7 +63,11 @@ check_hestia_demo_mode
 #                       Action                             #
 #----------------------------------------------------------#
 
-openssl_installed=$(/usr/local/hestia/php/bin/php -m | grep openssl)
+# Get system PHP (VHestiaCP uses system PHP, not bundled)
+PHP_BIN=$(require_php 8) || {
+	echo "ERROR: PHP 8+ is required for File Manager"
+	exit 1
+}
 
 rm --recursive --force "$FM_INSTALL_DIR"
 mkdir -p "$FM_INSTALL_DIR"
@@ -80,18 +84,15 @@ cp --recursive --force ${HESTIA_INSTALL_DIR}/filemanager/filegator/* "${FM_INSTA
 
 chown $user: -R "${FM_INSTALL_DIR}"
 
-if [ -z "$openssl_installed" ]; then
-	COMPOSER_HOME="$HOMEDIR/$user/.config/composer" user_exec /usr/bin/php $COMPOSER_BIN --quiet --no-dev install
-else
-	COMPOSER_HOME="$HOMEDIR/$user/.config/composer" user_exec /usr/local/hestia/php/bin/php $COMPOSER_BIN --quiet --no-dev install
-fi
+# Use system PHP for composer
+COMPOSER_HOME="$HOMEDIR/$user/.config/composer" user_exec $PHP_BIN $COMPOSER_BIN --quiet --no-dev install
 
 # Check if installation was successful, if not abort script and throw error message notification and clean-up
 if [ $? -ne 0 ]; then
 	echo "ERROR: File Manager installation failed!"
 	echo "Please report this to our development team:"
-	echo "https://github.com/hestiacp/hestiacp/issues"
-	$BIN/v-add-user-notification "$ROOT_USER" 'File Manager installation failed!' '<p>Please <a href="https://github.com/hestiacp/hestiacp/issues" target="_blank">open an issue on GitHub</a> to report this to our development team.</p>'
+	echo "https://github.com/vietdev99/vhestiacp/issues"
+	$BIN/v-add-user-notification "$ROOT_USER" 'File Manager installation failed!' '<p>Please <a href="https://github.com/vietdev99/vhestiacp/issues" target="_blank">open an issue on GitHub</a> to report this to our development team.</p>'
 	# Installation failed, clean up files
 	rm --recursive --force ${FM_INSTALL_DIR}
 	$BIN/v-change-sys-config-value 'FILE_MANAGER' 'false'

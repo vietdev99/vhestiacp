@@ -12,8 +12,8 @@
 #----------------------------------------------------------#
 
 # Includes
-# shellcheck source=/etc/hestiacp/hestia.conf
-source /etc/hestiacp/hestia.conf
+# shellcheck source=/etc/vhestia/hestia.conf
+source /etc/vhestia/hestia.conf
 source $HESTIA/func/main.sh
 
 # Format

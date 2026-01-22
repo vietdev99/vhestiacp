@@ -12,9 +12,9 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 9094,
-        HESTIA: '/usr/local/hestia',
-        SSL_KEY: '/usr/local/hestia/ssl/certificate.key',
-        SSL_CERT: '/usr/local/hestia/ssl/certificate.crt'
+        HESTIA: '/usr/local/vhestia',
+        SSL_KEY: '/usr/local/vhestia/ssl/certificate.key',
+        SSL_CERT: '/usr/local/vhestia/ssl/certificate.crt'
       }
     }
   ]

@@ -15,9 +15,9 @@ user=$1
 token=$2
 
 # Includes
-# shellcheck source=/etc/hestiacp/hestia.conf
-source /etc/hestiacp/hestia.conf
-# shellcheck source=/usr/local/hestia/func/main.sh
+# shellcheck source=/etc/vhestia/hestia.conf
+source /etc/vhestia/hestia.conf
+# shellcheck source=/usr/local/vhestia/func/main.sh
 source $HESTIA/func/main.sh
 # load config file
 source_conf "$HESTIA/conf/hestia.conf"
@@ -43,8 +43,14 @@ if [ -z "$TWOFA" ]; then
 	exit "$E_NOTEXIST"
 fi
 
+# Check if PHP is available (required for 2FA)
+if [ -z "$HESTIA_PHP" ]; then
+	echo "Error: PHP is required for 2FA verification. Please install: apt install php-cli"
+	exit 1
+fi
+
 # Check if token is valid
-result=$($HESTIA_PHP $HESTIA/web/inc/2fa/check.php "$TWOFA" "$token")
+result=$($HESTIA_PHP $VHESTIA/web/inc/2fa/check.php "$TWOFA" "$token")
 if [ "$result" != "ok" ]; then
 	echo "Error: Authentication token mismatch."
 	exit 9

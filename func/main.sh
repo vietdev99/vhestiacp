@@ -2,7 +2,7 @@
 
 #===========================================================================#
 #                                                                           #
-# Hestia Control Panel - Core Function Library                              #
+# VHestiaCP Control Panel - Core Function Library                           #
 #                                                                           #
 #===========================================================================#
 
@@ -32,13 +32,80 @@ source_conf() {
 	done < $1
 }
 
+#===========================================================================#
+# VHestiaCP Backward Compatibility Layer                                    #
+#===========================================================================#
+
+# Set VHESTIA with fallback to HESTIA for backward compatibility
+if [ -z "$VHESTIA" ]; then
+	if [ -n "$HESTIA" ]; then
+		VHESTIA="$HESTIA"
+	else
+		VHESTIA="/usr/local/vhestia"
+	fi
+fi
+# Keep HESTIA as alias for backward compatibility
+HESTIA="${HESTIA:-$VHESTIA}"
+export VHESTIA HESTIA
+
+#===========================================================================#
+# PHP Detection Functions (System PHP - no bundled PHP)                     #
+#===========================================================================#
+
+# Detect system PHP binary
+get_system_php() {
+	local php_bin=""
+	# Check common PHP paths
+	for path in /usr/bin/php /usr/local/bin/php $(command -v php 2>/dev/null); do
+		if [ -x "$path" ]; then
+			local version=$($path -r 'echo PHP_MAJOR_VERSION;' 2>/dev/null)
+			if [ -n "$version" ] && [ "$version" -ge 8 ]; then
+				php_bin="$path"
+				break
+			fi
+		fi
+	done
+	echo "$php_bin"
+}
+
+# Require PHP and exit with error if not found
+require_php() {
+	local min_version="${1:-8}"
+	local php_bin=$(get_system_php)
+
+	if [ -z "$php_bin" ]; then
+		echo "Error: PHP $min_version+ is required but not found." >&2
+		echo "Please install PHP CLI:" >&2
+		echo "  sudo apt-get install php-cli php-json php-mbstring php-curl php-xml" >&2
+		return 1
+	fi
+	echo "$php_bin"
+}
+
+# Check if PHP is available (non-fatal)
+check_php_available() {
+	local php_bin=$(get_system_php)
+	[ -n "$php_bin" ] && return 0 || return 1
+}
+
+#===========================================================================#
+
 if [ -z "$user" ]; then
 	if [ -z "$ROOT_USER" ]; then
-		if [ -z "$HESTIA" ]; then
+		# Load config from vhestia or hestiacp (backward compatibility)
+		if [ -f /etc/vhestia/vhestia.conf ]; then
+			# shellcheck source=/etc/vhestia/vhestia.conf
+			source /etc/vhestia/vhestia.conf
+		elif [ -f /etc/hestiacp/hestia.conf ]; then
+			# Backward compatibility
 			# shellcheck source=/etc/hestiacp/hestia.conf
 			source /etc/hestiacp/hestia.conf
 		fi
-		source_conf "$HESTIA/conf/hestia.conf" # load config file
+		if [ -f "$HESTIA/conf/hestia.conf" ]; then
+			source_conf "$HESTIA/conf/hestia.conf"
+		elif [ -f "$VHESTIA/conf/vhestia.conf" ]; then
+			source_conf "$VHESTIA/conf/vhestia.conf"
+		fi
 	fi
 	user="$ROOT_USER"
 fi
@@ -48,22 +115,33 @@ HOMEDIR='/home'
 BACKUP='/backup'
 BACKUP_GZIP=9
 BACKUP_DISK_LIMIT=95
-BACKUP_LA_LIMIT=$(grep -c '^processor' /proc/cpuinfo)
+BACKUP_LA_LIMIT=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null || echo 1)
 RRD_STEP=300
-BIN=$HESTIA/bin
-HESTIA_INSTALL_DIR="$HESTIA/install/deb"
-HESTIA_COMMON_DIR="$HESTIA/install/common"
-HESTIA_BACKUP="/root/hst_backups/$(date +%d%m%Y%H%M)"
-HESTIA_PHP="$HESTIA/php/bin/php"
-USER_DATA=$HESTIA/data/users/$user
-WEBTPL=$HESTIA/data/templates/web
-MAILTPL=$HESTIA/data/templates/mail
-DNSTPL=$HESTIA/data/templates/dns
-RRD=$HESTIA/web/rrd
-SENDMAIL="$HESTIA/web/inc/mail-wrapper.php"
-HESTIA_GIT_REPO="https://raw.githubusercontent.com/hestiacp/hestiacp"
-HESTIA_THEMES="$HESTIA/web/css/themes"
-HESTIA_THEMES_CUSTOM="$HESTIA/web/css/themes/custom"
+BIN=$VHESTIA/bin
+VHESTIA_INSTALL_DIR="$VHESTIA/install/deb"
+VHESTIA_COMMON_DIR="$VHESTIA/install/common"
+VHESTIA_BACKUP="/root/vhst_backups/$(date +%d%m%Y%H%M)"
+# Backward compatibility aliases
+HESTIA_INSTALL_DIR="$VHESTIA_INSTALL_DIR"
+HESTIA_COMMON_DIR="$VHESTIA_COMMON_DIR"
+HESTIA_BACKUP="$VHESTIA_BACKUP"
+
+# PHP - Use system PHP instead of bundled
+VHESTIA_PHP=$(get_system_php)
+HESTIA_PHP="$VHESTIA_PHP"
+
+USER_DATA=$VHESTIA/data/users/$user
+WEBTPL=$VHESTIA/data/templates/web
+MAILTPL=$VHESTIA/data/templates/mail
+DNSTPL=$VHESTIA/data/templates/dns
+RRD=$VHESTIA/web/rrd
+SENDMAIL="$VHESTIA/web_v2/server/cli/send-mail.js"
+VHESTIA_GIT_REPO="https://raw.githubusercontent.com/vhestiacp/vhestiacp"
+HESTIA_GIT_REPO="$VHESTIA_GIT_REPO"
+VHESTIA_THEMES="$VHESTIA/web/css/themes"
+VHESTIA_THEMES_CUSTOM="$VHESTIA/web/css/themes/custom"
+HESTIA_THEMES="$VHESTIA_THEMES"
+HESTIA_THEMES_CUSTOM="$VHESTIA_THEMES_CUSTOM"
 SCRIPT="$(basename $0)"
 CHECK_RESULT_CALLBACK=""
 
@@ -1553,7 +1631,7 @@ download_file() {
 }
 
 check_hestia_demo_mode() {
-	demo_mode=$(grep DEMO_MODE /usr/local/hestia/conf/hestia.conf | cut -d '=' -f2 | sed "s|'||g")
+	demo_mode=$(grep DEMO_MODE /usr/local/vhestia/conf/hestia.conf | cut -d '=' -f2 | sed "s|'||g")
 	if [ -n "$demo_mode" ] && [ "$demo_mode" = "yes" ]; then
 		echo "ERROR: Unable to perform operation due to security restrictions that are in place."
 		exit 1

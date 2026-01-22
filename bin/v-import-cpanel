@@ -12,10 +12,10 @@
 # - Importing certificates fails at the moment. Due to format changes of CPanel side
 # - It doesn't update DKIM
 
-# shellcheck source=/usr/local/hestia/func/main.sh
+# shellcheck source=/usr/local/vhestia/func/main.sh
 source $HESTIA/func/main.sh
-# shellcheck source=/etc/hestiacp/hestia.conf
-source /etc/hestiacp/hestia.conf
+# shellcheck source=/etc/vhestia/hestia.conf
+source /etc/vhestia/hestia.conf
 # load config file
 source_conf "$HESTIA/conf/hestia.conf"
 
@@ -96,7 +96,7 @@ fi
 
 # Extract cPanel package name
 cpanel_package_name=$(cat ./cp/$new_user | grep 'PLAN=' | cut -f2 -d'=')
-if /usr/local/hestia/bin/v-list-user-packages | grep -qw "$cpanel_package_name"; then
+if /usr/local/vhestia/bin/v-list-user-packages | grep -qw "$cpanel_package_name"; then
 	hestia_package="$cpanel_package_name"
 	echo "Package $hestia_package will be used for the user."
 else
@@ -160,7 +160,7 @@ cat uni_u_db | while read db userdb; do
 		# you will need remove && [ "$userdb" != "$sk_cp_user" ] to restore main user, but
 		# this will cause database duplication in db.conf and will interfer with hestiacp backups
 		if [ "$userdb" == "$user" ] && [ "$userdb" != "$new_user" ]; then
-			echo "DB='$db' DBUSER='$userdb' MD5='$end_user_pass' HOST='localhost' TYPE='mysql' CHARSET='UTF8' U_DISK='0' SUSPENDED='no' TIME='$time' DATE='$data'" >> /usr/local/hestia/data/users/$new_user/db.conf
+			echo "DB='$db' DBUSER='$userdb' MD5='$end_user_pass' HOST='localhost' TYPE='mysql' CHARSET='UTF8' U_DISK='0' SUSPENDED='no' TIME='$time' DATE='$data'" >> /usr/local/vhestia/data/users/$new_user/db.conf
 		fi
 	done
 done
@@ -376,7 +376,7 @@ for folder in *; do
 						escaped=$(printf '%s\n' "$newline" | sed -e 's/[\/&]/\\&/g')
 						escaped2=$(printf '%s\n' "$newline2" | sed -e 's/[\/&]/\\&/g')
 						sed -i "s/^${mail_account}:.*/$escaped/g" /home/${new_user}/conf/mail/${folder}/passwd
-						sed -i "s/^ACCOUNT='${mail_account}.*/$escaped2/g" /usr/local/hestia/data/users/${new_user}/mail/${folder}.conf
+						sed -i "s/^ACCOUNT='${mail_account}.*/$escaped2/g" /usr/local/vhestia/data/users/${new_user}/mail/${folder}.conf
 					else
 						echo "Warning: Password for $mail_account@$folder not found in shadow file."
 					fi

@@ -15,30 +15,37 @@
 #----------------------------------------------------------#
 export PATH=$PATH:/sbin
 export DEBIAN_FRONTEND=noninteractive
-RHOST='apt.hestiacp.com'
+# VHestiaCP: No longer using apt.hestiacp.com - standalone installation
+# RHOST='apt.hestiacp.com'  # Removed - VHestiaCP is standalone
 VERSION='ubuntu'
-HESTIA='/usr/local/hestia'
-LOG="/root/hst_install_backups/hst_install-$(date +%d%m%Y%H%M).log"
+# VHestiaCP paths
+VHESTIA='/usr/local/vhestia'
+HESTIA="$VHESTIA"  # Backward compatibility alias
+export VHESTIA HESTIA
+LOG="/root/vhst_install_backups/vhst_install-$(date +%d%m%Y%H%M).log"
 memory=$(grep 'MemTotal' /proc/meminfo | tr ' ' '\n' | grep [0-9])
-hst_backups="/root/hst_install_backups/$(date +%d%m%Y%H%M)"
+vhst_backups="/root/vhst_install_backups/$(date +%d%m%Y%H%M)"
+hst_backups="$vhst_backups"  # Backward compatibility
 spinner="/-\|"
 os='ubuntu'
 release="$(lsb_release -s -r)"
 codename="$(lsb_release -s -c)"
 architecture="$(arch)"
-HESTIA_INSTALL_DIR="$HESTIA/install/deb"
-HESTIA_COMMON_DIR="$HESTIA/install/common"
+VHESTIA_INSTALL_DIR="$VHESTIA/install/deb"
+VHESTIA_COMMON_DIR="$VHESTIA/install/common"
+HESTIA_INSTALL_DIR="$VHESTIA_INSTALL_DIR"  # Backward compatibility
+HESTIA_COMMON_DIR="$VHESTIA_COMMON_DIR"    # Backward compatibility
 VERBOSE='no'
 
 # VHestiaCP Configuration
 # Set your own GitHub repo here to use custom packages
 VHESTIACP_REPO="${VHESTIACP_REPO:-}"  # e.g., "yourusername/vhestiacp"
 VHESTIACP_BRANCH="${VHESTIACP_BRANCH:-main}"
-# Set to 'yes' to download debs from GitHub releases instead of apt.hestiacp.com
-USE_GITHUB_RELEASES="${USE_GITHUB_RELEASES:-no}"
+# VHestiaCP uses clone+build model - no external package repo needed
 
 # Define software versions
-HESTIA_INSTALL_VER='1.9.4'
+VHESTIA_INSTALL_VER='2.0.0'
+HESTIA_INSTALL_VER="$VHESTIA_INSTALL_VER"  # Backward compatibility
 # Supported PHP versions
 multiphp_v=("5.6" "7.0" "7.1" "7.2" "7.3" "7.4" "8.0" "8.1" "8.2" "8.3" "8.4")
 # One of the following PHP versions is required for Roundcube / phpmyadmin
@@ -51,11 +58,11 @@ mariadb_v="11.4"
 node_v="20"
 
 # Defining software pack for all distros
-# VHestiaCP: Removed hestia-nginx - panel runs directly on PM2 with HTTPS
-# hestia-php is still needed for core scripts like v-add-sys-filemanager, v-add-sys-dependencies
+# VHestiaCP: Standalone installation - no hestia, hestia-nginx, hestia-php packages
+# Panel runs on PM2 with HTTPS, uses system PHP for CLI scripts
 software="acl apache2 apache2.2-common apache2-suexec-custom apache2-utils apparmor-utils at awstats bc bind9 bsdmainutils bsdutils
   clamav-daemon cron curl dnsutils dovecot-imapd dovecot-managesieved dovecot-pop3d dovecot-sieve e2fslibs e2fsprogs
-  exim4 exim4-daemon-heavy expect fail2ban flex ftp git hestia=${HESTIA_INSTALL_VER} hestia-php hestia-web-terminal
+  exim4 exim4-daemon-heavy expect fail2ban flex ftp git
   idn2 imagemagick ipset jq libapache2-mod-fcgid libapache2-mod-php$fpm_v libapache2-mod-rpaf libonig5 libzip4 lsb-release
   lsof mariadb-client mariadb-common mariadb-server mc mysql-client mysql-common mysql-server nginx nodejs openssh-server
   php$fpm_v php$fpm_v-apcu php$fpm_v-bz2 php$fpm_v-cgi php$fpm_v-cli php$fpm_v-common php$fpm_v-curl php$fpm_v-gd
@@ -384,7 +391,7 @@ eval set -- "$args"
 
 # Parsing arguments
 # VHestiaCP default values
-haproxy=${haproxy:-no}
+haproxy=${haproxy:-yes}
 haproxy_stats=${haproxy_stats:-yes}
 haproxy_ssl_mode=${haproxy_ssl_mode:-termination}
 mongodb=${mongodb:-no}
@@ -401,7 +408,8 @@ if [ "$haproxy_ssl_mode" != "termination" ] && [ "$haproxy_ssl_mode" != "passthr
     exit 1
 fi
 
-nodejs=${nodejs:-no}
+# VHestiaCP: Node.js is required for web_v2 panel, default to yes
+nodejs=${nodejs:-yes}
 nodejs_versions=${nodejs_versions:-20}
 python=${python:-no}
 rabbitmq=${rabbitmq:-no}
@@ -512,9 +520,11 @@ if [ -n "$multiphp" ]; then
 fi
 
 # Defining default software stack
+# VHestiaCP default: HAProxy -> nginx (no Apache)
 set_default_value 'nginx' 'yes'
-set_default_value 'apache' 'yes'
+set_default_value 'apache' 'no'
 set_default_value 'phpfpm' 'yes'
+set_default_value 'haproxy' 'yes'
 set_default_value 'multiphp' 'no'
 set_default_value 'vsftpd' 'yes'
 set_default_value 'proftpd' 'no'
@@ -574,7 +584,7 @@ if [ "x$(id -u)" != 'x0' ]; then
 	check_result 1 "Script can be run executed only by root"
 fi
 
-if [ -d "/usr/local/hestia" ]; then
+if [ -d "/usr/local/vhestia" ]; then
 	check_result 1 "Hestia install detected. Unable to continue"
 fi
 
@@ -594,7 +604,7 @@ if [ ! -f /etc/apt/apt.conf.d/80-retries ]; then
 fi
 
 # Welcome message
-echo "Welcome to the Hestia Control Panel installer!"
+echo "Welcome to the VHestiaCP Control Panel installer!"
 echo
 echo "Please wait, the installer is now checking for missing dependencies..."
 echo
@@ -610,9 +620,7 @@ echo "[ * ] Installing dependencies..."
 apt-get -y install $installer_dependencies >> $LOG
 check_result $? "Package installation failed, check log file for more details."
 
-# Check repository availability
-wget --quiet "https://$RHOST" -O /dev/null
-check_result $? "Unable to connect to the Hestia APT repository"
+# VHestiaCP: No external repo check needed - standalone installation
 
 # Check installed packages
 tmpfile=$(mktemp -p /tmp)
@@ -677,25 +685,9 @@ if [ -d /etc/netplan ] && [ -z "$force" ]; then
 	fi
 fi
 
-# Validate whether installation script matches release version before continuing with install
-if [ -z "$withdebs" ] || [ ! -d "$withdebs" ]; then
-	release_branch_ver=$(curl -s https://raw.githubusercontent.com/hestiacp/hestiacp/release/src/deb/hestia/control | grep "Version:" | awk '{print $2}')
-	if [ "$HESTIA_INSTALL_VER" != "$release_branch_ver" ]; then
-		echo
-		echo -e "\e[91mInstallation aborted\e[0m"
-		echo "===================================================================="
-		echo -e "\e[33mERROR: Install script version does not match package version!\e[0m"
-		echo -e "\e[33mPlease download the installer from the release branch in order to continue:\e[0m"
-		echo ""
-		echo -e "\e[33mhttps://raw.githubusercontent.com/hestiacp/hestiacp/release/install/hst-install.sh\e[0m"
-		echo ""
-		echo -e "\e[33mTo test pre-release versions, build the .deb packages and re-run the installer:\e[0m"
-		echo -e "  \e[33m./hst_autocompile.sh \e[1m--hestia branchname no\e[21m\e[0m"
-		echo -e "  \e[33m./hst-install.sh .. \e[1m--with-debs /tmp/hestiacp-src/debs\e[21m\e[0m"
-		echo ""
-		check_result 1 "Installation aborted"
-	fi
-fi
+# VHestiaCP: Skip version check against HestiaCP repo
+# VHestiaCP is standalone and does not need to match HestiaCP version
+echo "[ * ] VHestiaCP v${VHESTIA_INSTALL_VER} - Standalone installation"
 
 case $architecture in
 	x86_64)
@@ -898,10 +890,10 @@ fi
 
 # Validate Username / Password / Email / Hostname even when interactive = no
 if [ -z "$username" ]; then
-	# If force mode is enabled, use default username 'admin'
-	if [ "$force" = 'yes' ]; then
+	# If force mode or non-interactive, use default username 'admin'
+	if [ "$force" = 'yes' ] || [ "$interactive" = 'no' ]; then
 		username="admin"
-		echo "Using default username: admin"
+		echo "[ * ] Using default username: admin"
 	else
 		while validate_username; do
 			read -p 'Please enter administrator username: ' username
@@ -913,11 +905,17 @@ else
 	fi
 fi
 
-# Ask for password
+# Ask for password (auto-generate if non-interactive)
 if [ -z "$vpass" ]; then
-	while validate_password; do
-		read -p 'Please enter administrator password: ' vpass
-	done
+	if [ "$interactive" = 'no' ]; then
+		# Auto-generate password for non-interactive install
+		vpass=$(gen_pass)
+		echo "[ * ] Auto-generated admin password"
+	else
+		while validate_password; do
+			read -p 'Please enter administrator password: ' vpass
+		done
+	fi
 else
 	if validate_password; then
 		echo "Please use a valid password"
@@ -925,12 +923,23 @@ else
 	fi
 fi
 
-# Asking for contact email
+# Asking for contact email (auto-generate if non-interactive)
 if [ -z "$email" ]; then
-	while validate_email; do
-		echo -e "\nPlease use a valid emailadress (ex. info@domain.tld)."
-		read -p 'Please enter admin email address: ' email
-	done
+	if [ "$interactive" = 'no' ]; then
+		# Auto-generate email for non-interactive install
+		# Ensure we have a valid domain format
+		auto_hostname=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo 'localhost')
+		if [[ ! "$auto_hostname" =~ \. ]]; then
+			auto_hostname="${auto_hostname}.local"
+		fi
+		email="admin@${auto_hostname}"
+		echo "[ * ] Using email: $email"
+	else
+		while validate_email; do
+			echo -e "\nPlease use a valid emailadress (ex. info@domain.tld)."
+			read -p 'Please enter admin email address: ' email
+		done
+	fi
 else
 	if validate_email; then
 		echo "Please use a valid emailadress (ex. info@domain.tld)."
@@ -938,27 +947,38 @@ else
 	fi
 fi
 
-# Asking to set FQDN hostname
+# Asking to set FQDN hostname (auto-detect if non-interactive)
 if [ -z "$servername" ]; then
-	# Ask and validate FQDN hostname.
-	read -p "Please enter FQDN hostname [$(hostname -f)]: " servername
+	if [ "$interactive" = 'no' ]; then
+		# Auto-detect hostname for non-interactive install
+		servername=$(hostname -f 2>/dev/null || hostname 2>/dev/null || echo "server.local")
+		# Ensure it's a valid FQDN
+		if [[ ! "$servername" =~ \. ]]; then
+			servername="${servername}.local"
+		fi
+		echo "[ * ] Using hostname: $servername"
+	else
+		# Ask and validate FQDN hostname.
+		read -p "Please enter FQDN hostname [$(hostname -f)]: " servername
 
-	# Set hostname if it wasn't set
-	if [ -z "$servername" ]; then
-		servername=$(hostname -f)
+		# Set hostname if it wasn't set
+		if [ -z "$servername" ]; then
+			servername=$(hostname -f)
+		fi
 	fi
+fi
 
-	# Validate Hostname, go to loop if the validation fails.
+# Validate Hostname in interactive mode
+if [ "$interactive" = 'yes' ] && [ -z "$servername" ]; then
+	servername=$(hostname -f)
+fi
+
+# Validate Hostname, go to loop if the validation fails (only in interactive mode)
+if [ "$interactive" = 'yes' ]; then
 	while validate_hostname; do
 		echo -e "\nPlease use a valid hostname according to RFC1178 (ex. hostname.domain.tld)."
 		read -p "Please enter FQDN hostname [$(hostname -f)]: " servername
 	done
-else
-	# Validate FQDN hostname if it is preset
-	if validate_hostname; then
-		echo "Please use a valid hostname according to RFC1178 (ex. hostname.domain.tld)."
-		exit 1
-	fi
 fi
 
 # Generating admin password if it wasn't set
@@ -1052,15 +1072,8 @@ if [ "$mysql" = 'yes' ]; then
 	curl -s https://mariadb.org/mariadb_release_signing_key.asc | gpg --dearmor | tee /usr/share/keyrings/mariadb-keyring.gpg > /dev/null 2>&1
 fi
 
-# Installing HestiaCP repo (skip if using local debs or GitHub releases)
-if [ -d "$withdebs" ] || ([ "$USE_GITHUB_RELEASES" = "yes" ] && [ -n "$VHESTIACP_REPO" ]); then
-	echo "[ * ] VHestiaCP (packages from local/GitHub)"
-	# Skip adding apt.hestiacp.com repo - using custom packages
-else
-	echo "[ * ] Hestia Control Panel"
-	echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/hestia-keyring.gpg] https://$RHOST/ $codename main" > $apt/hestia.list
-	gpg --no-default-keyring --keyring /usr/share/keyrings/hestia-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys A189E93654F0B0E5 > /dev/null 2>&1
-fi
+# VHestiaCP: No external repo needed - standalone installation via clone+build
+echo "[ * ] VHestiaCP (standalone package)"
 
 # Installing Node.js repo (for web terminal)
 if [ "$webterminal" = 'yes' ]; then
@@ -1197,8 +1210,8 @@ systemctl stop hestia > /dev/null 2>&1
 # Stop VHestiaCP PM2 panel if running
 pm2 stop vhestia-panel > /dev/null 2>&1 || true
 cp -r $HESTIA/* $hst_backups/hestia > /dev/null 2>&1
-# VHestiaCP: Only purge hestia core and hestia-php packages (no hestia-nginx - panel runs on PM2)
-apt-get -y purge hestia hestia-php > /dev/null 2>&1
+# VHestiaCP: Purge old hestia packages if present (migration scenario)
+apt-get -y purge hestia hestia-php hestia-nginx vhestia > /dev/null 2>&1
 rm -rf $HESTIA > /dev/null 2>&1
 
 #----------------------------------------------------------#
@@ -1306,20 +1319,8 @@ if [ "$phpfpm" = 'yes' ]; then
 	software=$(echo "$software" | sed -e "s/libapache2-mod-ruid2//")
 	software=$(echo "$software" | sed -e "s/libapache2-mod-php$fpm_v//")
 fi
-# VHestiaCP: hestia-nginx already removed from software list (panel runs on PM2)
-# hestia-php is kept for core scripts like v-add-sys-filemanager, v-add-sys-dependencies
-# When using local debs or GitHub releases, exclude hestia packages from apt install
-if [ -d "$withdebs" ]; then
-	software=$(echo "$software" | sed -e "s/hestia-web-terminal//")
-	software=$(echo "$software" | sed -e "s/hestia=${HESTIA_INSTALL_VER}//")
-	software=$(echo "$software" | sed -e "s/hestia-php//")
-fi
-# VHestiaCP: Also remove hestia packages when using GitHub releases
-if [ "$USE_GITHUB_RELEASES" = "yes" ] && [ -n "$VHESTIACP_REPO" ]; then
-	software=$(echo "$software" | sed -e "s/hestia-web-terminal//")
-	software=$(echo "$software" | sed -e "s/hestia=${HESTIA_INSTALL_VER}//")
-	software=$(echo "$software" | sed -e "s/hestia-php//")
-fi
+# VHestiaCP: Standalone installation - vhestia package is installed separately after apt packages
+# No hestia, hestia-nginx, hestia-php packages from apt
 if [ "$release" = '20.04' ]; then
 	software=$(echo "$software" | sed -e "s/libzip4/libzip5/")
 fi
@@ -1383,82 +1384,110 @@ echo
 echo "========================================================================"
 echo
 
-# Install Hestia packages from local folder
-# VHestiaCP: Install hestia core and hestia-php packages - panel runs on PM2 directly (no hestia-nginx)
+# Install VHestiaCP package
+# VHestiaCP: Standalone package - no external dependencies
+echo "[ * ] Installing VHestiaCP package..."
+
+# Method 1: Local .deb file provided via --with-debs
 if [ -n "$withdebs" ] && [ -d "$withdebs" ]; then
-	echo "[ * ] Installing local package files..."
-	echo "    - hestia core package"
-	dpkg -i $withdebs/hestia_*.deb > /dev/null 2>&1
-
-	# VHestiaCP: Install hestia-php (needed for core scripts) - panel runs on PM2 with HTTPS
-	if [ -f $withdebs/hestia-php_*.deb ]; then
-		echo "    - hestia-php package"
-		dpkg -i $withdebs/hestia-php_*.deb > /dev/null 2>&1
+	if ls $withdebs/vhestia_*.deb 1>/dev/null 2>&1; then
+		echo "    - Installing vhestia package from local folder"
+		dpkg -i $withdebs/vhestia_*.deb
+		check_result $? "Failed to install vhestia package"
 	else
-		echo "    - hestia-php package (from apt)"
-		apt-get -y install hestia-php > /dev/null 2>&1
+		echo "    - Error: vhestia_*.deb not found in $withdebs"
+		exit 1
 	fi
 
-	if [ "$webterminal" = "yes" ]; then
-		if [ -z $(ls $withdebs/hestia-web-terminal_*.deb 2> /dev/null) ]; then
-			echo "    - hestia-web-terminal package (from apt)"
-			apt-get -y install hestia-web-terminal > /dev/null 2>&1
-		else
-			echo "    - hestia-web-terminal"
-			dpkg -i $withdebs/hestia-web-terminal_*.deb > /dev/null 2>&1
-		fi
-	fi
-
-# Download and install from GitHub releases (VHestiaCP)
-elif [ "$USE_GITHUB_RELEASES" = "yes" ] && [ -n "$VHESTIACP_REPO" ]; then
-	echo "[ * ] Downloading packages from GitHub releases..."
+# Method 2: Download from GitHub releases
+elif [ -n "$VHESTIACP_REPO" ]; then
+	echo "    - Downloading vhestia package from GitHub releases..."
 	github_debs_dir="/tmp/vhestiacp-debs"
 	mkdir -p "$github_debs_dir"
 
 	# Get latest release tag
 	latest_release=$(curl -s "https://api.github.com/repos/${VHESTIACP_REPO}/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)
 	if [ -z "$latest_release" ]; then
-		echo "    - Warning: Could not get latest release, using apt.hestiacp.com fallback"
+		echo "    - Error: Could not get latest release from GitHub"
+		echo "    - Please specify VHESTIACP_REPO or use --with-debs option"
+		exit 1
+	fi
+
+	echo "    - Latest release: $latest_release"
+	release_url="https://github.com/${VHESTIACP_REPO}/releases/download/${latest_release}"
+
+	# Download vhestia package
+	wget -q "${release_url}/vhestia_${latest_release#v}_amd64.deb" -O "$github_debs_dir/vhestia.deb" 2>/dev/null || \
+	wget -q "${release_url}/vhestia.deb" -O "$github_debs_dir/vhestia.deb" 2>/dev/null
+
+	if [ -f "$github_debs_dir/vhestia.deb" ] && [ -s "$github_debs_dir/vhestia.deb" ]; then
+		echo "    - Installing vhestia package"
+		dpkg -i "$github_debs_dir/vhestia.deb"
+		check_result $? "Failed to install vhestia package"
 	else
-		echo "    - Latest release: $latest_release"
-		release_url="https://github.com/${VHESTIACP_REPO}/releases/download/${latest_release}"
+		echo "    - Error: Failed to download vhestia package"
+		exit 1
+	fi
 
-		# Download hestia core and hestia-php packages (no hestia-nginx for VHestiaCP - panel runs on PM2)
-		echo "    - Downloading hestia..."
-		wget -q "${release_url}/hestia_${latest_release#v}_amd64.deb" -O "$github_debs_dir/hestia.deb" 2>/dev/null || \
-		wget -q "${release_url}/hestia.deb" -O "$github_debs_dir/hestia.deb" 2>/dev/null || true
+	# Cleanup
+	rm -rf "$github_debs_dir"
 
-		echo "    - Downloading hestia-php..."
-		wget -q "${release_url}/hestia-php_${latest_release#v}_amd64.deb" -O "$github_debs_dir/hestia-php.deb" 2>/dev/null || \
-		wget -q "${release_url}/hestia-php.deb" -O "$github_debs_dir/hestia-php.deb" 2>/dev/null || true
+# Method 3: Install from installer directory (clone+build scenario)
+else
+	# Check if vhestia package exists in ../debs/ relative to install script
+	SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+	DEBS_DIR="$SCRIPT_DIR/../debs"
 
-		if [ "$webterminal" = "yes" ]; then
-			echo "    - Downloading hestia-web-terminal..."
-			wget -q "${release_url}/hestia-web-terminal_${latest_release#v}_amd64.deb" -O "$github_debs_dir/hestia-web-terminal.deb" 2>/dev/null || \
-			wget -q "${release_url}/hestia-web-terminal.deb" -O "$github_debs_dir/hestia-web-terminal.deb" 2>/dev/null || true
+	if ls $DEBS_DIR/vhestia_*.deb 1>/dev/null 2>&1; then
+		echo "    - Installing vhestia package from $DEBS_DIR"
+		dpkg -i $DEBS_DIR/vhestia_*.deb
+		check_result $? "Failed to install vhestia package"
+	else
+		# Fallback: Copy files directly (for development/testing)
+		echo "    - No .deb package found, installing files directly..."
+
+		# Create directories
+		mkdir -p $VHESTIA/{bin,func,install,conf,data,log,ssl,web/inc}
+		mkdir -p /etc/vhestia
+
+		# Copy files from source
+		if [ -d "$SCRIPT_DIR/../bin" ]; then
+			cp -rf "$SCRIPT_DIR/../bin"/* $VHESTIA/bin/
+			chmod +x $VHESTIA/bin/v-*
+		fi
+		if [ -d "$SCRIPT_DIR/../func" ]; then
+			cp -rf "$SCRIPT_DIR/../func"/* $VHESTIA/func/
+		fi
+		if [ -d "$SCRIPT_DIR" ]; then
+			cp -rf "$SCRIPT_DIR"/* $VHESTIA/install/
+		fi
+		if [ -d "$SCRIPT_DIR/../web/inc/2fa" ]; then
+			cp -rf "$SCRIPT_DIR/../web/inc/2fa" $VHESTIA/web/inc/
+		fi
+		if [ -f "$SCRIPT_DIR/../web/inc/mail-wrapper.php" ]; then
+			cp -f "$SCRIPT_DIR/../web/inc/mail-wrapper.php" $VHESTIA/web/inc/
 		fi
 
-		# Install downloaded packages
-		echo "    - Installing packages..."
-		if [ -f "$github_debs_dir/hestia.deb" ] && [ -s "$github_debs_dir/hestia.deb" ]; then
-			dpkg -i "$github_debs_dir/hestia.deb" > /dev/null 2>&1
+		# Create config
+		cat > /etc/vhestia/vhestia.conf << 'VHCONF'
+# VHestiaCP Configuration
+# Do not edit this file directly, use /etc/vhestia/local.conf instead
+
+export VHESTIA='/usr/local/vhestia'
+export HESTIA="$VHESTIA"
+
+[[ -f /etc/vhestia/local.conf ]] && source /etc/vhestia/local.conf
+VHCONF
+
+		# Create backward compatibility symlinks
+		if [ ! -e /usr/local/hestia ] && [ ! -L /usr/local/hestia ]; then
+			ln -sf /usr/local/vhestia /usr/local/hestia
 		fi
-		# VHestiaCP: Install hestia-php (needed for core scripts)
-		if [ -f "$github_debs_dir/hestia-php.deb" ] && [ -s "$github_debs_dir/hestia-php.deb" ]; then
-			dpkg -i "$github_debs_dir/hestia-php.deb" > /dev/null 2>&1
-		else
-			apt-get -y install hestia-php > /dev/null 2>&1
-		fi
-		if [ "$webterminal" = "yes" ]; then
-			if [ -f "$github_debs_dir/hestia-web-terminal.deb" ] && [ -s "$github_debs_dir/hestia-web-terminal.deb" ]; then
-				dpkg -i "$github_debs_dir/hestia-web-terminal.deb" > /dev/null 2>&1
-			else
-				apt-get -y install hestia-web-terminal > /dev/null 2>&1
-			fi
+		if [ ! -e /etc/hestiacp ] && [ ! -L /etc/hestiacp ]; then
+			ln -sf /etc/vhestia /etc/hestiacp
 		fi
 
-		# Cleanup
-		rm -rf "$github_debs_dir"
+		echo "    - VHestiaCP files installed directly"
 	fi
 fi
 
@@ -1595,9 +1624,9 @@ cp -f $HESTIA_COMMON_DIR/sudo/hestiaweb /etc/sudoers.d/
 chmod 440 /etc/sudoers.d/hestiaweb
 
 # Add Hestia global config
-if [[ ! -e /etc/hestiacp/hestia.conf ]]; then
-	mkdir -p /etc/hestiacp
-	echo -e "# Do not edit this file, will get overwritten on next upgrade, use /etc/hestiacp/local.conf instead\n\nexport HESTIA='/usr/local/hestia'\n\n[[ -f /etc/hestiacp/local.conf ]] && source /etc/hestiacp/local.conf" > /etc/hestiacp/hestia.conf
+if [[ ! -e /etc/vhestia/hestia.conf ]]; then
+	mkdir -p /etc/vhestia
+	echo -e "# Do not edit this file, will get overwritten on next upgrade, use /etc/vhestia/local.conf instead\n\nexport HESTIA='/usr/local/vhestia'\n\n[[ -f /etc/vhestia/local.conf ]] && source /etc/vhestia/local.conf" > /etc/vhestia/hestia.conf
 fi
 
 # Configuring system env
@@ -2208,7 +2237,7 @@ fi
 #----------------------------------------------------------#
 
 # Source upgrade.conf with phpmyadmin versions
-# shellcheck source=/usr/local/hestia/install/upgrade/upgrade.conf
+# shellcheck source=/usr/local/vhestia/install/upgrade/upgrade.conf
 source $HESTIA/install/upgrade/upgrade.conf
 
 if [ "$mysql" = 'yes' ] || [ "$mysql8" = 'yes' ]; then
@@ -2259,7 +2288,7 @@ if [ "$mysql" = 'yes' ] || [ "$mysql8" = 'yes' ]; then
 
 	# Special thanks to Pavel Galkin (https://skurudo.ru)
 	# https://github.com/skurudo/phpmyadmin-fixer
-	# shellcheck source=/usr/local/hestia/install/deb/phpmyadmin/pma.sh
+	# shellcheck source=/usr/local/vhestia/install/deb/phpmyadmin/pma.sh
 	source $HESTIA_INSTALL_DIR/phpmyadmin/pma.sh > /dev/null 2>&1
 
 	# Limit access to /etc/phpmyadmin/
@@ -2282,7 +2311,14 @@ if [ "$postgresql" = 'yes' ]; then
 	mkdir -p /etc/phppgadmin/
 	mkdir -p /usr/share/phppgadmin/
 
-	wget --retry-connrefused --quiet https://github.com/hestiacp/phppgadmin/releases/download/v$pga_v/phppgadmin-v$pga_v.tar.gz
+	# VHestiaCP: Use local package instead of HestiaCP GitHub
+	if [ -f "$HESTIA_INSTALL_DIR/../packages/phppgadmin-v$pga_v.tar.gz" ]; then
+		cp $HESTIA_INSTALL_DIR/../packages/phppgadmin-v$pga_v.tar.gz .
+	else
+		# Fallback to direct phpPgAdmin source
+		wget --retry-connrefused --quiet https://github.com/phppgadmin/phppgadmin/releases/download/REL_7-14-6/phpPgAdmin-7.14.6.tar.gz -O phppgadmin-v$pga_v.tar.gz || \
+		wget --retry-connrefused --quiet https://github.com/hestiacp/phppgadmin/releases/download/v$pga_v/phppgadmin-v$pga_v.tar.gz
+	fi
 	tar xzf phppgadmin-v$pga_v.tar.gz -C /usr/share/phppgadmin/
 
 	cp -f $HESTIA_INSTALL_DIR/pga/config.inc.php /etc/phppgadmin/
@@ -2602,11 +2638,9 @@ $HESTIA/bin/v-add-sys-filemanager quiet
 #----------------------------------------------------------#
 
 # Web terminal
+# VHestiaCP: Web terminal is handled by web_v2, not hestia-web-terminal package
 if [ "$webterminal" = 'yes' ]; then
 	write_config_value "WEB_TERMINAL" "true"
-	systemctl daemon-reload > /dev/null 2>&1
-	systemctl enable hestia-web-terminal > /dev/null 2>&1
-	systemctl restart hestia-web-terminal > /dev/null 2>&1
 else
 	write_config_value "WEB_TERMINAL" "false"
 fi
@@ -2626,7 +2660,7 @@ restic self-update > /dev/null 2>&1
 #          VHestiaCP: Apply Critical Script Overrides      #
 #----------------------------------------------------------#
 # IMPORTANT: These scripts must be copied BEFORE v-update-sys-ip
-# because they fix issues with missing hestia-nginx config file
+# because VHestiaCP has modified versions of these scripts
 
 # Use VHESTIA_INSTALL_DIR that was saved at script start
 # Fallback: try to detect from common install locations
@@ -2639,28 +2673,9 @@ if [ -z "$VHESTIA_INSTALL_DIR" ]; then
 	done
 fi
 
-echo "[ * ] Applying VHestiaCP critical script overrides..."
-echo "    - Source directory: $VHESTIA_INSTALL_DIR"
-
-if [ -n "$VHESTIA_INSTALL_DIR" ] && [ -d "$VHESTIA_INSTALL_DIR/bin" ]; then
-	# Scripts that need fixes for VHestiaCP:
-	# - v-add-firewall-chain, v-change-sys-port: reference hestia-nginx config
-	# - v-restart-web: use 'nginx -t' instead of 'service nginx configtest'
-	for script in v-add-firewall-chain v-change-sys-port v-restart-web; do
-		if [ -f "$VHESTIA_INSTALL_DIR/bin/$script" ]; then
-			cp -f "$VHESTIA_INSTALL_DIR/bin/$script" "$HESTIA/bin/"
-			chmod +x "$HESTIA/bin/$script"
-			echo "    - Applied override: $script"
-		fi
-	done
-	# Also copy fixed syshealth.sh
-	if [ -f "$VHESTIA_INSTALL_DIR/func/syshealth.sh" ]; then
-		cp -f "$VHESTIA_INSTALL_DIR/func/syshealth.sh" "$HESTIA/func/"
-		echo "    - Applied override: func/syshealth.sh"
-	fi
-else
-	echo "    - Warning: Source bin directory not found at $VHESTIA_INSTALL_DIR/bin"
-fi
+# VHestiaCP: Scripts are already installed via vhestia package
+# The package postinst creates symlinks and sets up paths correctly
+echo "[ * ] VHestiaCP scripts installed via package"
 
 #----------------------------------------------------------#
 #                   Configure IP                           #
@@ -2685,7 +2700,8 @@ if [ "$iptables" = 'yes' ]; then
 fi
 
 # Get public IP
-pub_ipv4="$(curl -fsLm5 --retry 2 --ipv4 https://ip.hestiacp.com/)"
+# VHestiaCP: Use alternative IP services instead of ip.hestiacp.com
+pub_ipv4="$(curl -fsLm5 --retry 2 --ipv4 https://api.ipify.org/ 2>/dev/null || curl -fsLm5 --retry 2 --ipv4 https://ifconfig.me 2>/dev/null || curl -fsLm5 --retry 2 --ipv4 https://icanhazip.com 2>/dev/null)"
 if [ -n "$pub_ipv4" ] && [ "$pub_ipv4" != "$ip" ]; then
 	if [ -e /etc/rc.local ]; then
 		sed -i '/exit 0/d' /etc/rc.local
@@ -2743,17 +2759,17 @@ min=$(gen_pass '012345' '2')
 hour=$(gen_pass '1234567' '1')
 echo "MAILTO=\"\"" > /var/spool/cron/crontabs/hestiaweb
 echo "CONTENT_TYPE=\"text/plain; charset=utf-8\"" >> /var/spool/cron/crontabs/hestiaweb
-echo "*/2 * * * * sudo /usr/local/hestia/bin/v-update-sys-queue restart" >> /var/spool/cron/crontabs/hestiaweb
-echo "10 00 * * * sudo /usr/local/hestia/bin/v-update-sys-queue daily" >> /var/spool/cron/crontabs/hestiaweb
-echo "15 02 * * * sudo /usr/local/hestia/bin/v-update-sys-queue disk" >> /var/spool/cron/crontabs/hestiaweb
-echo "10 00 * * * sudo /usr/local/hestia/bin/v-update-sys-queue traffic" >> /var/spool/cron/crontabs/hestiaweb
-echo "30 03 * * * sudo /usr/local/hestia/bin/v-update-sys-queue webstats" >> /var/spool/cron/crontabs/hestiaweb
-echo "*/5 * * * * sudo /usr/local/hestia/bin/v-update-sys-queue backup" >> /var/spool/cron/crontabs/hestiaweb
-echo "10 05 * * * sudo /usr/local/hestia/bin/v-backup-users" >> /var/spool/cron/crontabs/hestiaweb
-echo "20 00 * * * sudo /usr/local/hestia/bin/v-update-user-stats" >> /var/spool/cron/crontabs/hestiaweb
-echo "*/5 * * * * sudo /usr/local/hestia/bin/v-update-sys-rrd" >> /var/spool/cron/crontabs/hestiaweb
-echo "$min $hour * * * sudo /usr/local/hestia/bin/v-update-letsencrypt-ssl" >> /var/spool/cron/crontabs/hestiaweb
-echo "41 4 * * * sudo /usr/local/hestia/bin/v-update-sys-hestia-all" >> /var/spool/cron/crontabs/hestiaweb
+echo "*/2 * * * * sudo /usr/local/vhestia/bin/v-update-sys-queue restart" >> /var/spool/cron/crontabs/hestiaweb
+echo "10 00 * * * sudo /usr/local/vhestia/bin/v-update-sys-queue daily" >> /var/spool/cron/crontabs/hestiaweb
+echo "15 02 * * * sudo /usr/local/vhestia/bin/v-update-sys-queue disk" >> /var/spool/cron/crontabs/hestiaweb
+echo "10 00 * * * sudo /usr/local/vhestia/bin/v-update-sys-queue traffic" >> /var/spool/cron/crontabs/hestiaweb
+echo "30 03 * * * sudo /usr/local/vhestia/bin/v-update-sys-queue webstats" >> /var/spool/cron/crontabs/hestiaweb
+echo "*/5 * * * * sudo /usr/local/vhestia/bin/v-update-sys-queue backup" >> /var/spool/cron/crontabs/hestiaweb
+echo "10 05 * * * sudo /usr/local/vhestia/bin/v-backup-users" >> /var/spool/cron/crontabs/hestiaweb
+echo "20 00 * * * sudo /usr/local/vhestia/bin/v-update-user-stats" >> /var/spool/cron/crontabs/hestiaweb
+echo "*/5 * * * * sudo /usr/local/vhestia/bin/v-update-sys-rrd" >> /var/spool/cron/crontabs/hestiaweb
+echo "$min $hour * * * sudo /usr/local/vhestia/bin/v-update-letsencrypt-ssl" >> /var/spool/cron/crontabs/hestiaweb
+echo "41 4 * * * sudo /usr/local/vhestia/bin/v-update-sys-hestia-all" >> /var/spool/cron/crontabs/hestiaweb
 
 chmod 600 /var/spool/cron/crontabs/hestiaweb
 chown hestiaweb:hestiaweb /var/spool/cron/crontabs/hestiaweb
@@ -2782,22 +2798,18 @@ apt-get -y upgrade >> $LOG &
 BACK_PID=$!
 echo
 
-# Starting Hestia service
-# VHestiaCP: Skip hestia-nginx service start - panel runs on PM2 directly
-# The hestia service is from hestia-nginx package which is not installed
-if [ -f /etc/init.d/hestia ]; then
-	update-rc.d hestia defaults
-	systemctl start hestia
-	check_result $? "hestia start failed"
-fi
-chown hestiaweb:hestiaweb $HESTIA/data/sessions
+# VHestiaCP: Panel runs on PM2, not hestia service
+# The web_v2 panel will be set up in the extended features section
+echo "[ * ] Setting up VHestiaCP data directories..."
+mkdir -p $VHESTIA/data/sessions
+chown hestiaweb:hestiaweb $VHESTIA/data/sessions
 
 # Create backup folder and set correct permission
 mkdir -p /backup/
 chmod 755 /backup/
 
 # Create cronjob to generate ssl
-echo "@reboot root sleep 10 && rm /etc/cron.d/hestia-ssl && PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:' && /usr/local/hestia/bin/v-add-letsencrypt-host" > /etc/cron.d/hestia-ssl
+echo "@reboot root sleep 10 && rm /etc/cron.d/hestia-ssl && PATH='/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:' && /usr/local/vhestia/bin/v-add-letsencrypt-host" > /etc/cron.d/hestia-ssl
 
 #----------------------------------------------------------#
 #              VHestiaCP Extended Features                  #
@@ -2805,339 +2817,65 @@ echo "@reboot root sleep 10 && rm /etc/cron.d/hestia-ssl && PATH='/usr/local/sbi
 
 echo ""
 echo "========================================================================"
-echo "[ * ] Starting VHestiaCP extensions installation..."
+echo "[ * ] Configuring VHestiaCP extended features..."
 echo "========================================================================"
 
-# Get installer script directory for VHestiaCP files
-# Handle both direct execution and wrapper execution
-if [ -n "$BASH_SOURCE" ]; then
-	SCRIPT_PATH="$(readlink -f "${BASH_SOURCE[0]}")"
-else
-	SCRIPT_PATH="$(readlink -f "$0")"
-fi
-SCRIPT_DIR="$(dirname "$SCRIPT_PATH")"
-VHESTIA_SRC="$(dirname "$SCRIPT_DIR")"
+# VHestiaCP: All bin/func scripts are already installed via vhestia package
+# Here we just copy nginx templates and set up extended services
 
-echo "[ * ] Script path: $SCRIPT_PATH"
-echo "[ * ] Script dir: $SCRIPT_DIR"
-echo "[ * ] VHestiaCP source: $VHESTIA_SRC"
-
-# Verify VHestiaCP source exists - check multiple locations
-VHESTIA_FOUND="no"
-for src_path in "$VHESTIA_SRC" "$(dirname "$SCRIPT_DIR")" "/root/vhestiacp-full" "$HOME/vhestiacp-full"; do
-	if [ -d "$src_path/bin" ] && [ -d "$src_path/web" ]; then
-		VHESTIA_SRC="$src_path"
-		VHESTIA_FOUND="yes"
-		echo "[ * ] Found VHestiaCP source at: $VHESTIA_SRC"
-		break
-	fi
-done
-
-if [ "$VHESTIA_FOUND" = "no" ]; then
-	echo "[ ! ] Warning: VHestiaCP source not found!"
-	echo "[ ! ] Checked paths:"
-	echo "      - $(dirname "$SCRIPT_DIR")"
-	echo "      - /root/vhestiacp-full"
-	echo "      - $HOME/vhestiacp-full"
-	VHESTIA_SRC=""
-fi
-
-# List what we found
-if [ -n "$VHESTIA_SRC" ]; then
-	echo "[ * ] VHestiaCP directories found:"
-	[ -d "$VHESTIA_SRC/bin" ] && echo "      - bin/ ($(ls -1 $VHESTIA_SRC/bin/v-* 2>/dev/null | wc -l) scripts)"
-	[ -d "$VHESTIA_SRC/func" ] && echo "      - func/ ($(ls -1 $VHESTIA_SRC/func/*.sh 2>/dev/null | wc -l) files)"
-	[ -d "$VHESTIA_SRC/web" ] && echo "      - web/ (web panel files)"
-fi
-
-# Copy VHestiaCP function files
-if [ -n "$VHESTIA_SRC" ] && [ -d "$VHESTIA_SRC/func" ]; then
-	echo "[ * ] Installing VHestiaCP function files..."
-	for f in $VHESTIA_SRC/func/*.sh; do
-		if [ -f "$f" ]; then
-			cp -f "$f" $HESTIA/func/
-			echo "    - Copied $(basename $f)"
-		fi
-	done
-else
-	echo "[ ! ] No VHestiaCP function files found"
-fi
-
-# Copy VHestiaCP bin scripts (only VHestiaCP-specific scripts, not HestiaCP overrides)
-if [ -n "$VHESTIA_SRC" ] && [ -d "$VHESTIA_SRC/bin" ]; then
-	echo "[ * ] Installing VHestiaCP CLI scripts..."
-
-	# Whitelist of VHestiaCP scripts that should be copied
-	# Includes both NEW scripts and MODIFIED HestiaCP scripts
-	VHESTIA_SCRIPTS=(
-		# VHestiaCP overrides for HestiaCP scripts (hestia-nginx not installed)
-		"v-add-firewall-chain"
-		"v-change-sys-port"
-		# HAProxy
-		"v-add-sys-haproxy"
-		"v-delete-sys-haproxy"
-		"v-list-sys-haproxy"
-		"v-add-haproxy-backend"
-		"v-rebuild-haproxy-conf"
-		"v-setup-haproxy-admin-routes"
-		"v-update-sys-haproxy-config"
-		# MongoDB
-		"v-add-sys-mongodb"
-		"v-add-database-mongo"
-		"v-delete-database-mongo"
-		"v-list-database-mongo"
-		"v-add-database-mongo-user"
-		"v-delete-database-mongo-user"
-		"v-list-database-mongo-users"
-		"v-change-database-mongo-user-password"
-		# Node.js / PM2
-		"v-add-sys-nodejs"
-		"v-add-web-domain-nodejs"
-		"v-delete-web-domain-nodejs"
-		"v-start-web-domain-nodejs"
-		"v-stop-web-domain-nodejs"
-		"v-restart-web-domain-nodejs"
-		"v-list-pm2-apps"
-		"v-list-user-pm2"
-		"v-list-sys-pm2"
-		"v-start-pm2-app"
-		"v-stop-pm2-app"
-		"v-restart-pm2-app"
-		"v-delete-pm2-app"
-		# Python / Gunicorn
-		"v-add-web-domain-python"
-		"v-start-web-domain-python"
-		"v-stop-web-domain-python"
-		# Kafka
-		"v-add-sys-kafka"
-		# RabbitMQ
-		"v-add-sys-rabbitmq"
-		# Redis
-		"v-add-sys-redis"
-		# Backup
-		"v-add-backup-gdrive"
-		# Package manager
-		"v-list-sys-packages"
-	)
-
-	count=0
-	for script in "${VHESTIA_SCRIPTS[@]}"; do
-		if [ -f "$VHESTIA_SRC/bin/$script" ]; then
-			cp -f "$VHESTIA_SRC/bin/$script" "$HESTIA/bin/"
-			chmod +x "$HESTIA/bin/$script"
-			count=$((count+1))
-		fi
-	done
-	echo "    - Copied $count VHestiaCP-specific scripts"
-else
-	echo "[ ! ] No VHestiaCP bin scripts found"
-fi
+# Determine source directory for templates (where installer is running from)
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+VHESTIACP_SRC="$(dirname "$SCRIPT_DIR")"
 
 # Copy VHestiaCP nginx templates
-if [ -n "$VHESTIA_SRC" ] && [ -d "$VHESTIA_SRC/install/deb/templates/web/nginx" ]; then
+if [ -d "$VHESTIACP_SRC/install/deb/templates/web/nginx" ]; then
 	echo "[ * ] Installing VHestiaCP nginx templates..."
-	# Copy root nginx templates (reactjs, angular, nextjs, nodejs, vuejs, nuxtjs, phalcon, django, flask, fastapi, etc.)
-	cp -f $VHESTIA_SRC/install/deb/templates/web/nginx/*.tpl $HESTIA/data/templates/web/nginx/ 2>/dev/null
-	cp -f $VHESTIA_SRC/install/deb/templates/web/nginx/*.stpl $HESTIA/data/templates/web/nginx/ 2>/dev/null
-	# Copy php-fpm templates (including JS/Python framework templates for php-fpm backend)
-	if [ -d "$VHESTIA_SRC/install/deb/templates/web/nginx/php-fpm" ]; then
-		cp -f $VHESTIA_SRC/install/deb/templates/web/nginx/php-fpm/*.tpl $HESTIA/data/templates/web/nginx/php-fpm/ 2>/dev/null
-		cp -f $VHESTIA_SRC/install/deb/templates/web/nginx/php-fpm/*.stpl $HESTIA/data/templates/web/nginx/php-fpm/ 2>/dev/null
+	mkdir -p $VHESTIA/data/templates/web/nginx/php-fpm
+	# Copy root nginx templates
+	cp -f $VHESTIACP_SRC/install/deb/templates/web/nginx/*.tpl $VHESTIA/data/templates/web/nginx/ 2>/dev/null
+	cp -f $VHESTIACP_SRC/install/deb/templates/web/nginx/*.stpl $VHESTIA/data/templates/web/nginx/ 2>/dev/null
+	# Copy php-fpm templates
+	if [ -d "$VHESTIACP_SRC/install/deb/templates/web/nginx/php-fpm" ]; then
+		cp -f $VHESTIACP_SRC/install/deb/templates/web/nginx/php-fpm/*.tpl $VHESTIA/data/templates/web/nginx/php-fpm/ 2>/dev/null
+		cp -f $VHESTIACP_SRC/install/deb/templates/web/nginx/php-fpm/*.stpl $VHESTIA/data/templates/web/nginx/php-fpm/ 2>/dev/null
+	fi
+	echo "    - Templates installed"
+elif [ -d "$VHESTIA/install/deb/templates/web/nginx" ]; then
+	# Templates might be in installed location
+	echo "[ * ] Using installed nginx templates..."
+	mkdir -p $VHESTIA/data/templates/web/nginx/php-fpm
+	cp -f $VHESTIA/install/deb/templates/web/nginx/*.tpl $VHESTIA/data/templates/web/nginx/ 2>/dev/null
+	cp -f $VHESTIA/install/deb/templates/web/nginx/*.stpl $VHESTIA/data/templates/web/nginx/ 2>/dev/null
+	if [ -d "$VHESTIA/install/deb/templates/web/nginx/php-fpm" ]; then
+		cp -f $VHESTIA/install/deb/templates/web/nginx/php-fpm/*.tpl $VHESTIA/data/templates/web/nginx/php-fpm/ 2>/dev/null
+		cp -f $VHESTIA/install/deb/templates/web/nginx/php-fpm/*.stpl $VHESTIA/data/templates/web/nginx/php-fpm/ 2>/dev/null
 	fi
 fi
 
-# VHestiaCP: Old PHP web panel files removed
-# The new Node.js panel (web_v2) is deployed separately in the PM2 section below
-echo "[ * ] VHestiaCP uses Node.js panel (no old PHP panel files to install)"
-
-# Debug: Show what options were selected
+# Show selected options
 echo ""
 echo "[ * ] VHestiaCP options selected:"
-echo "    - HAProxy: $haproxy"
-echo "    - MongoDB: $mongodb (version: $mongodb_version)"
-echo "    - Node.js: $nodejs (versions: $nodejs_versions)"
-echo "    - Python: $python"
+echo "    - HAProxy: ${haproxy:-no}"
+echo "    - MongoDB: ${mongodb:-no}"
+echo "    - Node.js: ${nodejs:-no}"
+echo "    - Python: ${python:-no}"
 echo ""
-
-#----------------------------------------------------------#
-#              Apply VHestiaCP Overlay Files               #
-#----------------------------------------------------------#
-# IMPORTANT: Must be done BEFORE installing HAProxy/MongoDB/Node.js
-# because those scripts need VHestiaCP bin/func files
-
-echo "[ * ] Applying VHestiaCP modifications..."
-
-# Determine source directory (where installer is running from)
-VHESTIACP_SRC="$(dirname "$(dirname "$(readlink -f "$0")")")"
-echo "    - VHestiaCP source: $VHESTIACP_SRC"
-
-# Check if VHestiaCP source files exist
-# If not (user only downloaded the install script), clone from GitHub
-if [ ! -d "$VHESTIACP_SRC/bin" ] || [ ! -f "$VHESTIACP_SRC/bin/v-add-sys-mongodb" ]; then
-    echo "    - VHestiaCP source files not found, downloading from GitHub..."
-    
-    # Install git if not available
-    if ! command -v git &> /dev/null; then
-        apt-get install -y git > /dev/null 2>&1
-    fi
-    
-    # Clone VHestiaCP repo
-    VHESTIACP_SRC="/tmp/vhestiacp-install"
-    rm -rf "$VHESTIACP_SRC"
-    
-    if git clone --depth 1 https://github.com/vietdev99/vhestiacp.git "$VHESTIACP_SRC" > /dev/null 2>&1; then
-        echo "    - Downloaded VHestiaCP from GitHub"
-    else
-        echo "    - ERROR: Failed to download VHestiaCP from GitHub"
-        echo "    - Please run: git clone https://github.com/vietdev99/vhestiacp.git"
-        echo "    - Then run installer from inside the cloned directory"
-        exit 1
-    fi
-fi
-
-# Verify VHestiaCP source
-if [ ! -d "$VHESTIACP_SRC/bin" ]; then
-    echo "    - ERROR: VHestiaCP bin directory not found at $VHESTIACP_SRC/bin"
-    exit 1
-fi
-
-echo "    - Using VHestiaCP source: $VHESTIACP_SRC"
-
-# Apply VHestiaCP bin scripts
-if [ -d "$VHESTIACP_SRC/bin" ]; then
-    echo "    - Copying VHestiaCP bin scripts..."
-    for f in "$VHESTIACP_SRC/bin/"v-*; do
-        if [ -f "$f" ]; then
-            cp -f "$f" "$HESTIA/bin/"
-            chmod +x "$HESTIA/bin/$(basename "$f")"
-        fi
-    done
-    
-    # Verify critical scripts
-    for script in v-list-database-mongo v-add-database-mongo v-add-sys-haproxy v-add-sys-mongodb v-add-sys-rabbitmq v-add-sys-kafka v-add-sys-redis v-update-sys-haproxy-config v-list-pm2-apps; do
-        if [ -f "$HESTIA/bin/$script" ]; then
-            echo "      ✓ $script"
-        else
-            echo "      ✗ MISSING: $script"
-        fi
-    done
-fi
-
-# Apply VHestiaCP functions
-if [ -d "$VHESTIACP_SRC/func" ]; then
-    echo "    - Copying VHestiaCP functions..."
-    cp -f "$VHESTIACP_SRC/func/"*.sh "$HESTIA/func/" 2>/dev/null || true
-    chmod 644 "$HESTIA/func/"*.sh 2>/dev/null || true
-    
-    # Verify critical functions
-    for func in mongodb.sh haproxy.sh; do
-        if [ -f "$HESTIA/func/$func" ]; then
-            echo "      ✓ $func"
-        else
-            echo "      ✗ MISSING: $func"
-        fi
-    done
-fi
 
 # VHestiaCP: Old PHP web UI removed - using Node.js panel (web_v2)
 # Web panel is deployed in the PM2 section below
 
 # Fix permissions
-echo "    - Setting permissions..."
-chmod 755 "$HESTIA"
-chmod 755 "$HESTIA/conf" 2>/dev/null || true
-chmod 755 "$HESTIA/data" 2>/dev/null || true
-chmod 755 "$HESTIA/func" 2>/dev/null || true
-chmod 755 "$HESTIA/bin" 2>/dev/null || true
-chmod 644 "$HESTIA/conf/"*.conf 2>/dev/null || true
+echo "[ * ] Setting VHestiaCP permissions..."
+chmod 755 "$VHESTIA"
+chmod 755 "$VHESTIA/conf" 2>/dev/null || true
+chmod 755 "$VHESTIA/data" 2>/dev/null || true
+chmod 755 "$VHESTIA/func" 2>/dev/null || true
+chmod 755 "$VHESTIA/bin" 2>/dev/null || true
+chmod +x "$VHESTIA/bin/"v-* 2>/dev/null || true
+chmod 644 "$VHESTIA/conf/"*.conf 2>/dev/null || true
 
-echo "    ✅ VHestiaCP modifications applied"
-
-#----------------------------------------------------------#
-#              VHestiaCP: Shell Scripts Fix                #
-#----------------------------------------------------------#
-# Create/update shell scripts for API (no PHP files needed - using Node.js panel)
-
-echo "    - Creating VHestiaCP shell scripts..."
-
-# Fix v-list-database-mongo script
-cat > "$HESTIA/bin/v-list-database-mongo" << 'MONGO_SCRIPT'
-#!/bin/bash
-# info: list mongodb databases for a user
-# options: USER [FORMAT]
-
-user=$1
-format=${2:-plain}
-
-HESTIA="${HESTIA:-/usr/local/hestia}"
-
-[ -f "$HESTIA/conf/hestia.conf" ] && source "$HESTIA/conf/hestia.conf" 2>/dev/null
-[ -f "$HESTIA/conf/mongodb.conf" ] && source "$HESTIA/conf/mongodb.conf" 2>/dev/null
-
-if [ "$MONGODB_SYSTEM" != "yes" ]; then
-    [ "$format" = "json" ] && echo "{}" || echo "MongoDB not installed"
-    exit 0
-fi
-
-[ -z "$user" ] && { [ "$format" = "json" ] && echo "{}" || echo "Error: User not specified"; exit 0; }
-[ -z "$ROOT_PASSWORD" ] && { [ "$format" = "json" ] && echo "{}" || echo "Error: MongoDB password not found"; exit 0; }
-
-MONGO_SHELL=""
-command -v mongosh &>/dev/null && MONGO_SHELL="mongosh"
-[ -z "$MONGO_SHELL" ] && command -v mongo &>/dev/null && MONGO_SHELL="mongo"
-[ -z "$MONGO_SHELL" ] && { [ "$format" = "json" ] && echo "{}" || echo "Error: MongoDB shell not found"; exit 0; }
-
-if [ "$format" = "json" ]; then
-    result=$($MONGO_SHELL --quiet -u admin -p "$ROOT_PASSWORD" --authenticationDatabase admin --eval "
-        db.adminCommand('listDatabases').databases.forEach(function(d) {
-            if (d.name.startsWith('${user}_')) {
-                print(d.name + ':' + d.sizeOnDisk);
-            }
-        })
-    " 2>/dev/null | grep -v "^Warning" | grep -v "^switched" | grep -v "^Using" | sort -u)
-    
-    output="{"
-    first=true
-    
-    while IFS=':' read -r db_name size; do
-        [ -z "$db_name" ] && continue
-        [[ "$db_name" == *"Warning"* ]] && continue
-        [[ "$db_name" == *"switched"* ]] && continue
-        
-        collections=$($MONGO_SHELL --quiet -u admin -p "$ROOT_PASSWORD" --authenticationDatabase admin --eval "print(db.getSiblingDB('$db_name').getCollectionNames().length)" 2>/dev/null | grep -oE '^[0-9]+' | head -1)
-        users=$($MONGO_SHELL --quiet -u admin -p "$ROOT_PASSWORD" --authenticationDatabase admin --eval "print(db.getSiblingDB('$db_name').getUsers().users.length)" 2>/dev/null | grep -oE '^[0-9]+' | head -1)
-        
-        [ "$first" = "false" ] && output+=","
-        first=false
-        output+="\"$db_name\":{\"COLLECTIONS\":${collections:-0},\"USERS\":${users:-0},\"SIZE\":${size:-0},\"DATE\":\"$(date +%Y-%m-%d)\"}"
-    done <<< "$result"
-    
-    echo "${output}}"
-else
-    echo ""
-    echo "MongoDB Databases for: $user"
-    echo "================================"
-    $MONGO_SHELL --quiet -u admin -p "$ROOT_PASSWORD" --authenticationDatabase admin --eval "
-        db.adminCommand('listDatabases').databases.forEach(function(d) {
-            if (d.name.startsWith('${user}_')) {
-                print('  - ' + d.name + ' (' + d.sizeOnDisk + ' bytes)');
-            }
-        })
-    " 2>/dev/null | grep -v "^Warning" | grep -v "^switched"
-    echo ""
-fi
-exit 0
-MONGO_SCRIPT
-chmod +x "$HESTIA/bin/v-list-database-mongo"
-echo "      ✓ v-list-database-mongo fixed"
-
-# Apply VHestiaCP install templates
-if [ -d "$VHESTIACP_SRC/install" ]; then
-    echo "    - Copying VHestiaCP install templates..."
-    cp -rf "$VHESTIACP_SRC/install/"* "$HESTIA/install/" 2>/dev/null || true
-fi
-
-echo "    - VHestiaCP modifications applied successfully"
+# VHestiaCP: All scripts are already installed via vhestia package
+# No need to create scripts inline - they're in bin/ directory
 
 #----------------------------------------------------------#
 #              Install VHestiaCP Extended Components       #
@@ -3807,7 +3545,7 @@ if [ "$redis" = 'yes' ]; then
 fi
 
 # Add VHestiaCP version marker
-write_config_value "VHESTIACP_VERSION" "1.0.0"
+write_config_value "VHESTIACP_VERSION" "$VHESTIA_INSTALL_VER"
 
 #----------------------------------------------------------#
 #           Deploy VHestiaCP Web Panel (Node.js)           #
@@ -3818,7 +3556,7 @@ echo "[ * ] Deploying VHestiaCP Web Panel..."
 
 # Detect VHestiaCP source directory
 srcdir=""
-for try_path in "/tmp/vhestiacp" "$HOME/vhestiacp" "/root/vhestiacp" "$VHESTIA_INSTALL_DIR"; do
+for try_path in "$VHESTIACP_SRC" "/tmp/vhestiacp" "$HOME/vhestiacp" "/root/vhestiacp"; do
 	if [ -d "$try_path/web_v2" ]; then
 		srcdir="$try_path"
 		break
@@ -3830,11 +3568,11 @@ echo "    - Source directory: $srcdir"
 # Check if web_v2 exists in source
 if [ -n "$srcdir" ] && [ -d "$srcdir/web_v2" ]; then
 	# Create web_v2 directory
-	mkdir -p "$HESTIA/web_v2"
+	mkdir -p "$VHESTIA/web_v2"
 
 	# Copy server files
-	cp -r "$srcdir/web_v2/server" "$HESTIA/web_v2/"
-	cp "$srcdir/web_v2/ecosystem.config.cjs" "$HESTIA/web_v2/"
+	cp -r "$srcdir/web_v2/server" "$VHESTIA/web_v2/"
+	cp "$srcdir/web_v2/ecosystem.config.cjs" "$VHESTIA/web_v2/"
 
 	# Load NVM to ensure npm is available
 	export NVM_DIR="${NVM_DIR:-/opt/nvm}"
@@ -3842,16 +3580,16 @@ if [ -n "$srcdir" ] && [ -d "$srcdir/web_v2" ]; then
 
 	# Copy and build client from source
 	echo "    - Copying client source files..."
-	cp -r "$srcdir/web_v2/client" "$HESTIA/web_v2/"
+	cp -r "$srcdir/web_v2/client" "$VHESTIA/web_v2/"
 
 	echo "    - Installing client dependencies..."
-	cd "$HESTIA/web_v2/client"
+	cd "$VHESTIA/web_v2/client"
 	npm install > /dev/null 2>&1
 
 	echo "    - Building client (this may take a few minutes)..."
 	npm run build > /dev/null 2>&1
 
-	if [ -d "$HESTIA/web_v2/client/dist" ]; then
+	if [ -d "$VHESTIA/web_v2/client/dist" ]; then
 		echo "    - Client build completed successfully"
 	else
 		echo "    - Warning: Client build may have failed, panel may not work correctly"
@@ -3859,12 +3597,12 @@ if [ -n "$srcdir" ] && [ -d "$srcdir/web_v2" ]; then
 
 	# Install server dependencies
 	echo "    - Installing server dependencies..."
-	cd "$HESTIA/web_v2/server"
+	cd "$VHESTIA/web_v2/server"
 	npm install --production > /dev/null 2>&1
 
 	# Start PM2
 	echo "    - Starting VHestiaCP Panel with PM2..."
-	cd "$HESTIA/web_v2"
+	cd "$VHESTIA/web_v2"
 	pm2 start ecosystem.config.cjs > /dev/null 2>&1
 	pm2 save > /dev/null 2>&1
 
@@ -3884,21 +3622,29 @@ else
 fi
 
 #----------------------------------------------------------#
-#              Set hestia.conf default values              #
+#              Set vhestia.conf default values             #
 #----------------------------------------------------------#
 
 echo "[ * ] Updating configuration files..."
-BIN="$HESTIA/bin"
-source $HESTIA/func/syshealth.sh
+BIN="$VHESTIA/bin"
+source $VHESTIA/func/syshealth.sh
 syshealth_repair_system_config
 
-# Add /usr/local/hestia/bin/ to path variable
-echo 'if [ "${PATH#*/usr/local/hestia/bin*}" = "$PATH" ]; then
-    . /etc/profile.d/hestia.sh
+# Add /usr/local/vhestia/bin/ to path variable
+echo 'if [ "${PATH#*/usr/local/vhestia/bin*}" = "$PATH" ]; then
+    . /etc/profile.d/vhestia.sh
 fi' >> /root/.bashrc
 
+# Create vhestia.sh profile
+cat > /etc/profile.d/vhestia.sh << 'EOF'
+export VHESTIA='/usr/local/vhestia'
+export HESTIA="$VHESTIA"
+export PATH="$PATH:$VHESTIA/bin"
+EOF
+chmod 644 /etc/profile.d/vhestia.sh
+
 #----------------------------------------------------------#
-#                   Hestia Access Info                     #
+#                   VHestiaCP Access Info                  #
 #----------------------------------------------------------#
 
 # Comparing hostname and IP
@@ -3950,8 +3696,8 @@ VHestiaCP Features:
   - Python with Gunicorn support
   - Modern nginx templates (React, Vue, Next.js, Django, FastAPI...)
 
-Documentation:  https://docs.hestiacp.com/
-GitHub:         https://www.github.com/hestiacp/hestiacp
+Documentation:  https://github.com/vietdev99/vhestiacp
+GitHub:         https://github.com/vietdev99/vhestiacp
 
 --
 VHestiaCP - Extended Control Panel
@@ -3974,7 +3720,7 @@ cat $tmpfile
 rm -f $tmpfile
 
 # Add welcome message to notification panel
-$HESTIA/bin/v-add-user-notification "$username" 'Welcome to Hestia Control Panel!' '<p>You are now ready to begin adding <a href="/add/user/">user accounts</a> and <a href="/add/web/">domains</a>. For help and assistance, <a href="https://hestiacp.com/docs/" target="_blank">view the documentation</a> or <a href="https://forum.hestiacp.com/" target="_blank">visit our forum</a>.</p><p>Please <a href="https://github.com/hestiacp/hestiacp/issues" target="_blank">report any issues via GitHub</a>.</p><p class="u-text-bold">Have a wonderful day!</p><p><i class="fas fa-heart icon-red"></i> The Hestia Control Panel development team</p>'
+$HESTIA/bin/v-add-user-notification "$username" 'Welcome to VHestiaCP!' '<p>You are now ready to begin adding <a href="/add/user/">user accounts</a> and <a href="/add/web/">domains</a>.</p><p>VHestiaCP Features: HAProxy, MongoDB, Node.js/PM2, Python/Gunicorn, modern web templates.</p><p>Please <a href="https://github.com/vietdev99/vhestiacp/issues" target="_blank">report any issues via GitHub</a>.</p><p class="u-text-bold">Have a wonderful day!</p><p><i class="fas fa-heart icon-red"></i> The VHestiaCP Team</p>'
 
 # Clean-up
 # Sort final configuration file

@@ -226,7 +226,7 @@ unset commit nameserver nginx_conf_commit nginx_conf_compare nginx_conf_local os
 # Finish configuring the "Enhanced and Optimized TLS" feature
 
 # Update IPs configuration file
-# shellcheck source=/usr/local/hestia/func/domain.sh
+# shellcheck source=/usr/local/vhestia/func/domain.sh
 source $HESTIA/func/domain.sh
 
 if [ "$WEB_SYSTEM" = "nginx" ]; then
@@ -261,8 +261,8 @@ if [ "$MAIL_SYSTEM" = "exim4" ]; then
 			patch /etc/exim4/exim4.conf.template.staging $HESTIA/install/upgrade/patch/3661-exim-srs-support.patch 2>&1
 			exim -C /etc/exim4/exim4.conf.template.staging 2>&1
 			if [ "$?" -ne 0 ]; then
-				add_upgrade_message "Unable to successfully aply the SRS update patch for Exim.\n If you use SMTP relay with the SRS feature use the exim config found in /usr/local/hestia/install/deb/exim/exim4.conf.4.95.template"
-				"$BIN"/v-add-user-notification admin "Unable to apply patch to Exim config" 'Unable to successfully apply the SRS update patch for Exim.<br /> If you use SMTP relay with the SRS feature use the exim config found in /usr/local/hestia/install/deb/exim/exim4.conf.4.95.template'
+				add_upgrade_message "Unable to successfully aply the SRS update patch for Exim.\n If you use SMTP relay with the SRS feature use the exim config found in /usr/local/vhestia/install/deb/exim/exim4.conf.4.95.template"
+				"$BIN"/v-add-user-notification admin "Unable to apply patch to Exim config" 'Unable to successfully apply the SRS update patch for Exim.<br /> If you use SMTP relay with the SRS feature use the exim config found in /usr/local/vhestia/install/deb/exim/exim4.conf.4.95.template'
 				if grep -qw "IMPORTANT: Manual Action Required" "$HESTIA"/data/users/admin/notifications.conf 2> /dev/null; then
 					sed -i "s/""$(grep -m 1 "Unable to apply patch to Exim config" "$HESTIA"/data/users/admin/notifications.conf | awk '{print $1}')""/NID='3'/" "$HESTIA"/data/users/admin/notifications.conf
 				else

@@ -14,9 +14,9 @@
 user=$1
 
 # Includes
-# shellcheck source=/etc/hestiacp/hestia.conf
-source /etc/hestiacp/hestia.conf
-# shellcheck source=/usr/local/hestia/func/main.sh
+# shellcheck source=/etc/vhestia/hestia.conf
+source /etc/vhestia/hestia.conf
+# shellcheck source=/usr/local/vhestia/func/main.sh
 source $HESTIA/func/main.sh
 # load config file
 source_conf "$HESTIA/conf/hestia.conf"
@@ -45,8 +45,14 @@ if [ -n "$TWOFA" ]; then
 	exit "$E_EXISTS"
 fi
 
+# Check if PHP is available (required for 2FA)
+if [ -z "$HESTIA_PHP" ]; then
+	echo "Error: PHP is required for 2FA. Please install: apt install php-cli"
+	exit 1
+fi
+
 # Get secret and qr code from 2fa library
-data=$($HESTIA_PHP $HESTIA/web/inc/2fa/secret.php)
+data=$($HESTIA_PHP $VHESTIA/web/inc/2fa/secret.php)
 
 # Split to secret and qrcode using delimiter
 IFS='-' read -r -a array <<< "$data"

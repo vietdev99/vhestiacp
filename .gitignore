@@ -17,36 +17,21 @@ Thumbs.db
 # Logs
 *.log
 logs/
-# Environment files
-.env
-.env.*
-!.env.example
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Logs
-*.log
-logs/
 
 # Temp files
 *.tmp
 *.bak
 *.backup
+*.cfg
 
 # AI/IDE config folders
 .claude/
 .agent/
 .cursor/
 .opencode/
+CLAUDE.md
+
+# Node modules
 web_v2/client/node_modules
 web_v2/server/node_modules
 node_modules
@@ -60,3 +45,10 @@ web_v2/server/dist/
 # Debian packages (too large for git)
 packages/deb/
 *.deb
+
+# Archive files
+*.tar.gz
+*.zip
+
+# Test files
+test_file.txt

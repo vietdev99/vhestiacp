@@ -5,9 +5,9 @@
 #----------------------------------------------------------#
 
 # Includes
-# shellcheck source=/usr/local/hestia/func/main.sh
+# shellcheck source=/usr/local/vhestia/func/main.sh
 source $HESTIA/func/main.sh
-# shellcheck source=/usr/local/hestia/conf/hestia.conf
+# shellcheck source=/usr/local/vhestia/conf/hestia.conf
 source $HESTIA/conf/hestia.conf
 
 #

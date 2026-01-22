@@ -71,7 +71,7 @@ const adminItems = [
   { name: 'Firewall', href: '/firewall', icon: Shield },
   { name: 'Database Settings', href: '/admin/database-settings', icon: Settings },
   { name: 'Cloud Storage', href: '/admin/rclone', icon: Cloud },
-  { name: 'HAProxy', href: '/haproxy', icon: Network },
+  { name: 'HAProxy', href: '/haproxy', icon: Network, service: 'haproxy' },
   { name: 'Hestia Config', href: '/admin/hestia-config', icon: Settings },
   { name: 'Updates', href: '/admin/updates', icon: Download },
   // File Manager is conditional - added dynamically based on system config
@@ -124,10 +124,13 @@ export default function Layout() {
     const webServer = systemInfo?.installedServices?.webServer || 'nginx';
     const webServerName = webServer === 'apache' ? 'Apache Domains' : 'Nginx Domains';
 
-    return [
-      { name: 'HAProxy Domains', href: '/haproxy/domains', icon: Network },
-      { name: webServerName, href: '/web', icon: Globe }
-    ];
+    const items = [];
+    if (systemInfo?.installedServices?.haproxy) {
+      items.push({ name: 'HAProxy Domains', href: '/haproxy/domains', icon: Network });
+    }
+    items.push({ name: webServerName, href: '/web', icon: Globe });
+
+    return items;
   }, [systemInfo]);
 
   // Filter database items based on installed services
@@ -408,7 +411,12 @@ export default function Layout() {
               </button>
               {adminMenuOpen && (
                 <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-200 dark:border-dark-border pl-3">
-                  {adminItems.map((item) => {
+                  {adminItems.filter(item => {
+                    if (item.service && systemInfo?.installedServices) {
+                      return systemInfo.installedServices[item.service] !== false;
+                    }
+                    return true;
+                  }).map((item) => {
                     const isActive = location.pathname === item.href ||
                       (item.href !== '/' && location.pathname.startsWith(item.href));
                     return (

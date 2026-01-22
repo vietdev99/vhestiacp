@@ -13,9 +13,9 @@
 mode=$1
 
 # Includes
-# shellcheck source=/etc/hestiacp/hestia.conf
-source /etc/hestiacp/hestia.conf
-# shellcheck source=/usr/local/hestia/func/main.sh
+# shellcheck source=/etc/vhestia/hestia.conf
+source /etc/vhestia/hestia.conf
+# shellcheck source=/usr/local/vhestia/func/main.sh
 source $HESTIA/func/main.sh
 # load config file
 source_conf "$HESTIA/conf/hestia.conf"
@@ -62,7 +62,7 @@ if [ "$mode" = "git" ]; then
 	command='v-update-sys-hestia-git'
 fi
 
-sed -i -e "\$a$min $hour * * * sudo /usr/local/hestia/bin/$command" "/var/spool/cron/crontabs/hestiaweb"
+sed -i -e "\$a$min $hour * * * sudo /usr/local/vhestia/bin/$command" "/var/spool/cron/crontabs/hestiaweb"
 
 #----------------------------------------------------------#
 #                       Hestia                             #

@@ -6,7 +6,7 @@ import { execHestiaJson, execHestia } from '../utils/hestia.js';
 import { adminMiddleware } from '../middleware/auth.js';
 
 const router = Router();
-const HESTIA_DIR = process.env.HESTIA || '/usr/local/hestia';
+const HESTIA_DIR = process.env.HESTIA || '/usr/local/vhestia';
 const TEMPLATES_DIR = path.join(HESTIA_DIR, 'data/templates/web/nginx/php-fpm');
 
 // Service descriptions mapping
@@ -490,6 +490,7 @@ router.get('/info', async (req, res) => {
       mysql: fs.existsSync('/etc/mysql') || fs.existsSync('/etc/my.cnf'),
       pgsql: fs.existsSync('/etc/postgresql'),
       mongodb: fs.existsSync('/etc/mongod.conf') || fs.existsSync('/var/lib/mongodb'),
+      haproxy: fs.existsSync('/etc/haproxy'),
       webServer // 'nginx' or 'apache'
     };
 

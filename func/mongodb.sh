@@ -77,7 +77,7 @@ mongo_exec() {
     fi
     
     # Load config if not set
-    local HESTIA="${HESTIA:-/usr/local/hestia}"
+    local HESTIA="${HESTIA:-/usr/local/vhestia}"
     if [ -z "$admin_password" ] && [ -f "$HESTIA/conf/mongodb.conf" ]; then
         source "$HESTIA/conf/mongodb.conf" 2>/dev/null
         admin_password="${ROOT_PASSWORD:-}"
@@ -297,7 +297,7 @@ restore_mongodb_database() {
 setup_mongodb_auth() {
     local root_password="$1"
     local auth_method="${2:-scram}"
-    local HESTIA="${HESTIA:-/usr/local/hestia}"
+    local HESTIA="${HESTIA:-/usr/local/vhestia}"
     
     # Escape password for JavaScript (escape single quotes and backslashes)
     local escaped_password=$(echo "$root_password" | sed "s/\\\\/\\\\\\\\/g" | sed "s/'/\\\\'/g")
@@ -547,7 +547,7 @@ get_mongodb_connection_string() {
 log_mongodb_event() {
     local level="$1"
     local message="$2"
-    local log_dir="${HESTIA:-/usr/local/hestia}/log"
+    local log_dir="${HESTIA:-/usr/local/vhestia}/log"
     local log_file="$log_dir/mongodb.log"
     
     # Create log directory if not exists

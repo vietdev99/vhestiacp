@@ -4,7 +4,7 @@ import path from 'path';
 import { execHestia, execHestiaJson } from '../utils/hestia.js';
 
 const router = express.Router();
-const HESTIA = process.env.HESTIA || '/usr/local/hestia';
+const HESTIA = process.env.HESTIA || '/usr/local/vhestia';
 
 // Helper: Get user's databases from config file
 function getUserDatabases(username, type) {
@@ -338,10 +338,27 @@ router.get('/mongodb', async (req, res) => {
     const { instance = 'default' } = req.query;
     const username = req.user.user;
 
-    const databases = getUserDatabases(username, 'mongodb');
-    const filtered = databases.filter(db => (db.instance || 'default') === instance);
-
-    res.json({ databases: filtered });
+    // Query MongoDB directly via v-list-database-mongo script
+    // This script finds databases matching the user's prefix pattern
+    try {
+      const data = await execHestiaJson('v-list-database-mongo', [username]);
+      const databases = Object.entries(data).map(([name, info]) => ({
+        database: name,
+        collections: info.COLLECTIONS || 0,
+        users: info.USERS || 0,
+        size: info.SIZE || 0,
+        instance: instance,
+        date: info.DATE,
+        type: 'mongodb'
+      }));
+      return res.json({ databases });
+    } catch (e) {
+      console.error('Error querying MongoDB:', e);
+      // Fallback to config file method
+      const databases = getUserDatabases(username, 'mongodb');
+      const filtered = databases.filter(db => (db.instance || 'default') === instance);
+      return res.json({ databases: filtered });
+    }
   } catch (error) {
     console.error('Error listing MongoDB databases:', error);
     res.json({ databases: [] });

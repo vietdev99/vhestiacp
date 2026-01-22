@@ -14,7 +14,7 @@
 format=${1:-json}
 
 # Includes
-source /etc/hestiacp/hestia.conf
+source /etc/vhestia/hestia.conf
 source $HESTIA/func/main.sh
 source_conf "$HESTIA/conf/hestia.conf"
 
@@ -33,12 +33,19 @@ first=true
 
 # First, add the default MongoDB instance (port 27017) if it exists
 if systemctl list-unit-files mongod.service &>/dev/null; then
-    # Get service status
+   # Get service status
     if systemctl is-active --quiet mongod 2>/dev/null; then
         status="running"
     else
         status="stopped"
     fi
+    
+    # Only show default instance if it's running, OR if we have no custom instances yet
+    # This specifically addresses the case where 'mongod' is disabled in favor of named instances
+    num_custom=$(find "$INSTANCES_DATA_DIR" -maxdepth 1 -mindepth 1 -type d 2>/dev/null | wc -l)
+    
+    if [ "$status" = "running" ] || [ "$num_custom" -eq 0 ]; then
+
     
     # Read port from default config
     default_port=27017
@@ -94,6 +101,7 @@ if systemctl list-unit-files mongod.service &>/dev/null; then
     output+='"isDefault":true'
     output+='}'
     first=false
+    fi
 fi
 
 # Scan for instance directories

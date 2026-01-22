@@ -17,7 +17,7 @@ port=$4
 framework=${5:-generic}  # django, flask, fastapi, generic
 
 # Includes
-source /etc/hestiacp/hestia.conf
+source /etc/vhestia/hestia.conf
 source $HESTIA/func/main.sh
 source $HESTIA/func/python.sh
 source_conf "$HESTIA/conf/hestia.conf"

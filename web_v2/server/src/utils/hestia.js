@@ -1,13 +1,17 @@
 import { execSync, exec } from 'child_process';
 
-const HESTIA = process.env.HESTIA || '/usr/local/hestia';
-const HESTIA_BIN = `${HESTIA}/bin`;
+// VHestiaCP paths - support both VHESTIA and HESTIA env vars for backward compatibility
+const VHESTIA = process.env.VHESTIA || process.env.HESTIA || '/usr/local/vhestia';
+const HESTIA = VHESTIA; // Alias for backward compatibility
+const VHESTIA_BIN = `${VHESTIA}/bin`;
+const HESTIA_BIN = VHESTIA_BIN; // Alias
 
-// Environment variables needed for Hestia scripts
+// Environment variables needed for VHestiaCP scripts
 const HESTIA_ENV = {
   ...process.env,
-  HESTIA: HESTIA,
-  PATH: `${HESTIA_BIN}:${process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'}`
+  VHESTIA: VHESTIA,
+  HESTIA: HESTIA, // Backward compatibility
+  PATH: `${VHESTIA_BIN}:${process.env.PATH || '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'}`
 };
 
 /**

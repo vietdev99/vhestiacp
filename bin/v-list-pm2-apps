@@ -15,7 +15,7 @@ user=$1
 format=${2:-json}
 
 # Includes
-HESTIA="${HESTIA:-/usr/local/hestia}"
+HESTIA="${HESTIA:-/usr/local/vhestia}"
 [ -f "$HESTIA/conf/hestia.conf" ] && source "$HESTIA/conf/hestia.conf"
 
 #----------------------------------------------------------#

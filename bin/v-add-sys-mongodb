@@ -17,7 +17,7 @@ mode=${2:-standalone}       # standalone, replicaset, sharding
 auth_method=${3:-scram}     # scram, scram256, scram1, ldap, x509
 
 # Includes
-source /etc/hestiacp/hestia.conf
+source /etc/vhestia/hestia.conf
 source $HESTIA/func/main.sh
 source $HESTIA/func/mongodb.sh
 source_conf "$HESTIA/conf/hestia.conf"

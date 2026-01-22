@@ -1,0 +1,102 @@
+#!/bin/bash
+# info: adopt existing mongodb services into vhestiacp
+# options: NONE
+#
+# example: v-adopt-mongodb-services
+#
+# This function scans for systemd services named 'mongod-*' and registers them
+# in VHestiaCP by creating the necessary directory structure and symlinks.
+
+#----------------------------------------------------------#
+#                Variables & Functions                     #
+#----------------------------------------------------------#
+
+# Includes
+source /etc/vhestia/hestia.conf
+source $HESTIA/func/main.sh
+source_conf "$HESTIA/conf/hestia.conf"
+
+# Directories
+INSTANCES_CONF_DIR="/etc/mongodb-instances"
+INSTANCES_DATA_DIR="/var/lib/mongodb-instances"
+
+# Check root
+if [ "$(id -u)" != "0" ]; then
+    echo "Error: This script must be run as root"
+    exit 1
+fi
+
+# Create directories if missing
+mkdir -p "$INSTANCES_CONF_DIR"
+mkdir -p "$INSTANCES_DATA_DIR"
+
+#----------------------------------------------------------#
+#                       Action                             #
+#----------------------------------------------------------#
+
+echo "Scanning for MongoDB services..."
+
+# List all services matching mongod-*
+services=$(systemctl list-units --type=service --all --no-legend "mongod-*" | awk '{print $1}')
+
+for service in $services; do
+    # Extract instance name (remove .service suffix and mongod- prefix)
+    service_name=$(basename "$service" .service)
+    instance_name=${service_name#mongod-}
+
+    if [ "$instance_name" == "mongod" ]; then
+        continue # Skip default service, handled separately
+    fi
+
+    echo "Found service: $service_name (Instance: $instance_name)"
+
+    # Get ExecStart to find config file
+    exec_start=$(systemctl show "$service" -p ExecStart --value)
+    
+    # Extract config path (look for --config or -f)
+    config_path=$(echo "$exec_start" | grep -oE '\-\-config\s+\S+|\-f\s+\S+' | awk '{print $2}')
+    
+    if [ -z "$config_path" ]; then
+        echo "  Warning: Could not determine config file for $service_name"
+        continue
+    fi
+
+    echo "  Config: $config_path"
+
+    # Register Config
+    target_conf="$INSTANCES_CONF_DIR/${instance_name}.conf"
+    if [ ! -L "$target_conf" ] && [ ! -f "$target_conf" ]; then
+        ln -sf "$config_path" "$target_conf"
+        echo "  - Link created: $target_conf -> $config_path"
+    else
+        echo "  - Config link already exists"
+    fi
+
+    # Read Data Directory from Config
+    if [ -f "$config_path" ]; then
+        data_path=$(grep "dbPath:" "$config_path" | awk '{print $2}')
+        if [ -n "$data_path" ]; then
+             echo "  Data Dir: $data_path"
+             
+             # Create instance dir
+             mkdir -p "$INSTANCES_DATA_DIR/$instance_name"
+             
+             # Link data dir
+             target_data="$INSTANCES_DATA_DIR/$instance_name/data"
+             if [ ! -L "$target_data" ] && [ ! -d "$target_data" ]; then
+                 ln -sf "$data_path" "$target_data"
+                 echo "  - Link created: $target_data -> $data_path"
+             else
+                 echo "  - Data link already exists"
+             fi
+        else
+            echo "  Warning: Could not find dbPath in config"
+        fi
+    else
+        echo "  Error: Config file not found at $config_path"
+    fi
+
+done
+
+echo "Adoption scan completed."
+exit 0

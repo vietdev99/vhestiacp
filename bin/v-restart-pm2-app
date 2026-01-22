@@ -14,7 +14,7 @@
 user=$1
 pm_id=${2:-all}
 
-HESTIA="${HESTIA:-/usr/local/hestia}"
+HESTIA="${HESTIA:-/usr/local/vhestia}"
 
 #----------------------------------------------------------#
 #                    Verifications                         #

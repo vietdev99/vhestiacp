@@ -6,7 +6,7 @@ import multer from 'multer';
 import { adminMiddleware } from '../middleware/auth.js';
 
 const router = express.Router();
-const HESTIA_DIR = process.env.HESTIA || '/usr/local/hestia';
+const HESTIA_DIR = process.env.HESTIA || '/usr/local/vhestia';
 const MONGODB_SETTINGS_FILE = path.join(HESTIA_DIR, 'data/mongodb-settings.json');
 
 // All routes require admin
@@ -93,8 +93,16 @@ router.get('/config', async (req, res) => {
     // Parse current settings from config file as fallback
     const parsedSettings = parseMongoConfig(config);
     
-    // Merge: saved settings take priority
-    const settings = { ...parsedSettings, ...savedSettings };
+    // Merge: saved settings take priority, but parsed clusterMode wins if it's more specific
+    // (e.g., if config has replication: but saved has standalone, use replicaset)
+    let settings = { ...parsedSettings, ...savedSettings };
+    
+    // If the raw config has replication/sharding but saved is standalone, use parsed mode
+    if (parsedSettings.clusterMode !== 'standalone' && 
+        (!savedSettings.clusterMode || savedSettings.clusterMode === 'standalone')) {
+      settings.clusterMode = parsedSettings.clusterMode;
+      settings.replicaSetName = parsedSettings.replicaSetName || settings.replicaSetName;
+    }
 
     res.json({
       status,
@@ -828,6 +836,19 @@ router.get('/instances/:name', async (req, res) => {
       }
     }
     
+    // Parse clusterMode from raw config if not in stored settings
+    // This ensures adopted instances with replication show correct mode
+    const parsedSettings = parseMongoConfig(config);
+    settings = {
+      ...parsedSettings,  // Defaults from parsing config (clusterMode, replicaSetName, etc.)
+      ...settings,        // Stored settings override parsed (but may be empty for adopted instances)
+    };
+    // If stored settings didn't have clusterMode, use parsed value
+    if (!settings.clusterMode || settings.clusterMode === 'standalone') {
+      settings.clusterMode = parsedSettings.clusterMode;
+      settings.replicaSetName = parsedSettings.replicaSetName || settings.replicaSetName;
+    }
+    
     // Get root password from Hestia conf
     let rootPassword = '';
     const hestiaConfPath = path.join(HESTIA_DIR, `conf/mongodb-${name}.conf`);
@@ -1017,7 +1038,7 @@ router.post('/instances/check-port', async (req, res) => {
  */
 router.get('/instances', async (req, res) => {
   try {
-    const result = execSync('bash /usr/local/hestia/bin/v-list-mongodb-instances json', { encoding: 'utf8' });
+    const result = execSync('bash /usr/local/vhestia/bin/v-list-mongodb-instances json', { encoding: 'utf8' });
     const instances = JSON.parse(result || '{}');
     res.json(instances);
   } catch (error) {
@@ -1039,7 +1060,7 @@ router.post('/instances', async (req, res) => {
     }
 
     // Create instance using shell script
-    execSync(`bash /usr/local/hestia/bin/v-add-mongodb-instance '${name}' '${port}' '${dataDir || ''}'`, { encoding: 'utf8' });
+    execSync(`bash /usr/local/vhestia/bin/v-add-mongodb-instance '${name}' '${port}' '${dataDir || ''}'`, { encoding: 'utf8' });
     
     // Read the generated root password
     let rootPassword = '';
@@ -1115,7 +1136,7 @@ router.delete('/instances/:name', async (req, res) => {
       return res.status(400).json({ error: 'Cannot delete default instance' });
     }
 
-    execSync(`bash /usr/local/hestia/bin/v-delete-mongodb-instance '${name}'`, { encoding: 'utf8' });
+    execSync(`bash /usr/local/vhestia/bin/v-delete-mongodb-instance '${name}'`, { encoding: 'utf8' });
     
     res.json({ success: true, message: `Instance ${name} deleted successfully` });
   } catch (error) {
@@ -1202,7 +1223,7 @@ router.post('/instances/:name/config', async (req, res) => {
           if (name !== 'default') {
             // Parse port from instance list or config
             try {
-              const instancesResult = execSync('bash /usr/local/hestia/bin/v-list-mongodb-instances json', { encoding: 'utf8' });
+              const instancesResult = execSync('bash /usr/local/vhestia/bin/v-list-mongodb-instances json', { encoding: 'utf8' });
               const instances = JSON.parse(instancesResult || '{}');
               if (instances[name] && instances[name].PORT) {
                 port = parseInt(instances[name].PORT);
@@ -1364,7 +1385,7 @@ WantedBy=multi-user.target
 router.post('/instances/:name/start', async (req, res) => {
   try {
     const { name } = req.params;
-    execSync(`bash /usr/local/hestia/bin/v-start-mongodb-instance '${name}'`, { encoding: 'utf8' });
+    execSync(`bash /usr/local/vhestia/bin/v-start-mongodb-instance '${name}'`, { encoding: 'utf8' });
     res.json({ success: true, message: `Instance ${name} started successfully` });
   } catch (error) {
     console.error('Start instance error:', error);
@@ -1379,7 +1400,7 @@ router.post('/instances/:name/start', async (req, res) => {
 router.post('/instances/:name/stop', async (req, res) => {
   try {
     const { name } = req.params;
-    execSync(`bash /usr/local/hestia/bin/v-stop-mongodb-instance '${name}'`, { encoding: 'utf8' });
+    execSync(`bash /usr/local/vhestia/bin/v-stop-mongodb-instance '${name}'`, { encoding: 'utf8' });
     res.json({ success: true, message: `Instance ${name} stopped successfully` });
   } catch (error) {
     console.error('Stop instance error:', error);
@@ -1394,7 +1415,7 @@ router.post('/instances/:name/stop', async (req, res) => {
 router.post('/instances/:name/restart', async (req, res) => {
   try {
     const { name } = req.params;
-    execSync(`bash /usr/local/hestia/bin/v-restart-mongodb-instance '${name}'`, { encoding: 'utf8' });
+    execSync(`bash /usr/local/vhestia/bin/v-restart-mongodb-instance '${name}'`, { encoding: 'utf8' });
     res.json({ success: true, message: `Instance ${name} restarted successfully` });
   } catch (error) {
     console.error('Restart instance error:', error);

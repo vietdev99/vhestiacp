@@ -4,7 +4,7 @@ import { promisify } from 'util';
 
 const router = express.Router();
 const execAsync = promisify(exec);
-const HESTIA = process.env.HESTIA || '/usr/local/hestia';
+const HESTIA = process.env.HESTIA || '/usr/local/vhestia';
 
 // Helper function to run Hestia commands
 async function runHestiaCmd(cmd) {

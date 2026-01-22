@@ -80,7 +80,7 @@ fi
 # Fix sftp jail cronjob
 if [ -e "/etc/cron.d/hestia-sftp" ]; then
 	if ! cat /etc/cron.d/hestia-sftp | grep -q 'root'; then
-		echo "@reboot root /usr/local/hestia/bin/v-add-sys-sftp-jail" > /etc/cron.d/hestia-sftp
+		echo "@reboot root /usr/local/vhestia/bin/v-add-sys-sftp-jail" > /etc/cron.d/hestia-sftp
 	fi
 fi
 

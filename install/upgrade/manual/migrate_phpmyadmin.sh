@@ -15,7 +15,7 @@ source $HESTIA/conf/hestia.conf
 #                    Verifications                         #
 #----------------------------------------------------------#
 
-echo "To remove phpMyAdmin you will need use the root password. Password can be found in /usr/local/hestia/conf/mysql.conf"
+echo "To remove phpMyAdmin you will need use the root password. Password can be found in /usr/local/vhestia/conf/mysql.conf"
 read -p 'Would you like to continue? [y/n]'
 
 #----------------------------------------------------------#

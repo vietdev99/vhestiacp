@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { execSync } from 'child_process';
 
 const router = Router();
-const HESTIA_CMD = '/usr/local/hestia/bin/v-quick-install-app';
+const HESTIA_CMD = '/usr/local/vhestia/bin/v-quick-install-app';
 
 /**
  * GET /api/quickinstall/apps

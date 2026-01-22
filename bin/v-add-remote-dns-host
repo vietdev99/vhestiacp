@@ -32,11 +32,11 @@ dns_user=${6-dns-cluster}
 DNS_USER=$dns_user
 
 # Includes
-# shellcheck source=/etc/hestiacp/hestia.conf
-source /etc/hestiacp/hestia.conf
-# shellcheck source=/usr/local/hestia/func/main.sh
+# shellcheck source=/etc/vhestia/hestia.conf
+source /etc/vhestia/hestia.conf
+# shellcheck source=/usr/local/vhestia/func/main.sh
 source $HESTIA/func/main.sh
-# shellcheck source=/usr/local/hestia/func/remote.sh
+# shellcheck source=/usr/local/vhestia/func/remote.sh
 source $HESTIA/func/remote.sh
 # load config file
 source_conf "$HESTIA/conf/hestia.conf"
@@ -127,7 +127,7 @@ if [ -z "$check_cron" ] && [ ! -z "$CRON_SYSTEM" ]; then
 	day='*'
 	month='*'
 	wday='*'
-	sed -i -e "\$a$min $hour * * * sudo /usr/local/hestia/bin/$cmd" "/var/spool/cron/crontabs/hestiaweb"
+	sed -i -e "\$a$min $hour * * * sudo /usr/local/vhestia/bin/$cmd" "/var/spool/cron/crontabs/hestiaweb"
 fi
 
 # Logging

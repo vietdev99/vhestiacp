@@ -15,15 +15,15 @@ user=$1
 notify=${2-no}
 
 # Includes
-# shellcheck source=/etc/hestiacp/hestia.conf
-source /etc/hestiacp/hestia.conf
-# shellcheck source=/usr/local/hestia/func/main.sh
+# shellcheck source=/etc/vhestia/hestia.conf
+source /etc/vhestia/hestia.conf
+# shellcheck source=/usr/local/vhestia/func/main.sh
 source $HESTIA/func/main.sh
-# shellcheck source=/usr/local/hestia/func/domain.sh
+# shellcheck source=/usr/local/vhestia/func/domain.sh
 source $HESTIA/func/domain.sh
-# shellcheck source=/usr/local/hestia/func/db.sh
+# shellcheck source=/usr/local/vhestia/func/db.sh
 source $HESTIA/func/db.sh
-# shellcheck source=/usr/local/hestia/func/backup.sh
+# shellcheck source=/usr/local/vhestia/func/backup.sh
 source $HESTIA/func/backup.sh
 # load config file
 source_conf "$HESTIA/conf/hestia.conf"
@@ -633,8 +633,8 @@ if [ "$MONGODB_SYSTEM" = "yes" ] && [ -f "$USER_DATA/mongodb.conf" ]; then
 	cp $USER_DATA/mongodb.conf $tmpdir/mongodb/
 
 	# Get MongoDB credentials
-	mongo_user=$(grep "^$user:" /etc/hestiacp/mongodb.conf 2>/dev/null | cut -d: -f2)
-	mongo_pass=$(grep "^$user:" /etc/hestiacp/mongodb.conf 2>/dev/null | cut -d: -f3)
+	mongo_user=$(grep "^$user:" /etc/vhestia/mongodb.conf 2>/dev/null | cut -d: -f2)
+	mongo_pass=$(grep "^$user:" /etc/vhestia/mongodb.conf 2>/dev/null | cut -d: -f3)
 
 	i=0
 	while IFS= read -r line; do

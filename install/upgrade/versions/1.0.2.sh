@@ -37,7 +37,7 @@ for ip in $dns_resolver; do
 	fi
 done
 if [ ! -z "$resolver" ]; then
-	sed -i "s/1.0.0.1 1.1.1.1/$resolver/g" /usr/local/hestia/nginx/conf/nginx.conf
+	sed -i "s/1.0.0.1 1.1.1.1/$resolver/g" /usr/local/vhestia/nginx/conf/nginx.conf
 fi
 
 # Remove Webalizer and set AWStats as default

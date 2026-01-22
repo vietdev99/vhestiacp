@@ -19,7 +19,7 @@ cluster_mode=${3:-standalone}       # standalone, replicaset, sharding
 replica_set_name=${4:-rs0}
 
 # Includes
-source /etc/hestiacp/hestia.conf
+source /etc/vhestia/hestia.conf
 source $HESTIA/func/main.sh
 source $HESTIA/func/mongodb.sh 2>/dev/null || true
 source_conf "$HESTIA/conf/hestia.conf"

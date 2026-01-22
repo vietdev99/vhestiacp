@@ -304,7 +304,7 @@ auto_fix_exim_interface() {
 log_mail_event() {
     local level="$1"
     local message="$2"
-    local log_dir="${HESTIA:-/usr/local/hestia}/log"
+    local log_dir="${HESTIA:-/usr/local/vhestia}/log"
     local log_file="$log_dir/mail.log"
     
     mkdir -p "$log_dir"

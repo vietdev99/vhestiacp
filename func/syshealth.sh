@@ -587,17 +587,17 @@ function syshealth_repair_system_cronjobs() {
 	hour=$(gen_pass '1234567' '1')
 	echo "MAILTO=$email" > /var/spool/cron/crontabs/hestiaweb
 	echo "CONTENT_TYPE=\"text/plain; charset=utf-8\"" >> /var/spool/cron/crontabs/hestiaweb
-	echo "*/2 * * * * sudo /usr/local/hestia/bin/v-update-sys-queue restart" >> /var/spool/cron/crontabs/hestiaweb
-	echo "10 00 * * * sudo /usr/local/hestia/bin/v-update-sys-queue daily" >> /var/spool/cron/crontabs/hestiaweb
-	echo "15 02 * * * sudo /usr/local/hestia/bin/v-update-sys-queue disk" >> /var/spool/cron/crontabs/hestiaweb
-	echo "10 00 * * * sudo /usr/local/hestia/bin/v-update-sys-queue traffic" >> /var/spool/cron/crontabs/hestiaweb
-	echo "30 03 * * * sudo /usr/local/hestia/bin/v-update-sys-queue webstats" >> /var/spool/cron/crontabs/hestiaweb
-	echo "*/5 * * * * sudo /usr/local/hestia/bin/v-update-sys-queue backup" >> /var/spool/cron/crontabs/hestiaweb
-	echo "10 05 * * * sudo /usr/local/hestia/bin/v-backup-users" >> /var/spool/cron/crontabs/hestiaweb
-	echo "20 00 * * * sudo /usr/local/hestia/bin/v-update-user-stats" >> /var/spool/cron/crontabs/hestiaweb
-	echo "*/5 * * * * sudo /usr/local/hestia/bin/v-update-sys-rrd" >> /var/spool/cron/crontabs/hestiaweb
-	echo "$min $hour * * * sudo /usr/local/hestia/bin/v-update-letsencrypt-ssl" >> /var/spool/cron/crontabs/hestiaweb
-	echo "41 4 * * * sudo /usr/local/hestia/bin/v-update-sys-hestia-all" >> /var/spool/cron/crontabs/hestiaweb
+	echo "*/2 * * * * sudo /usr/local/vhestia/bin/v-update-sys-queue restart" >> /var/spool/cron/crontabs/hestiaweb
+	echo "10 00 * * * sudo /usr/local/vhestia/bin/v-update-sys-queue daily" >> /var/spool/cron/crontabs/hestiaweb
+	echo "15 02 * * * sudo /usr/local/vhestia/bin/v-update-sys-queue disk" >> /var/spool/cron/crontabs/hestiaweb
+	echo "10 00 * * * sudo /usr/local/vhestia/bin/v-update-sys-queue traffic" >> /var/spool/cron/crontabs/hestiaweb
+	echo "30 03 * * * sudo /usr/local/vhestia/bin/v-update-sys-queue webstats" >> /var/spool/cron/crontabs/hestiaweb
+	echo "*/5 * * * * sudo /usr/local/vhestia/bin/v-update-sys-queue backup" >> /var/spool/cron/crontabs/hestiaweb
+	echo "10 05 * * * sudo /usr/local/vhestia/bin/v-backup-users" >> /var/spool/cron/crontabs/hestiaweb
+	echo "20 00 * * * sudo /usr/local/vhestia/bin/v-update-user-stats" >> /var/spool/cron/crontabs/hestiaweb
+	echo "*/5 * * * * sudo /usr/local/vhestia/bin/v-update-sys-rrd" >> /var/spool/cron/crontabs/hestiaweb
+	echo "$min $hour * * * sudo /usr/local/vhestia/bin/v-update-letsencrypt-ssl" >> /var/spool/cron/crontabs/hestiaweb
+	echo "41 4 * * * sudo /usr/local/vhestia/bin/v-update-sys-hestia-all" >> /var/spool/cron/crontabs/hestiaweb
 }
 
 # Adapt Port Listing in HESTIA NGINX Backend
@@ -619,7 +619,7 @@ function syshealth_adapt_hestia_nginx_listen_ports() {
 
 	# Adapt port listing in nginx.conf depended on availability of IPV4 and IPV6 network interface
 	# VHestiaCP: hestia-nginx may not be installed when panel runs on PM2 directly
-	NGINX_CONF="/usr/local/hestia/nginx/conf/nginx.conf"
+	NGINX_CONF="/usr/local/vhestia/nginx/conf/nginx.conf"
 	if [ -f "$NGINX_CONF" ]; then
 		if [ -z "$ipv4_scope_global" ]; then
 			sed -i 's/^\([ \t]*listen[ \t]*[0-9]\{1,5\}.*\)/#\1/' "$NGINX_CONF"
@@ -636,7 +636,7 @@ function syshealth_adapt_hestia_nginx_listen_ports() {
 
 syshealth_adapt_nginx_resolver() {
 	# VHestiaCP: hestia-nginx may not be installed when panel runs on PM2 directly
-	NGINX_CONF="/usr/local/hestia/nginx/conf/nginx.conf"
+	NGINX_CONF="/usr/local/vhestia/nginx/conf/nginx.conf"
 	[ ! -f "$NGINX_CONF" ] && return
 	if grep -qw "1.0.0.1 8.8.4.4 1.1.1.1 8.8.8.8" "$NGINX_CONF"; then
 		for nameserver in $(grep -is '^nameserver' /etc/resolv.conf | cut -d' ' -f2 | tr '\r\n' ' ' | xargs); do

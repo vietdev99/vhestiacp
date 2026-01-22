@@ -208,3 +208,27 @@ Development/testing server: `192.168.0.125`
 
 - [MongoDB Configuration](docs/docs/server-administration/databases.md#mongodb-vhestiacp)
 - [HestiaCP Documentation](https://docs.hestiacp.com/)
+## Current Session Context (2026-01-23)
+
+### Servers Involved
+- **`mainpentifine` (152.53.37.21:2299)**: Primary server. Applied MongoDB clusterMode fix and restarted PM2.
+- **`failoverpw` (152.53.52.248:2299)**: Failover server. Applied MongoDB clusterMode fix.
+- **`fwco` (152.53.80.190:2299)**: New server integrated.
+  - Admin password: `hajdyaiydas8d678aJKGAJD78a6d`
+  - Fixed `/etc/hestia/hestia.conf` symlink and added `HESTIA='/usr/local/hestia'`.
+  - Created `/usr/local/hestia/log/error.log`.
+  - HAProxy adopted for `fwco` user (3 domains). Admin's duplicate HAProxy config removed for isolation.
+
+### Key Fixes
+1. **MongoDB clusterMode Detection**: 
+   - Backend now parses `replication:` section in raw YAML config to detect `replicaset` mode.
+   - This prevents the UI from showing "Standalone" when the database is actually in a ReplicaSet.
+   - Applies to both default (`/api/mongodb/config`) and custom instances (`/api/mongodb/instances/:name`).
+2. **HAProxy User Isolation**: 
+   - Verified that `/api/haproxy/domains` respects the logged-in user.
+   - Fixed `v-adopt-haproxy-config` script to accept a target username.
+3. **Keyfile Path Binding**: Two-way binding implemented in `DatabaseSettings.jsx`.
+
+### Pending Verification
+- [ ] User to verify "Replica Set" display for default instance on all servers.
+- [ ] User to verify HAProxy domains are visible only under the `fwco` user on the `fwco` server.

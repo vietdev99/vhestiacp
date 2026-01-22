@@ -9,7 +9,7 @@
 user=$1
 pm_id=$2
 
-HESTIA="${HESTIA:-/usr/local/hestia}"
+HESTIA="${HESTIA:-/usr/local/vhestia}"
 
 [ -z "$user" ] && { echo "Error: User not specified"; exit 1; }
 [ -z "$pm_id" ] && { echo "Error: Process ID not specified"; exit 1; }

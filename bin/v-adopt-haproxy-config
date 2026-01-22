@@ -1,0 +1,134 @@
+#!/usr/bin/env python3
+import os
+import re
+import json
+import sys
+
+HAPROXY_CFG = '/etc/haproxy/haproxy.cfg'
+TARGET_USER = sys.argv[1] if len(sys.argv) > 1 else 'admin'
+HESTIA_DATA = f'/usr/local/hestia/data/users/{TARGET_USER}/haproxy.json'
+
+def parse_haproxy_cfg():
+    if not os.path.exists(HAPROXY_CFG):
+        print(f"Error: {HAPROXY_CFG} not found")
+        sys.exit(1)
+
+    with open(HAPROXY_CFG, 'r') as f:
+        content = f.read()
+
+    domains = []
+    
+    # Simple parser to find domains and backends in frontends
+    # This is heuristic and targets the specific style seen in user's config
+    
+    # 1. Extract frontends
+    frontends = re.split(r'\nfrontend\s+', content)
+    
+    acl_map = {} # acl_name -> domain
+    use_backend_map = {} # domain -> backend_name
+    
+    for section in frontends[1:]: # Skip preamble
+        lines = section.split('\n')
+        
+        # Parse ACLs
+        for line in lines:
+            line = line.strip()
+            # acl host_fastway hdr(host) -i fastway.co
+            match = re.match(r'acl\s+(\S+)\s+hdr\(host\)\s+-i\s+(\S+)', line)
+            if match:
+                acl_name = match.group(1)
+                domain = match.group(2)
+                acl_map[acl_name] = domain
+                
+        # Parse use_backend
+        for line in lines:
+            line = line.strip()
+            # use_backend fastway_web if host_fastway
+            match = re.match(r'use_backend\s+(\S+)\s+if\s+(\S+)', line)
+            if match:
+                backend = match.group(1)
+                condition = match.group(2)
+                
+                # If condition is single ACL
+                if condition in acl_map:
+                    domain = acl_map[condition]
+                    use_backend_map[domain] = backend
+                else:
+                    # Try splitting if multiple ACLs (e.g. "host_beta_fastway path_api")
+                    # We just take the first one that maps to a domain for simplicity
+                    parts = condition.split()
+                    for part in parts:
+                        if part in acl_map:
+                            domain = acl_map[part]
+                            # logic: multiple backends for one domain (paths)
+                            # We store first one or create multi-entry?
+                            # Hestia strict structure usually 1 domain -> 1 backend
+                            # We'll just take the first one found for now
+                            if domain not in use_backend_map:
+                                use_backend_map[domain] = backend
+                                
+    # 2. Extract backends to find IP:PORT
+    backend_server_map = {} # backend -> {host, port}
+    backends = re.split(r'\nbackend\s+', content)
+    
+    for section in backends[1:]:
+        lines = section.split('\n')
+        name_line = lines[0].strip()
+        backend_name = name_line.split()[0] # content after 'backend '
+        
+        for line in lines:
+            line = line.strip()
+            # server web1 127.0.0.1:8080 ...
+            if line.startswith('server '):
+                parts = line.split()
+                if len(parts) >= 3:
+                    address = parts[2]
+                    if ':' in address:
+                        host, port = address.split(':')
+                        backend_server_map[backend_name] = {'host': host, 'port': port}
+                        break # Take first server
+    
+    # 3. Build Result
+    for domain, backend_name in use_backend_map.items():
+        server = backend_server_map.get(backend_name, {'host': '127.0.0.1', 'port': '80'})
+        
+        entry = {
+            "domain": domain,
+            "backend": {
+                "host": server['host'],
+                "port": server['port'],
+                "type": "custom" # Mark as custom to signal it might be manual
+            },
+            "ssl": {
+                "mode": "termination" # Assumed from config
+            },
+            "enabled": True
+        }
+        domains.append(entry)
+        
+    return domains
+
+def save_json(domains):
+    data = {"domains": domains}
+    
+    # Ensure dir exists
+    dirname = os.path.dirname(HESTIA_DATA)
+    if not os.path.exists(dirname):
+        os.makedirs(dirname)
+        
+    with open(HESTIA_DATA, 'w') as f:
+        json.dump(data, f, indent=2)
+    
+    # Fix permissions
+    os.chmod(HESTIA_DATA, 0o644)
+    # chown to admin? (user 1000 usually) not sure about strict user ID, usually root ok if readable?
+    # Hestia files usually owned by root/root or user/mail. 
+    # v-list-user-haproxy-domains runs as root usually or sudo.
+    
+    print(f"Imported {len(domains)} domains to {HESTIA_DATA}")
+    for d in domains:
+        print(f"  - {d['domain']} -> {d['backend']['host']}:{d['backend']['port']}")
+
+if __name__ == "__main__":
+    domains = parse_haproxy_cfg()
+    save_json(domains)

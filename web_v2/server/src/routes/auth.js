@@ -8,7 +8,7 @@ import { authenticator } from 'otplib';
 import QRCode from 'qrcode';
 
 const router = Router();
-const HESTIA_DIR = process.env.HESTIA || '/usr/local/hestia';
+const HESTIA_DIR = process.env.HESTIA || '/usr/local/vhestia';
 const TWO_FA_DIR = path.join(HESTIA_DIR, 'data/2fa');
 
 // Ensure 2FA directory exists
@@ -58,7 +58,7 @@ router.post('/login', async (req, res) => {
 
     // Validate credentials using Hestia's v-check-user-password
     try {
-      execSync(`/usr/local/hestia/bin/v-check-user-password '${username}' '${password}'`, {
+      execSync(`/usr/local/vhestia/bin/v-check-user-password '${username}' '${password}'`, {
         encoding: 'utf8',
         stdio: ['pipe', 'pipe', 'pipe']
       });
@@ -404,7 +404,7 @@ router.delete('/2fa', authMiddleware, async (req, res) => {
     }
     
     try {
-      execSync(`/usr/local/hestia/bin/v-check-user-password '${username}' '${password}'`, {
+      execSync(`/usr/local/vhestia/bin/v-check-user-password '${username}' '${password}'`, {
         encoding: 'utf8',
         stdio: ['pipe', 'pipe', 'pipe']
       });
@@ -435,7 +435,7 @@ router.post('/2fa/regenerate-backup', authMiddleware, async (req, res) => {
     }
     
     try {
-      execSync(`/usr/local/hestia/bin/v-check-user-password '${username}' '${password}'`, {
+      execSync(`/usr/local/vhestia/bin/v-check-user-password '${username}' '${password}'`, {
         encoding: 'utf8',
         stdio: ['pipe', 'pipe', 'pipe']
       });

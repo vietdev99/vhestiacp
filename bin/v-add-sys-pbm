@@ -15,7 +15,7 @@ storage_type=${1-s3} # s3 or filesystem
 config_str=${2}
 
 # Includes
-source /etc/hestiacp/hestia.conf
+source /etc/vhestia/hestia.conf
 source $HESTIA/func/main.sh
 source_conf "$HESTIA/conf/hestia.conf"
 

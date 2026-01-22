@@ -177,7 +177,7 @@ export default function HestiaConfig() {
         <FileText className="w-4 h-4 text-gray-500" />
         <span className="text-gray-500 dark:text-dark-muted">Path:</span>
         <code className="px-2 py-1 bg-gray-100 dark:bg-dark-border rounded text-xs">
-          /usr/local/hestia/conf/hestia.conf
+          /usr/local/vhestia/conf/hestia.conf
         </code>
         {hasChanges && (
           <span className="ml-auto text-amber-600 dark:text-amber-400 flex items-center gap-1">

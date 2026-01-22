@@ -20,7 +20,7 @@ dbpassword=$4
 role=${5:-readWrite}
 
 # Includes
-source /etc/hestiacp/hestia.conf
+source /etc/vhestia/hestia.conf
 source $HESTIA/func/main.sh
 source $HESTIA/func/mongodb.sh
 source_conf "$HESTIA/conf/hestia.conf"

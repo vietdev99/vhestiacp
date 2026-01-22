@@ -17,7 +17,7 @@ dbpassword=$3
 instance=${4:-default}
 
 # Includes
-source /etc/hestiacp/hestia.conf
+source /etc/vhestia/hestia.conf
 source $HESTIA/func/main.sh
 source $HESTIA/func/mongodb.sh
 source_conf "$HESTIA/conf/hestia.conf"

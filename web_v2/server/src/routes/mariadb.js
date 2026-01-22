@@ -450,7 +450,7 @@ read_only = 0
 // MariaDB Instance Management (Multi-Instance Support)
 // ============================================================
 
-const HESTIA_DIR = process.env.HESTIA || '/usr/local/hestia';
+const HESTIA_DIR = process.env.HESTIA || '/usr/local/vhestia';
 const INSTANCES_DATA_DIR = '/var/lib/mysql-instances';
 const INSTANCES_CONF_DIR = '/etc/mysql-instances';
 

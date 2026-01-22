@@ -12,7 +12,7 @@
 user=$1
 format=${2:-plain}
 
-HESTIA="${HESTIA:-/usr/local/hestia}"
+HESTIA="${HESTIA:-/usr/local/vhestia}"
 
 # Source configs
 if [ -f "$HESTIA/conf/hestia.conf" ]; then
@@ -56,15 +56,29 @@ else
     exit 0
 fi
 
+# Detect MongoDB port from config
+MONGO_PORT="27017"
+if [ -f /etc/mongod.conf ]; then
+    port=$(grep -E "^\s*port:" /etc/mongod.conf | head -1 | awk '{print $2}')
+    [ -n "$port" ] && MONGO_PORT="$port"
+fi
+
 #----------------------------------------------------------#
 #                       Action                             #
 #----------------------------------------------------------#
 
 if [ "$format" = "json" ]; then
     # Get databases - filter out warnings and "switched to" messages
-    result=$($MONGO_SHELL --quiet -u admin -p "$ROOT_PASSWORD" --authenticationDatabase admin --eval "
+    # Match both ${user}_ prefix (HestiaCP convention) and ${user}* pattern (existing dbs)
+    result=$($MONGO_SHELL --quiet --port "$MONGO_PORT" -u admin -p "$ROOT_PASSWORD" --authenticationDatabase admin --eval "
+        var user = '${user}';
         db.adminCommand('listDatabases').databases.forEach(function(d) {
-            if (d.name.startsWith('${user}_')) {
+            // Match: user_dbname OR username... (case insensitive for first char after user)
+            // Skip system databases
+            if (['admin', 'config', 'local'].indexOf(d.name) !== -1) return;
+            // Match if starts with user_ OR exactly equals user OR starts with user (camelCase)
+            if (d.name.startsWith(user + '_') || d.name === user ||
+                (d.name.toLowerCase().startsWith(user.toLowerCase()) && d.name.length > user.length)) {
                 print(d.name + ':' + d.sizeOnDisk);
             }
         })
@@ -82,11 +96,11 @@ if [ "$format" = "json" ]; then
         [[ "$db_name" == *"switched"* ]] && continue
         
         # Get collection count
-        collections=$($MONGO_SHELL --quiet -u admin -p "$ROOT_PASSWORD" --authenticationDatabase admin --eval "print(db.getSiblingDB('$db_name').getCollectionNames().length)" 2>/dev/null | grep -oE '^[0-9]+' | head -1)
+        collections=$($MONGO_SHELL --quiet --port "$MONGO_PORT" -u admin -p "$ROOT_PASSWORD" --authenticationDatabase admin --eval "print(db.getSiblingDB('$db_name').getCollectionNames().length)" 2>/dev/null | grep -oE '^[0-9]+' | head -1)
         collections=${collections:-0}
-        
+
         # Get user count
-        users=$($MONGO_SHELL --quiet -u admin -p "$ROOT_PASSWORD" --authenticationDatabase admin --eval "print(db.getSiblingDB('$db_name').getUsers().users.length)" 2>/dev/null | grep -oE '^[0-9]+' | head -1)
+        users=$($MONGO_SHELL --quiet --port "$MONGO_PORT" -u admin -p "$ROOT_PASSWORD" --authenticationDatabase admin --eval "print(db.getSiblingDB('$db_name').getUsers().users.length)" 2>/dev/null | grep -oE '^[0-9]+' | head -1)
         users=${users:-0}
         
         # Add comma if not first
@@ -105,9 +119,14 @@ else
     echo "MongoDB Databases for: $user"
     echo "================================"
     
-    $MONGO_SHELL --quiet -u admin -p "$ROOT_PASSWORD" --authenticationDatabase admin --eval "
+    $MONGO_SHELL --quiet --port "$MONGO_PORT" -u admin -p "$ROOT_PASSWORD" --authenticationDatabase admin --eval "
+        var user = '${user}';
         db.adminCommand('listDatabases').databases.forEach(function(d) {
-            if (d.name.startsWith('${user}_')) {
+            // Skip system databases
+            if (['admin', 'config', 'local'].indexOf(d.name) !== -1) return;
+            // Match if starts with user_ OR exactly equals user OR starts with user (camelCase)
+            if (d.name.startsWith(user + '_') || d.name === user ||
+                (d.name.toLowerCase().startsWith(user.toLowerCase()) && d.name.length > user.length)) {
                 print('  - ' + d.name + ' (' + d.sizeOnDisk + ' bytes)');
             }
         })

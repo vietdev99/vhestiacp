@@ -33,12 +33,14 @@ import { authMiddleware } from './middleware/auth.js';
 
 const app = express();
 const PORT = process.env.PORT || 8083;
-const HESTIA_DIR = process.env.HESTIA || '/usr/local/hestia';
+// VHestiaCP - support both VHESTIA and HESTIA env vars
+const VHESTIA_DIR = process.env.VHESTIA || process.env.HESTIA || '/usr/local/vhestia';
+const HESTIA_DIR = VHESTIA_DIR; // Alias for backward compatibility
 
-// SSL certificates (use Hestia's certificates)
+// SSL certificates (use VHestiaCP's certificates)
 const sslOptions = {
-  key: fs.readFileSync(process.env.SSL_KEY || '/usr/local/hestia/ssl/certificate.key'),
-  cert: fs.readFileSync(process.env.SSL_CERT || '/usr/local/hestia/ssl/certificate.crt')
+  key: fs.readFileSync(process.env.SSL_KEY || `${VHESTIA_DIR}/ssl/certificate.key`),
+  cert: fs.readFileSync(process.env.SSL_CERT || `${VHESTIA_DIR}/ssl/certificate.crt`)
 };
 
 // Middleware

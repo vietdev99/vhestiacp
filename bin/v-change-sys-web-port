@@ -16,7 +16,7 @@ web_port=${1:-8080}
 web_ssl_port=${2:-8443}
 
 # Includes
-source /etc/hestiacp/hestia.conf
+source /etc/vhestia/hestia.conf
 source $HESTIA/func/main.sh
 source_conf "$HESTIA/conf/hestia.conf"
 

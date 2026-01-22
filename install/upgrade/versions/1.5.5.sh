@@ -81,13 +81,14 @@ if [ ! -f "/usr/share/keyrings/nginx-keyring.gpg" ]; then
 		echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/mariadb-keyring.gpg] https://mirror.mva-n.net/mariadb/repo/$mariadb_v/$os $codename main" > $apt/mariadb.list
 		curl -s https://mariadb.org/mariadb_release_signing_key.asc | gpg --dearmor | tee /usr/share/keyrings/mariadb-keyring.gpg > /dev/null 2>&1
 	fi
-	if [ -f "$apt/hestia.list" ]; then
-		rm $apt/hestia.list
-		echo "   [ * ] Hestia"
-		echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/hestia-keyring.gpg] https://$RHOST/ $codename main" > $apt/hestia.list
-		gpg --no-default-keyring --keyring /usr/share/keyrings/hestia-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys A189E93654F0B0E5 > /dev/null 2>&1
-		apt-key del A189E93654F0B0E5 > /dev/null 2>&1
-	fi
+	# VHestiaCP: Commenting out HestiaCP apt repository updates - VHestiaCP is standalone
+	#if [ -f "$apt/hestia.list" ]; then
+	#	rm $apt/hestia.list
+	#	echo "   [ * ] Hestia"
+	#	echo "deb [arch=$ARCH signed-by=/usr/share/keyrings/hestia-keyring.gpg] https://$RHOST/ $codename main" > $apt/hestia.list
+	#	gpg --no-default-keyring --keyring /usr/share/keyrings/hestia-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys A189E93654F0B0E5 > /dev/null 2>&1
+	#	apt-key del A189E93654F0B0E5 > /dev/null 2>&1
+	#fi
 	if [ -f "$apt/postgresql.list" ]; then
 		rm $apt/postgresql.list
 		echo "[ * ] PostgreSQL"

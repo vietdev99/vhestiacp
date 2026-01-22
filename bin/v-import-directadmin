@@ -12,10 +12,10 @@
 # Version 0.1
 # This script restore backups from DA to Hestiacp
 
-# shellcheck source=/usr/local/hestia/func/main.sh
+# shellcheck source=/usr/local/vhestia/func/main.sh
 source "$HESTIA"/func/main.sh
-# shellcheck source=/etc/hestiacp/hestia.conf
-source /etc/hestiacp/hestia.conf
+# shellcheck source=/etc/vhestia/hestia.conf
+source /etc/vhestia/hestia.conf
 # load config file
 source_conf "$HESTIA/conf/hestia.conf"
 
@@ -227,7 +227,7 @@ function run_da_db() {
 						echo "udb: $db_user"
 						echo "Password: ${md5}"
 
-						echo "DB='$db' DBUSER='$db_user' MD5='$md5' HOST='localhost' TYPE='mysql' CHARSET='UTF8' U_DISK='0' SUSPENDED='no' TIME='$time' DATE='$date'" >> /usr/local/hestia/data/users/"$directadmin_user"/db.conf
+						echo "DB='$db' DBUSER='$db_user' MD5='$md5' HOST='localhost' TYPE='mysql' CHARSET='UTF8' U_DISK='0' SUSPENDED='no' TIME='$time' DATE='$date'" >> /usr/local/vhestia/data/users/"$directadmin_user"/db.conf
 					fi
 				done < "backup/${da_db}"
 

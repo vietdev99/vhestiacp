@@ -22,7 +22,7 @@ database=$(echo "$database" | tr '[:upper:]' '[:lower:]')
 dbuser=$(echo "$dbuser" | tr '[:upper:]' '[:lower:]')
 
 # Includes
-source /etc/hestiacp/hestia.conf
+source /etc/vhestia/hestia.conf
 source $HESTIA/func/main.sh
 source_conf "$HESTIA/conf/hestia.conf"
 

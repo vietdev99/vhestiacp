@@ -14,9 +14,9 @@
 format=${1-shell}
 
 # Includes
-# shellcheck source=/etc/hestiacp/hestia.conf
-source /etc/hestiacp/hestia.conf
-# shellcheck source=/usr/local/hestia/func/main.sh
+# shellcheck source=/etc/vhestia/hestia.conf
+source /etc/vhestia/hestia.conf
+# shellcheck source=/usr/local/vhestia/func/main.sh
 source $HESTIA/func/main.sh
 # load config file
 source_conf "$HESTIA/conf/hestia.conf"
@@ -366,25 +366,69 @@ fi
 
 # VHestiaCP: Checking MongoDB system
 if [ -n "$MONGODB_SYSTEM" ] && [ "$MONGODB_SYSTEM" = 'yes' ]; then
-	get_srv_state mongod
-	# Fallback: check systemctl if pidof failed
-	if [ "$state" = 'stopped' ]; then
-		if systemctl is-active --quiet mongod 2>/dev/null; then
-			state='running'
-			# Get PID from systemctl
-			main_pid=$(systemctl show mongod --property=MainPID --value 2>/dev/null)
-			if [ -n "$main_pid" ] && [ "$main_pid" != "0" ]; then
-				# Get CPU and memory from ps
-				ps_info=$(ps -p "$main_pid" -o pcpu=,rss= 2>/dev/null)
-				if [ -n "$ps_info" ]; then
-					cpu=$(echo "$ps_info" | awk '{print int($1 * 10)}')
-					mem=$(echo "$ps_info" | awk '{print int($2/1024)}')
-				fi
-			fi
-		fi
-	fi
-	data="$data\nNAME='mongodb' SYSTEM='nosql database'"
-	data="$data STATE='$state' CPU='$cpu' MEM='$mem' RTIME='$rtime'"
+    show_generic=true
+    
+    # If named instances exist, be strict about generic mongodb
+    if [ -d "/etc/mongodb-instances" ] && [ "$(ls -A /etc/mongodb-instances/*.conf 2>/dev/null)" ]; then
+        if ! systemctl is-active --quiet mongod 2>/dev/null; then
+            show_generic=false
+        fi
+    fi
+
+    if [ "$show_generic" = "true" ]; then
+        get_srv_state mongod
+        # Fallback: check systemctl if pidof failed
+        if [ "$state" = 'stopped' ]; then
+            if systemctl is-active --quiet mongod 2>/dev/null; then
+                state='running'
+                # Get PID from systemctl
+                main_pid=$(systemctl show mongod --property=MainPID --value 2>/dev/null)
+                if [ -n "$main_pid" ] && [ "$main_pid" != "0" ]; then
+                    # Get CPU and memory from ps
+                    ps_info=$(ps -p "$main_pid" -o pcpu=,rss= 2>/dev/null)
+                    if [ -n "$ps_info" ]; then
+                        cpu=$(echo "$ps_info" | awk '{print int($1 * 10)}')
+                        mem=$(echo "$ps_info" | awk '{print int($2/1024)}')
+                    fi
+                fi
+            fi
+        fi
+        
+        # Only show if explicitly running or if we didn't force-hide it
+        if [ "$state" = "running" ] || [ "$show_generic" = "true" ]; then
+             data="$data\nNAME='mongodb' SYSTEM='nosql database'"
+             data="$data STATE='$state' CPU='$cpu' MEM='$mem' RTIME='$rtime'"
+        fi
+    fi
+
+    # Check for additional named instances
+    if [ -d "/etc/mongodb-instances" ]; then
+        for conf in /etc/mongodb-instances/*.conf; do
+            if [ -f "$conf" ]; then
+                inst_name=$(basename "$conf" .conf)
+                service_name="mongod-${inst_name}"
+                
+                # Check status
+                get_srv_state "$service_name"
+                if [ "$state" = 'stopped' ]; then
+                     if systemctl is-active --quiet "$service_name" 2>/dev/null; then
+                        state='running'
+                        main_pid=$(systemctl show "$service_name" --property=MainPID --value 2>/dev/null)
+                        if [ -n "$main_pid" ] && [ "$main_pid" != "0" ]; then
+                            ps_info=$(ps -p "$main_pid" -o pcpu=,rss= 2>/dev/null)
+                            if [ -n "$ps_info" ]; then
+                                cpu=$(echo "$ps_info" | awk '{print int($1 * 10)}')
+                                mem=$(echo "$ps_info" | awk '{print int($2/1024)}')
+                            fi
+                        fi
+                     fi
+                fi
+                
+                data="$data\nNAME='$service_name' SYSTEM='mongodb ($inst_name)'"
+                data="$data STATE='$state' CPU='$cpu' MEM='$mem' RTIME='$rtime'"
+            fi
+        done
+    fi
 fi
 
 # VHestiaCP: Checking RabbitMQ system

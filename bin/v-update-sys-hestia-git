@@ -14,9 +14,9 @@
 #                Variables & Functions                     #
 #----------------------------------------------------------#
 
-# shellcheck source=/etc/hestiacp/hestia.conf
-source /etc/hestiacp/hestia.conf
-# shellcheck source=/usr/local/hestia/func/main.sh
+# shellcheck source=/etc/vhestia/hestia.conf
+source /etc/vhestia/hestia.conf
+# shellcheck source=/usr/local/vhestia/func/main.sh
 source $HESTIA/func/main.sh
 # load config file
 source_conf "$HESTIA/conf/hestia.conf"
@@ -220,7 +220,7 @@ if [ -n "$branch" ]; then
 		echo "[!] Changed system release branch to: $branch."
 	fi
 else
-	source /usr/local/hestia/conf/hestia.conf
+	source /usr/local/vhestia/conf/hestia.conf
 	branch=$RELEASE_BRANCH
 	branch_check=$(curl -s --head -w %{http_code} https://raw.githubusercontent.com/$fork/hestiacp/$branch/src/deb/hestia/control -o /dev/null)
 	if [ "$branch_check" -ne "200" ]; then
@@ -305,7 +305,7 @@ elif [ -d $SRC_DIR ]; then
 	download_file $HESTIA_ARCHIVE_LINK '-' 'fresh' | tar xz
 fi
 
-mkdir -p $BUILD_DIR_HESTIA/usr/local/hestia
+mkdir -p $BUILD_DIR_HESTIA/usr/local/vhestia
 
 # Move needed directories
 cd $BUILD_DIR/hestiacp-$branch_dash
@@ -313,17 +313,17 @@ cd $BUILD_DIR/hestiacp-$branch_dash
 npm ci
 npm run build
 
-cp -rf bin func install web $BUILD_DIR_HESTIA/usr/local/hestia/
+cp -rf bin func install web $BUILD_DIR_HESTIA/usr/local/vhestia/
 
 # Set permissions
-find $BUILD_DIR_HESTIA/usr/local/hestia/ -type f -exec chmod -x {} \;
+find $BUILD_DIR_HESTIA/usr/local/vhestia/ -type f -exec chmod -x {} \;
 
-# Allow send email via /usr/local/hestia/web/inc/mail-wrapper.php via cli
-chmod +x $BUILD_DIR_HESTIA/usr/local/hestia/web/inc/mail-wrapper.php
+# Allow send email via /usr/local/vhestia/web/inc/mail-wrapper.php via cli
+chmod +x $BUILD_DIR_HESTIA/usr/local/vhestia/web/inc/mail-wrapper.php
 # Allow the executable to be executed
-chmod +x $BUILD_DIR_HESTIA/usr/local/hestia/bin/*
-find $BUILD_DIR_HESTIA/usr/local/hestia/install/ \( -name '*.sh' \) -exec chmod +x {} \;
-chmod -x $BUILD_DIR_HESTIA/usr/local/hestia/install/*.sh
+chmod +x $BUILD_DIR_HESTIA/usr/local/vhestia/bin/*
+find $BUILD_DIR_HESTIA/usr/local/vhestia/install/ \( -name '*.sh' \) -exec chmod +x {} \;
+chmod -x $BUILD_DIR_HESTIA/usr/local/vhestia/install/*.sh
 chown -R root:root $BUILD_DIR_HESTIA
 
 if [ "$BUILD_DEB" = true ]; then

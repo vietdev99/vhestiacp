@@ -35,7 +35,7 @@ const isPathSafe = (requestedPath) => {
     '/var/www',
     '/var/log',
     '/etc',
-    '/usr/local/hestia',
+    '/usr/local/vhestia',
     '/backup',
     '/tmp'
   ];
