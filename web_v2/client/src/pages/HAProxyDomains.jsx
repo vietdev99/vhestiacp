@@ -190,13 +190,29 @@ export default function HAProxyDomains() {
                     <div className="flex items-center gap-2">
                       <Server className="w-4 h-4 text-gray-400" />
                       <span className="font-mono text-sm">
-                        {item.backend?.host}:{item.backend?.port}
+                        {item.routingMode === 'advanced' || (item.aclRules && item.aclRules.length > 0) ? (
+                          <span className="text-purple-600 dark:text-purple-400 font-medium">
+                            Multiple (ACL)
+                          </span>
+                        ) : item.defaultBackend === '__system__' ? (
+                          <span className="text-green-600 dark:text-green-400">
+                            System Web Server
+                          </span>
+                        ) : item.backend?.host && item.backend?.port ? (
+                          `${item.backend.host}:${item.backend.port}`
+                        ) : item.backends && item.backends.length > 0 ? (
+                          item.backends[0].name
+                        ) : (
+                          <span className="text-gray-400">-</span>
+                        )}
                       </span>
                     </div>
                   </td>
                   <td className="px-4 py-4 text-center">
-                    <span className="badge badge-info">
-                      {item.backend?.type || 'pm2'}
+                    <span className={`badge ${item.routingMode === 'advanced' ? 'badge-purple' : 'badge-info'}`}>
+                      {item.routingMode === 'advanced' || (item.aclRules && item.aclRules.length > 0)
+                        ? 'ACL'
+                        : item.backend?.type || (item.backends?.length > 0 ? 'pool' : 'custom')}
                     </span>
                   </td>
                   <td className="px-4 py-4 text-center">
