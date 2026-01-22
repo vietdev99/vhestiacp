@@ -135,8 +135,7 @@ if [ -n "$local_changes" ]; then
         echo "$local_changes"
         exit 1
     else
-        echo "Force flag set, stashing local changes..."
-        git stash save "Auto-stash before update $timestamp"
+        echo "Force flag set, performing hard reset to remote..."
     fi
 fi
 
@@ -148,17 +147,19 @@ fi
 echo ""
 echo "Applying updates..."
 
-# Pull updates
-if git pull origin "$VHESTIA_BRANCH" --ff-only 2>/dev/null; then
-    echo "Git pull successful"
+# Use hard reset for force mode or if pull fails
+if [ "$force" = "force" ] || [ -n "$local_changes" ]; then
+    echo "Hard resetting to origin/$VHESTIA_BRANCH..."
+    git reset --hard "origin/$VHESTIA_BRANCH"
+    echo "Hard reset successful"
 else
-    echo "Fast-forward failed, trying rebase..."
-    if git pull origin "$VHESTIA_BRANCH" --rebase 2>/dev/null; then
-        echo "Git pull with rebase successful"
+    # Try normal pull first
+    if git pull origin "$VHESTIA_BRANCH" --ff-only 2>/dev/null; then
+        echo "Git pull successful"
     else
-        echo "Error: Failed to pull updates"
-        echo "Please resolve conflicts manually"
-        exit 1
+        echo "Fast-forward failed, performing hard reset..."
+        git reset --hard "origin/$VHESTIA_BRANCH"
+        echo "Hard reset successful"
     fi
 fi
 
