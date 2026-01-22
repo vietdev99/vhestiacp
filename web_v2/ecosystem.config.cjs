@@ -1,3 +1,8 @@
+// Auto-detect HESTIA path from environment or use default
+const fs = require('fs');
+const HESTIA_PATH = process.env.HESTIA || process.env.VHESTIA ||
+  (fs.existsSync('/usr/local/hestia') ? '/usr/local/hestia' : '/usr/local/vhestia');
+
 module.exports = {
   apps: [
     {
@@ -13,11 +18,11 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         PORT: 8083,
-        // VHestiaCP paths - set both for compatibility
-        VHESTIA: '/usr/local/vhestia',
-        HESTIA: '/usr/local/vhestia',
-        SSL_KEY: '/usr/local/vhestia/ssl/certificate.key',
-        SSL_CERT: '/usr/local/vhestia/ssl/certificate.crt'
+        // VHestiaCP paths - auto-detected, set both for compatibility
+        VHESTIA: HESTIA_PATH,
+        HESTIA: HESTIA_PATH,
+        SSL_KEY: `${HESTIA_PATH}/ssl/certificate.key`,
+        SSL_CERT: `${HESTIA_PATH}/ssl/certificate.crt`
       }
     }
   ]
