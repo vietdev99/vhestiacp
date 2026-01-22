@@ -13,7 +13,7 @@
 #                                                                           #
 #===========================================================================#
 
-VHESTIA_VERSION="2.0.0"
+VHESTIA_VERSION="2.0.1"
 
 # Get script directory
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

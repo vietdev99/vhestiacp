@@ -18,9 +18,6 @@ import {
 import api from '../utils/api';
 import toast from 'react-hot-toast';
 
-// VHestiaCP Version - Update this when releasing new versions
-const VHESTIACP_VERSION = '2.0.1';
-
 export default function UpdateSettings() {
   const queryClient = useQueryClient();
   const [expandedLog, setExpandedLog] = useState(null);
@@ -138,7 +135,7 @@ export default function UpdateSettings() {
               <h1 className="text-2xl font-bold">VHestiaCP Updates</h1>
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-primary-100 dark:bg-primary-900/30 text-primary-700 dark:text-primary-300 text-sm font-semibold">
                 <Package className="w-4 h-4" />
-                v{VHESTIACP_VERSION}
+                v{updateStatus?.current_version || '...'}
               </span>
             </div>
             <p className="text-gray-500 dark:text-dark-muted mt-1">
