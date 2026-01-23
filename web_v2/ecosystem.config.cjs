@@ -10,7 +10,7 @@ module.exports = {
       cwd: './server',
       script: 'src/index.js',
       node_args: '--experimental-modules',
-      instances: 2,
+      instances: 1,
       exec_mode: 'cluster',
       autorestart: true,
       watch: false,
