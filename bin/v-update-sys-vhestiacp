@@ -178,6 +178,12 @@ find "$HESTIA/bin" "$HESTIA/func" -type f \( -name "*.sh" -o -name "v-*" \) -exe
 # Make scripts executable
 echo "Setting permissions..."
 chmod +x "$HESTIA/bin/"* 2>/dev/null
+chmod +x "$HESTIA/func/"*.sh 2>/dev/null
+chmod +x "$HESTIA/install/"*.sh 2>/dev/null
+chmod +x "$HESTIA/install/upgrade/"*.sh 2>/dev/null
+chmod +x "$HESTIA/install/upgrade/manual/"*.sh 2>/dev/null
+chmod +x "$HESTIA/install/upgrade/versions/"*.sh 2>/dev/null
+chmod +x "$HESTIA/migrations/"*.sh 2>/dev/null
 
 # Rebuild web_v2 panel (always rebuild to ensure consistency)
 if [ -d "$HESTIA/web_v2" ]; then
