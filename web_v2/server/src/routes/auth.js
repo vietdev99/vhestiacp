@@ -58,7 +58,7 @@ router.post('/login', async (req, res) => {
 
     // Validate credentials using Hestia's v-check-user-password
     try {
-      execSync(`/usr/local/vhestia/bin/v-check-user-password '${username}' '${password}'`, {
+      execSync(`${HESTIA_DIR}/bin/v-check-user-password '${username}' '${password}'`, {
         encoding: 'utf8',
         stdio: ['pipe', 'pipe', 'pipe']
       });
@@ -404,14 +404,14 @@ router.delete('/2fa', authMiddleware, async (req, res) => {
     }
     
     try {
-      execSync(`/usr/local/vhestia/bin/v-check-user-password '${username}' '${password}'`, {
+      execSync(`${HESTIA_DIR}/bin/v-check-user-password '${username}' '${password}'`, {
         encoding: 'utf8',
         stdio: ['pipe', 'pipe', 'pipe']
       });
     } catch (err) {
       return res.status(401).json({ error: 'Invalid password' });
     }
-    
+
     delete2FA(username);
     
     res.json({ success: true, message: 'Two-factor authentication disabled' });
@@ -435,14 +435,14 @@ router.post('/2fa/regenerate-backup', authMiddleware, async (req, res) => {
     }
     
     try {
-      execSync(`/usr/local/vhestia/bin/v-check-user-password '${username}' '${password}'`, {
+      execSync(`${HESTIA_DIR}/bin/v-check-user-password '${username}' '${password}'`, {
         encoding: 'utf8',
         stdio: ['pipe', 'pipe', 'pipe']
       });
     } catch (err) {
       return res.status(401).json({ error: 'Invalid password' });
     }
-    
+
     const twoFAConfig = load2FA(username);
     if (!twoFAConfig?.enabled) {
       return res.status(400).json({ error: '2FA not enabled' });
