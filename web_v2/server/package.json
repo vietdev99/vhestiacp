@@ -1,6 +1,6 @@
 {
   "name": "vhestia-panel-server",
-  "version": "1.0.0",
+  "version": "1.0.9",
   "description": "VHestiaCP Web Panel v2 - Server",
   "main": "src/index.js",
   "type": "module",
