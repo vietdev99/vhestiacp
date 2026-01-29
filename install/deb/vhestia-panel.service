@@ -1,23 +1,27 @@
 [Unit]
-Description=VHestia Panel (PM2 managed Node.js application)
-Documentation=https://github.com/vhestiacp
+Description=VHestiaCP Web Panel v2
 After=network.target
 
 [Service]
-Type=forking
+Type=simple
 User=root
-LimitNOFILE=infinity
-LimitNPROC=infinity
-LimitCORE=infinity
-Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/local/hestia/bin
-Environment=PM2_HOME=/root/.pm2
-PIDFile=/root/.pm2/pm2.pid
-Restart=on-failure
+WorkingDirectory=/usr/local/hestia/web_v2/server
+ExecStart=/usr/local/bin/node src/index.js
+Restart=always
 RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=8083
+Environment=HESTIA=/usr/local/hestia
+Environment=VHESTIA=/usr/local/hestia
+Environment=SSL_KEY=/usr/local/hestia/ssl/certificate.key
+Environment=SSL_CERT=/usr/local/hestia/ssl/certificate.crt
 
-ExecStart=/usr/bin/pm2 start /usr/local/hestia/web_v2/ecosystem.config.cjs --env production
-ExecReload=/usr/bin/pm2 reload vhestia-panel --update-env
-ExecStop=/usr/bin/pm2 stop vhestia-panel
+# Logging
+StandardOutput=append:/usr/local/hestia/log/vhestia-panel.log
+StandardError=append:/usr/local/hestia/log/vhestia-panel-error.log
+
+# Security
+NoNewPrivileges=true
 
 [Install]
 WantedBy=multi-user.target

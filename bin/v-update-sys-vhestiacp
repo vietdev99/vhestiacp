@@ -226,12 +226,13 @@ if [ -d "$HESTIA/web_v2" ]; then
             fi
         fi
 
-        # Restart PM2 vhestia-panel if running
-        if command -v pm2 &> /dev/null; then
-            if pm2 list 2>/dev/null | grep -q "vhestia-panel"; then
-                echo "Restarting vhestia-panel..."
-                pm2 restart vhestia-panel 2>&1 | tail -3
-            fi
+        # Restart vhestia-panel service
+        if systemctl is-active --quiet vhestia-panel; then
+            echo "Restarting vhestia-panel (systemd)..."
+            systemctl restart vhestia-panel
+        elif command -v pm2 &> /dev/null && pm2 list 2>/dev/null | grep -q "vhestia-panel"; then
+            echo "Restarting vhestia-panel (PM2)..."
+            pm2 restart vhestia-panel 2>&1 | tail -3
         fi
     fi
 fi

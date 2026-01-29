@@ -81,37 +81,57 @@ else
     systemctl start nginx
 fi
 
-# Step 4: Check web_v2 PM2 status
-if command -v pm2 &>/dev/null; then
-    if pm2 list 2>/dev/null | grep -q "vhestia"; then
-        echo "VHestiaCP web_v2 (PM2): running (OK)"
-    else
-        echo "Warning: VHestiaCP web_v2 not running in PM2"
-
-        # Try to start if ecosystem file exists
-        if [ -f "$HESTIA/web_v2/ecosystem.config.cjs" ]; then
-            echo "Installing web_v2 dependencies..."
-            cd $HESTIA/web_v2/server
-            if [ -f "package.json" ]; then
-                npm install --omit=dev --no-audit --no-fund
-            fi
-            
-            # Setup CLI mailer
-            if [ -f "$HESTIA/web_v2/server/cli/send-mail.js" ]; then
-                chmod +x "$HESTIA/web_v2/server/cli/send-mail.js"
-                echo "VHestiaCP mailer configured."
-            fi
-
-            echo "Starting web_v2..."
-            cd $HESTIA/web_v2
-            pm2 start ecosystem.config.cjs
-            pm2 save
-        else
-            echo "Please start web_v2 manually: cd $HESTIA/web_v2 && pm2 start ecosystem.config.cjs"
-        fi
+# Step 4: Setup web_v2 service (prefer systemd over PM2)
+install_dependencies() {
+    echo "Installing web_v2 dependencies..."
+    cd "$HESTIA/web_v2/server" || return
+    if [ -f "package.json" ]; then
+        npm install --omit=dev --no-audit --no-fund
     fi
+
+    # Setup CLI mailer
+    if [ -f "$HESTIA/web_v2/server/cli/send-mail.js" ]; then
+        chmod +x "$HESTIA/web_v2/server/cli/send-mail.js"
+        echo "VHestiaCP mailer configured."
+    fi
+}
+
+# Check if systemd service is active
+if systemctl is-active --quiet vhestia-panel; then
+    echo "VHestiaCP web_v2 (systemd): running (OK)"
+# Check if PM2 is running (legacy)
+elif command -v pm2 &>/dev/null && pm2 list 2>/dev/null | grep -q "vhestia"; then
+    echo "VHestiaCP web_v2 (PM2): running (OK)"
+    echo "Note: Consider migrating to systemd for better resource usage"
 else
-    echo "Warning: PM2 not installed. VHestiaCP web_v2 requires PM2."
+    echo "VHestiaCP web_v2 not running. Setting up..."
+
+    install_dependencies
+
+    # Install systemd service file
+    if [ -f "$HESTIA/install/deb/vhestia-panel.service" ]; then
+        echo "Installing systemd service..."
+        cp "$HESTIA/install/deb/vhestia-panel.service" /etc/systemd/system/
+        systemctl daemon-reload
+        systemctl enable vhestia-panel
+        systemctl start vhestia-panel
+
+        if systemctl is-active --quiet vhestia-panel; then
+            echo "VHestiaCP web_v2 started successfully (systemd)"
+        else
+            echo "Error: Failed to start vhestia-panel service"
+            echo "Check logs: journalctl -u vhestia-panel"
+        fi
+    # Fallback to PM2 if systemd service file not available
+    elif command -v pm2 &>/dev/null && [ -f "$HESTIA/web_v2/ecosystem.config.cjs" ]; then
+        echo "Starting web_v2 with PM2..."
+        cd "$HESTIA/web_v2" || exit 1
+        pm2 start ecosystem.config.cjs
+        pm2 save
+    else
+        echo "Error: Cannot start VHestiaCP web_v2"
+        echo "Missing systemd service file and PM2 not available"
+    fi
 fi
 
 # Step 5: Verify port 8083 is accessible
