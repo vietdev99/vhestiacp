@@ -226,13 +226,17 @@ if [ -d "$HESTIA/web_v2" ]; then
             fi
         fi
 
-        # Restart vhestia-panel service
-        if systemctl is-active --quiet vhestia-panel; then
+        # Auto-migrate PM2 to systemd if detected
+        if command -v pm2 &> /dev/null && pm2 list 2>/dev/null | grep -q "vhestia"; then
+            if [ -f "$HESTIA/install/upgrade/manual/migrate_pm2_to_systemd.sh" ]; then
+                echo ""
+                echo "Detected PM2 running vhestia-panel. Migrating to systemd..."
+                bash "$HESTIA/install/upgrade/manual/migrate_pm2_to_systemd.sh"
+            fi
+        # Restart vhestia-panel service if already using systemd
+        elif systemctl is-active --quiet vhestia-panel; then
             echo "Restarting vhestia-panel (systemd)..."
             systemctl restart vhestia-panel
-        elif command -v pm2 &> /dev/null && pm2 list 2>/dev/null | grep -q "vhestia-panel"; then
-            echo "Restarting vhestia-panel (PM2)..."
-            pm2 restart vhestia-panel 2>&1 | tail -3
         fi
     fi
 fi

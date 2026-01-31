@@ -12,6 +12,7 @@ export default function DatabaseSettings() {
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(searchParams.get('tab') || 'mysql');
+  const useRef = require('react').useRef;
 
   // Update URL when tab changes
   const handleTabChange = (tabId) => {
@@ -1967,7 +1968,8 @@ function MongoDBInstanceManager({ rcloneRemotes = [] }) {
       const res = await api.get('/api/mongodb/instances');
       return res.data;
     },
-    refetchInterval: 10000
+    refetchInterval: 10000,
+    refetchIntervalInBackground: false // Don't refetch in background to avoid overwriting user edits
   });
 
   const instances = instancesData?.instances || [];
@@ -2014,11 +2016,20 @@ function MongoDBInstanceManager({ rcloneRemotes = [] }) {
     enabled: !!activeInstance
   });
 
+  // Track if this is initial load or instance switch
+  const prevActiveInstanceRef = useRef(activeInstance);
+
   // Update edit state when instance config loads
   useEffect(() => {
-    if (instanceConfig) {
+    // Only update editConfig when:
+    // 1. Instance changed (user switched to different instance)
+    // 2. Initial load (no previous data)
+    const isInstanceChanged = prevActiveInstanceRef.current !== activeInstance;
+    const isInitialLoad = !editConfig.dataDir && !configText;
+
+    if (instanceConfig && (isInstanceChanged || isInitialLoad)) {
       const settings = instanceConfig.settings || {};
-      
+
       // Parse keyFile from config text if not in settings
       let extractedKeyfile = '';
       if (instanceConfig.config) {
@@ -2043,8 +2054,11 @@ function MongoDBInstanceManager({ rcloneRemotes = [] }) {
         }
       });
       setConfigText(instanceConfig.config || '');
+
+      // Update the ref
+      prevActiveInstanceRef.current = activeInstance;
     }
-  }, [instanceConfig, selectedInstance]);
+  }, [instanceConfig, selectedInstance, activeInstance]);
 
   // Save config mutation
   const saveConfigMutation = useMutation({
