@@ -3626,24 +3626,44 @@ if [ -n "$srcdir" ] && [ -d "$srcdir/web_v2" ]; then
 	# Install server dependencies
 	echo "    - Installing server dependencies..."
 	cd "$VHESTIA/web_v2/server"
-	npm install --production > /dev/null 2>&1
+	npm install --omit=dev --no-audit --no-fund > /dev/null 2>&1
 
-	# Start PM2
-	echo "    - Starting VHestiaCP Panel with PM2..."
-	cd "$VHESTIA/web_v2"
-	pm2 start ecosystem.config.cjs > /dev/null 2>&1
-	pm2 save > /dev/null 2>&1
+	# Setup CLI mailer
+	if [ -f "$VHESTIA/web_v2/server/cli/send-mail.js" ]; then
+		chmod +x "$VHESTIA/web_v2/server/cli/send-mail.js"
+	fi
 
-	# Setup PM2 startup on boot
-	pm2 startup systemd -u root --hp /root > /dev/null 2>&1
+	# Setup systemd service (preferred over PM2)
+	echo "    - Setting up VHestiaCP Panel with systemd..."
+	if [ -f "$VHESTIA/install/deb/vhestia-panel.service" ]; then
+		cp "$VHESTIA/install/deb/vhestia-panel.service" /etc/systemd/system/
+		systemctl daemon-reload
+		systemctl enable vhestia-panel > /dev/null 2>&1
+		systemctl start vhestia-panel > /dev/null 2>&1
 
-	# Verify panel is running
-	sleep 2
-	if pm2 list | grep -q "vhestia-panel"; then
-		echo "    - VHestiaCP Panel started successfully"
-		echo "    - Panel URL: https://$ip:$port"
+		# Verify panel is running
+		sleep 3
+		if systemctl is-active --quiet vhestia-panel; then
+			echo "    - VHestiaCP Panel started successfully (systemd)"
+			echo "    - Panel URL: https://$ip:$port"
+		else
+			echo "    - Warning: Panel service failed to start"
+			echo "    - Check logs: journalctl -u vhestia-panel -n 50"
+		fi
 	else
-		echo "    - Warning: Panel may not have started correctly"
+		echo "    - Warning: systemd service file not found, using PM2 fallback..."
+		cd "$VHESTIA/web_v2"
+		pm2 start ecosystem.config.cjs > /dev/null 2>&1
+		pm2 save > /dev/null 2>&1
+		pm2 startup systemd -u root --hp /root > /dev/null 2>&1
+
+		sleep 2
+		if pm2 list | grep -q "vhestia-panel"; then
+			echo "    - VHestiaCP Panel started with PM2"
+			echo "    - Panel URL: https://$ip:$port"
+		else
+			echo "    - Warning: Panel may not have started correctly"
+		fi
 	fi
 else
 	echo "    - Warning: web_v2 directory not found in source"
