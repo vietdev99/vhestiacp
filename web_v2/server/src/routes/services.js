@@ -145,7 +145,8 @@ const AVAILABLE_SERVICES = {
     description: 'JavaScript Runtime',
     category: 'other',
     addCmd: 'v-add-sys-nodejs',
-    deleteCmd: null
+    deleteCmd: null,
+    isRuntime: true // Not a service, just a runtime binary
   }
 };
 
@@ -297,11 +298,12 @@ router.get('/', adminMiddleware, async (req, res) => {
         description: config.description,
         category: config.category,
         installed: installed,
-        running: running?.STATE === 'running',
+        running: config.isRuntime ? installed : running?.STATE === 'running', // Runtime tools are "running" if installed
         cpu: running?.CPU || '0',
         memory: running?.MEM || '0',
         canInstall: !!config.addCmd,
-        canUninstall: !!config.deleteCmd
+        canUninstall: !!config.deleteCmd,
+        isRuntime: !!config.isRuntime
       };
     });
 

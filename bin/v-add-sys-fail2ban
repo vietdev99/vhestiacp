@@ -80,6 +80,14 @@ if [ "$MAIL_SYSTEM" != "exim4" ]; then
     fi
 fi
 
+# Create hestia auth log file if not exists (required by hestia-iptables jail)
+if [ ! -f "/var/log/hestia/auth.log" ]; then
+    echo "[ * ] Creating /var/log/hestia/auth.log for Fail2Ban..."
+    mkdir -p /var/log/hestia
+    touch /var/log/hestia/auth.log
+    chmod 640 /var/log/hestia/auth.log
+fi
+
 # Enable vsftpd jail if vsftpd is installed
 if [ "$FTP_SYSTEM" = "vsftpd" ]; then
     # Create vsftpd Log File
