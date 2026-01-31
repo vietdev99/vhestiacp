@@ -350,8 +350,10 @@ router.get('/server', adminMiddleware, async (req, res) => {
       console.error('Failed to get PostgreSQL instances:', e);
     }
 
-    // Combine all services
-    const allServices = [...services, ...dbInstanceServices].sort((a, b) => a.name.localeCompare(b.name));
+    // Combine all services, excluding systemd services that are already in dbInstanceServices
+    const dbInstanceServiceNames = new Set(dbInstanceServices.map(s => s.name));
+    const filteredServices = services.filter(s => !dbInstanceServiceNames.has(s.name));
+    const allServices = [...filteredServices, ...dbInstanceServices].sort((a, b) => a.name.localeCompare(b.name));
 
     res.json({
       system: {
