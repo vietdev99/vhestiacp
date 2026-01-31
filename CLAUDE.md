@@ -96,6 +96,67 @@ When deploying from Windows to Linux, ensure all shell scripts use LF line endin
 find func bin -type f \( -name "*.sh" -o -name "v-*" \) -exec sed -i 's/\r$//' {} \;
 ```
 
+### Installation
+
+#### Default Install Command
+
+**Standard VHestiaCP installation with HAProxy + MongoDB + Redis + Node.js:**
+
+```bash
+bash hst-install-ubuntu.sh \
+  -s instance.hestiacp.com \
+  -e admin@abc.def \
+  -p 'ADhjahksd7ia6sdad' \
+  -a no \
+  -w yes \
+  --haproxy yes \
+  --haproxy-stats yes \
+  --nodejs yes \
+  --nodejs-versions '22' \
+  -m yes \
+  -g no \
+  --mongodb yes \
+  --mongodb-version 8.0 \
+  --redis yes \
+  -k yes \
+  -x yes \
+  -z yes \
+  -c yes \
+  -t yes \
+  -i yes \
+  -b yes \
+  -v no \
+  -q yes \
+  -d no \
+  -y no \
+  -f
+```
+
+**Key components:**
+
+- ✅ **HAProxy** (reverse proxy on port 80/443)
+- ✅ **Nginx** + PHP-FPM (backend, NO Apache)
+- ✅ **MongoDB 8.0** (database)
+- ✅ **Redis** (caching)
+- ✅ **Node.js 22** (runtime)
+- ✅ **MySQL/MariaDB** (database)
+- ✅ **BIND** (DNS server)
+- ✅ **Exim + Dovecot** (mail server)
+- ✅ **ClamAV + SpamAssassin** (mail filtering)
+- ✅ **Fail2Ban + iptables** (security)
+- ✅ **Quota** (filesystem quota)
+- ❌ **Apache** (disabled, using Nginx only)
+- ❌ **PostgreSQL** (disabled)
+- ❌ **VSFTPD** (disabled)
+- ❌ **API** (disabled by default)
+
+**Important notes:**
+
+- Change `-s`, `-e`, `-p` parameters for each server
+- HAProxy will listen on ports 80/443, Nginx will be backend
+- Use `-d yes` to enable API if needed
+- Script runs non-interactive (`-y no`) with force (`-f`)
+
 ### Deployment
 
 #### SSH Aliases
