@@ -30,32 +30,46 @@ function parseIptablesOutput(output) {
       continue;
     }
 
-    // Parse rule line (format: pkts bytes target prot opt in out source destination ...)
+    // Parse rule line with line numbers (format: num pkts bytes target prot opt in out source destination ...)
     const parts = line.trim().split(/\s+/);
-    if (parts.length >= 9) {
-      const [pkts, bytes, target, prot, opt, inIface, outIface, source, destination, ...rest] = parts;
 
-      // Skip non-relevant rules
-      if (target === 'ACCEPT' || target === 'DROP' || target === 'REJECT') {
-        // Extract port if exists
-        let port = '';
-        const dptMatch = rest.join(' ').match(/dpt[s]?:(\S+)/);
-        if (dptMatch) {
-          port = dptMatch[1];
-        }
+    // Handle both formats: with and without line numbers
+    let offset = 0;
+    if (parts[0] && /^\d+$/.test(parts[0])) {
+      offset = 1; // Skip line number
+    }
 
-        rules.push({
-          chain: currentChain,
-          packets: pkts,
-          bytes: bytes,
-          action: target,
-          protocol: prot.toUpperCase(),
-          source: source,
-          destination: destination,
-          port: port,
-          raw: line.trim()
-        });
+    if (parts.length >= 9 + offset) {
+      const pkts = parts[offset];
+      const bytes = parts[offset + 1];
+      const target = parts[offset + 2];
+      const prot = parts[offset + 3];
+      const opt = parts[offset + 4];
+      const inIface = parts[offset + 5];
+      const outIface = parts[offset + 6];
+      const source = parts[offset + 7];
+      const destination = parts[offset + 8];
+      const rest = parts.slice(offset + 9);
+
+      // Parse all rules (including fail2ban chains, not just ACCEPT/DROP/REJECT)
+      // Extract port if exists
+      let port = '';
+      const dptMatch = rest.join(' ').match(/dpt[s]?:(\S+)/);
+      if (dptMatch) {
+        port = dptMatch[1];
       }
+
+      rules.push({
+        chain: currentChain,
+        packets: pkts,
+        bytes: bytes,
+        action: target,
+        protocol: prot === 'all' ? 'ALL' : prot.toUpperCase(),
+        source: source,
+        destination: destination,
+        port: port,
+        raw: line.trim()
+      });
     }
   }
 

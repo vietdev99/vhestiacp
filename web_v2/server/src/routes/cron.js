@@ -6,10 +6,13 @@ const router = Router();
 /**
  * GET /api/cron
  * List all cron jobs for the user
+ * If user is admin, also include root system cron jobs
  */
 router.get('/', async (req, res) => {
   try {
     const username = req.user.user;
+    const isAdmin = req.user.user === 'admin';
+
     const jobs = await execHestiaJson('v-list-cron-jobs', [username]);
 
     // Get user info to check CRON_REPORTS status
@@ -17,10 +20,27 @@ router.get('/', async (req, res) => {
     const cronReports = userInfo?.[username]?.CRON_REPORTS === 'yes';
 
     // Convert to array format
-    const jobsArray = Object.entries(jobs || {}).map(([id, data]) => ({
+    let jobsArray = Object.entries(jobs || {}).map(([id, data]) => ({
       JOB: id,
-      ...data
+      ...data,
+      USER: username
     }));
+
+    // If admin, also fetch root cron jobs
+    if (isAdmin && username !== 'root') {
+      try {
+        const rootJobs = await execHestiaJson('v-list-cron-jobs', ['root']);
+        const rootJobsArray = Object.entries(rootJobs || {}).map(([id, data]) => ({
+          JOB: id,
+          ...data,
+          USER: 'root'
+        }));
+        jobsArray = [...jobsArray, ...rootJobsArray];
+      } catch (e) {
+        // Root cron jobs might not be accessible, just skip
+        console.warn('Failed to list root cron jobs:', e.message);
+      }
+    }
 
     res.json({ jobs: jobsArray, notifications: cronReports });
   } catch (error) {
