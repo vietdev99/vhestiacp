@@ -1459,14 +1459,21 @@ else
 			cp -rf "$SCRIPT_DIR/../func"/* $VHESTIA/func/
 		fi
 		# Copy install directory contents (explicit copy for critical dirs)
+		echo "    - Copying install files from: $SCRIPT_DIR"
 		if [ -d "$SCRIPT_DIR" ]; then
 			# Copy deb templates and configs
 			if [ -d "$SCRIPT_DIR/deb" ]; then
-				cp -rf "$SCRIPT_DIR/deb" $VHESTIA/install/
+				echo "      * Copying deb/ directory..."
+				cp -rf "$SCRIPT_DIR/deb" "$VHESTIA/install/" || echo "      ! Failed to copy deb/"
+			else
+				echo "      ! deb/ directory not found at $SCRIPT_DIR/deb"
 			fi
 			# Copy common files
 			if [ -d "$SCRIPT_DIR/common" ]; then
-				cp -rf "$SCRIPT_DIR/common" $VHESTIA/install/
+				echo "      * Copying common/ directory..."
+				cp -rf "$SCRIPT_DIR/common" "$VHESTIA/install/" || echo "      ! Failed to copy common/"
+			else
+				echo "      ! common/ directory not found at $SCRIPT_DIR/common"
 			fi
 			# Copy other install files (upgrade, web, mongodb, etc.)
 			for item in "$SCRIPT_DIR"/*; do
