@@ -1458,8 +1458,24 @@ else
 		if [ -d "$SCRIPT_DIR/../func" ]; then
 			cp -rf "$SCRIPT_DIR/../func"/* $VHESTIA/func/
 		fi
+		# Copy install directory contents (explicit copy for critical dirs)
 		if [ -d "$SCRIPT_DIR" ]; then
-			cp -rf "$SCRIPT_DIR"/* $VHESTIA/install/
+			# Copy deb templates and configs
+			if [ -d "$SCRIPT_DIR/deb" ]; then
+				cp -rf "$SCRIPT_DIR/deb" $VHESTIA/install/
+			fi
+			# Copy common files
+			if [ -d "$SCRIPT_DIR/common" ]; then
+				cp -rf "$SCRIPT_DIR/common" $VHESTIA/install/
+			fi
+			# Copy other install files (upgrade, web, mongodb, etc.)
+			for item in "$SCRIPT_DIR"/*; do
+				basename_item=$(basename "$item")
+				# Skip script files and already-copied dirs
+				if [[ ! "$basename_item" =~ \.sh$ ]] && [ "$basename_item" != "deb" ] && [ "$basename_item" != "common" ]; then
+					cp -rf "$item" "$VHESTIA/install/"
+				fi
+			done
 		fi
 		if [ -d "$SCRIPT_DIR/../web/inc/2fa" ]; then
 			cp -rf "$SCRIPT_DIR/../web/inc/2fa" $VHESTIA/web/inc/
