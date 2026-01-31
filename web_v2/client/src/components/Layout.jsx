@@ -67,6 +67,7 @@ const adminItems = [
   { name: 'Services', href: '/server-services', icon: Activity },
   { name: 'Statistics', href: '/statistics', icon: BarChart3 },
   { name: 'Applications', href: '/applications', icon: Server },
+  { name: 'Cronjobs', href: '/admin/cronjobs', icon: Clock },
   { name: 'PHP Extensions', href: '/admin/php-extensions', icon: Puzzle },
   { name: 'Firewall', href: '/firewall', icon: Shield },
   { name: 'Database Settings', href: '/admin/database-settings', icon: Settings },

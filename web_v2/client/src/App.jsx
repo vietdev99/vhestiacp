@@ -40,6 +40,8 @@ import Firewall from './pages/Firewall';
 import FirewallAdd from './pages/FirewallAdd';
 import FirewallEdit from './pages/FirewallEdit';
 import FirewallBanlist from './pages/FirewallBanlist';
+import FirewallIpset from './pages/FirewallIpset';
+import AdminCronjobs from './pages/AdminCronjobs';
 import HAProxy from './pages/HAProxy';
 import HAProxyVisualize from './pages/HAProxyVisualize';
 import HAProxyConfig from './pages/HAProxyConfig';
@@ -132,6 +134,8 @@ export default function App() {
         <Route path="firewall/add" element={<ProtectedRoute adminOnly><FirewallAdd /></ProtectedRoute>} />
         <Route path="firewall/:id/edit" element={<ProtectedRoute adminOnly><FirewallEdit /></ProtectedRoute>} />
         <Route path="firewall/banlist" element={<ProtectedRoute adminOnly><FirewallBanlist /></ProtectedRoute>} />
+        <Route path="firewall/ipset" element={<ProtectedRoute adminOnly><FirewallIpset /></ProtectedRoute>} />
+        <Route path="admin/cronjobs" element={<ProtectedRoute adminOnly><AdminCronjobs /></ProtectedRoute>} />
         <Route path="haproxy" element={<ProtectedRoute adminOnly><HAProxy /></ProtectedRoute>} />
         <Route path="haproxy/visualize" element={<ProtectedRoute adminOnly><HAProxyVisualize /></ProtectedRoute>} />
         <Route path="haproxy/config" element={<ProtectedRoute adminOnly><HAProxyConfig /></ProtectedRoute>} />
