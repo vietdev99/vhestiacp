@@ -1149,6 +1149,8 @@ fi
 
 # Creating backup directory tree
 mkdir -p $hst_backups
+# Save original directory before cd to backup dir
+INSTALL_DIR_ORIG="$(pwd)"
 cd $hst_backups
 mkdir nginx apache2 php vsftpd proftpd bind exim4 dovecot clamd
 mkdir spamassassin mysql postgresql openssl hestia
@@ -1213,6 +1215,9 @@ cp -r $HESTIA/* $hst_backups/hestia > /dev/null 2>&1
 # VHestiaCP: Purge old hestia packages if present (migration scenario)
 apt-get -y purge hestia hestia-php hestia-nginx vhestia > /dev/null 2>&1
 rm -rf $HESTIA > /dev/null 2>&1
+
+# Restore original directory after backup operations
+cd "$INSTALL_DIR_ORIG"
 
 #----------------------------------------------------------#
 #                     Package Includes                     #
